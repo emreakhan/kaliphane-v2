@@ -1,27 +1,14 @@
 // src/pages/ActiveTasksPage.js
 
 import React, { useState, useMemo } from 'react';
-
-// İkonlar
 import { Users, Cpu, AlertTriangle } from 'lucide-react';
+// '.js' uzantılarını ekledim
+import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES } from '../config/constants.js'; 
+import { formatDate } from '../utils/dateUtils.js'; 
 
-// Sabitler
-import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES } from '../config/constants.js';
-
-// Yardımcı Fonksiyonlar
-import { formatDate } from '../utils/dateUtils';
-
-
-// --- YENİ: ÇALIŞAN PARÇALAR SAYFASI (GÜNCELLENDİ) ---
-
-/**
- * Çalışan Parçalar Listesi - Tüm kullanıcılar için
- * GÜNCELLEME: Artık operasyonları listeliyor
- */
 const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Süreyi formatlayan yardımcı fonksiyon
     const formatDuration = (startDate) => {
         if (!startDate) return '---';
         const start = new Date(startDate);
@@ -36,12 +23,14 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
 
     const lowerSearchTerm = searchTerm.toLowerCase();
     
-    // GÜNCELLEME: Tüm 'ÇALIŞIYOR' operasyonlarını bul
+    // --- KRİTİK DÜZELTME ---
+    // Sadece 'IN_PROGRESS' (Gerçekten Çalışan) operasyonları alıyoruz.
+    // PAUSED olanlar buraya girmez, böylece tezgahlar "BOŞTA" görünür.
     const allRunningOperations = useMemo(() => {
         return projects.flatMap(mold => 
             mold.tasks.flatMap(task => 
                 task.operations
-                    .filter(op => op.status === OPERATION_STATUS.IN_PROGRESS)
+                    .filter(op => op.status === OPERATION_STATUS.IN_PROGRESS) // SADECE IN_PROGRESS
                     .map(op => ({
                         ...op,
                         moldName: mold.moldName,
@@ -52,7 +41,9 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         );
     }, [projects]);
 
-    // YENİ LİSTE 1: TEZGAH DURUMLARI (GÜNCELLENDİ)
+    // Tezgah Durumları Listesi
+    // allRunningOperations sadece çalışanları içerdiği için, duraklatılan işler burada 'runningTask' olarak görünmeyecek
+    // ve tezgah otomatik olarak 'isIdle: true' (BOŞTA) olacak.
     const machineStatusList = useMemo(() => {
         const allMachineNames = machines.map(m => m.name);
         
@@ -94,7 +85,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         });
     }, [allRunningOperations, machines, searchTerm, lowerSearchTerm]);
 
-    // YENİ LİSTE 2: ONAY BEKLEYEN İŞLER (GÜNCELLENDİ)
+    // Onay Bekleyen İşler Listesi (Burası zaten doğru çalışıyordu ama temiz kalsın)
     const waitingReviewTasks = useMemo(() => {
         const allWaitingTasks = projects.flatMap(mold => 
             mold.tasks.flatMap(task => 
@@ -113,7 +104,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         
         if (!searchTerm.trim()) return allWaitingTasks;
 
-        return allWaitingTasks.filter(task => // 'task' burada 'operation' objesi
+        return allWaitingTasks.filter(task => 
             task.moldName.toLowerCase().includes(lowerSearchTerm) ||
             task.taskName.toLowerCase().includes(lowerSearchTerm) ||
             task.type.toLowerCase().includes(lowerSearchTerm) ||
@@ -123,7 +114,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         );
     }, [projects, searchTerm, lowerSearchTerm]);
 
-    // YENİ: Admin/Yetkili için İş Dağılımı Paneli
     const canViewWorkDistribution = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.SUPERVISOR;
     
     const workDistribution = useMemo(() => {
@@ -296,7 +286,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                 )}
             </div>
 
-            {/* YENİ BÖLÜM: İŞ DAĞILIMI (SADECE ADMİN VE YETKİLİ) */}
             {canViewWorkDistribution && (
                 <div>
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
@@ -358,8 +347,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                     )}
                 </div>
             )}
-            {/* YENİ BÖLÜM SONU */}
-
         </div>
     );
 };
