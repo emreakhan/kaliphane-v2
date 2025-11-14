@@ -15,14 +15,25 @@ export const PERSONNEL_ROLES = {
     MACHINE_OPERATOR: 'Tezgah Operatörü'
 };
 
-// Operasyon Durumları (PAUSED EKLENDİ)
+// Operasyon Durumları (Bireysel)
 export const OPERATION_STATUS = {
     NOT_STARTED: 'BAŞLAMADI',
     IN_PROGRESS: 'ÇALIŞIYOR',
-    PAUSED: 'DURAKLATILDI', // <--- YENİ
+    PAUSED: 'DURAKLATILDI',
     WAITING_SUPERVISOR_REVIEW: 'YETKİLİ DEĞERLENDİRMESİ BEKLİYOR',
     COMPLETED: 'TAMAMLANDI',
 };
+
+// --- YENİ EKLENDİ ---
+// Parçanın Genel Durumu (Hesaplanmış)
+export const TASK_STATUS = {
+    BEKLIYOR: 'BEKLİYOR',           // Tüm operasyonlar BAŞLAMADI ise
+    CALISIYOR: 'ÇALIŞIYOR',       // En az 1 operasyon ÇALIŞIYOR ise
+    DURAKLATILDI: 'DURAKLATILDI', // ÇALIŞIYOR yok ama en az 1 operasyon DURAKLATILDI ise
+    ONAY_BEKLIYOR: 'ONAY BEKLİYOR', // Diğerleri bitti, en az 1 operasyon ONAY BEKLİYOR ise
+    TAMAMLANDI: 'TAMAMLANDI',     // Tüm operasyonlar TAMAMLANDI ise
+};
+// --- YENİ BİTTİ ---
 
 // Operasyon Tipleri
 export const OPERATION_TYPES = {
@@ -74,7 +85,7 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
             return MOLD_STATUS.COMPLETED;
         case OPERATION_STATUS.NOT_STARTED:
         case OPERATION_STATUS.IN_PROGRESS:
-        case OPERATION_STATUS.PAUSED: // Paused da bekleme sayılabilir
+        case OPERATION_STATUS.PAUSED:
         case OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW:
             return MOLD_STATUS.WAITING;
         default:
