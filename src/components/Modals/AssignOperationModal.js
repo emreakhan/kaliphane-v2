@@ -22,40 +22,54 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
         [machines]
     );
 
+    // --- BURASI TAMAMEN YENİDEN YAZILDI (HATA DÜZELTMESİ) ---
     useEffect(() => {
         if (isOpen) {
-            // Varsayılan tarih (3 gün sonrası)
+            const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
+
+            // 1. Tarih Ayarı: Eski termini koru, yoksa 3 gün ekle
             let defaultDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            
-            // Eğer operasyonun zaten bir termini varsa onu kullan
             if (operation && operation.estimatedDueDate) {
                 defaultDate = operation.estimatedDueDate;
             }
             setDueDate(defaultDate);
-            
-            setMachineError('');
-            
-            // Eğer mevcut bir operasyonla açıldıysa (Devam Et/Ata)
-            if (operation && operation.machineName) {
-                setMachine(operation.machineName);
-            } else if (availableMachines.length > 0 && !machine) {
-                setMachine(availableMachines[0] || '');
-            }
 
+            // 2. Tezgah Operatörü Ayarı: Eski operatörü koru, yoksa ilkini seç
             if (operation && operation.machineOperatorName) {
                 setOperator(operation.machineOperatorName);
-            } else if (machineOperators.length > 0 && !operator) {
+            } else if (machineOperators.length > 0) {
                 setOperator(machineOperators[0] || '');
+            } else {
+                setOperator('');
             }
+            
+            // 3. Tezgah Ayarı (Kritik Düzeltme):
+            // Eğer yeni bir işse (NOT_STARTED), ilk tezgahı seç.
+            // Eğer duraklatılmış bir işse (PAUSED), tezgahı boş bırak ('')
+            // böylece operatör yeni bir tezgah seçmek zorunda kalır.
+            if (isResuming) {
+                setMachine(''); // Eski tezgahı (operation.machineName) SET ETME!
+            } else if (availableMachines.length > 0) {
+                setMachine(availableMachines[0] || '');
+            } else {
+                setMachine('');
+            }
+
+            // 4. Hataları temizle
+            setMachineError('');
         }
-    }, [isOpen, availableMachines, machineOperators, machine, operator, operation]);
+    // Bağımlılık dizisinden 'machine' ve 'operator' çıkarıldı,
+    // böylece kullanıcının seçimi ezilmeyecek.
+    }, [isOpen, availableMachines, machineOperators, operation]);
+    // --- YENİDEN YAZILAN BÖLÜM SONU ---
+
 
     const checkMachineAvailability = useCallback((machineName) => {
         const isMachineBusy = projects.some(project => 
             project.tasks.some(t => 
                 t.operations.some(op => 
                     op.machineName === machineName && 
-                    op.status === OPERATION_STATUS.IN_PROGRESS && 
+                    op.status === OPERATION_STATUS.IN_PROGRESS && // Sadece ÇALIŞIYOR ise dolu say
                     op.id !== operation?.id
                 )
             )
@@ -82,16 +96,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             return;
         }
 
-        // YENİ MANTIK:
-        // Eğer operasyon zaten varsa (yani resume ediliyorsa), mevcut startDate'i korumalı mıyız?
-        // Genellikle 'Devam Et' dendiğinde o anki zaman yeni 'başlangıç' olmaz, iş kaldığı yerden devam eder.
-        // Ancak 'tezgah süresi' hesabı için bu karışık olabilir.
-        // Şimdilik basit tutalım: Resume edilse bile, o anın tarihini 'startDate' olarak güncellemeyelim, 
-        // çünkü toplam süreyi (ilk başlangıçtan bitişe kadar) hesaplamak daha doğru olur.
-        
-        // VEYA: Eğer iş PAUSED ise, startDate'i değiştirmemek en mantıklısıdır.
-        // Eğer NOT_STARTED ise (yeni atama), startDate şu an olur.
-        
         const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
         
         const updatedOperation = {
@@ -100,18 +104,19 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             machineName: machine,
             machineOperatorName: operator,
             estimatedDueDate: dueDate,
-            // Eğer iş duraklatılmışsa ve devam ediyorsa, eski başlangıç tarihini koru.
-            // Eğer yeni bir işse, şu anı başlangıç tarihi yap.
+            // Eğer iş duraklatılmışsa, eski başlangıç tarihini koru.
+            // Eğer yeni bir işse (NOT_STARTED), şu anı başlangıç tarihi yap.
             startDate: isResuming ? (operation.startDate || getCurrentDateTimeString()) : getCurrentDateTimeString(),
             status: OPERATION_STATUS.IN_PROGRESS,
-            progressPercentage: operation.progressPercentage || 0, // Mevcut yüzdeyi koru
+            // Yüzdeyi koru
+            progressPercentage: operation.progressPercentage || 0, 
         };
         
         onSubmit(mold.id, task.id, updatedOperation);
         onClose();
     };
 
-    // Başlık dinamik olsun
+    // Başlığı dinamik hale getirelim
     const modalTitle = operation && operation.status === OPERATION_STATUS.PAUSED 
         ? `İşi Devam Ettir: ${task.taskName}` 
         : `Operasyon Atama: ${task.taskName}`;
@@ -120,7 +125,7 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
         <Modal isOpen={isOpen} onClose={onClose} title={`${modalTitle} (${operation.type})`}>
             <p className="text-gray-700 dark:text-gray-300 mb-4">
                 {operation && operation.status === OPERATION_STATUS.PAUSED 
-                    ? `Bu iş %${operation.progressPercentage} seviyesinde duraklatılmış. Devam etmek için tezgah ve operatör onaylayın.`
+                    ? `Bu iş %${operation.progressPercentage} seviyesinde duraklatılmıştı. Lütfen devam edilecek tezgahı seçin.`
                     : `Bu operasyonu kendinize atayarak ({loggedInUser.name}) gerekli tezgah ve operatör bilgilerini giriniz.`
                 }
             </p>
