@@ -9,7 +9,7 @@ import { Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, ChevronDown, Chev
 import { MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS } from '../config/constants.js'; // TASK_STATUS eklendi
 
 // Yardımcı Fonksiyonlar
-import { getStatusClasses } from '../utils/styleUtils.js';
+import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js'; // getOperationTypeClasses eklendi
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 // Firebase
@@ -20,7 +20,101 @@ import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
 import AddOperationModal from '../components/Modals/AddOperationModal.js';
-// Not: ProgressUpdateModal ve CamReviewMachineOpModal buradan değil, CamDashboard'dan çağrılıyor.
+
+
+// --- YENİ HESAPLAMA FONKSİYONU ---
+// Bir parçanın tüm özet bilgilerini tek seferde hesaplar
+// --- YENİ HESAPLAMA FONKSİYONLARI ---
+// (Bu blok, 'import' satırları ile 'const MoldDetailPage' arasına eklenecek)
+
+// Bir parçanın (task) tüm operasyonlarına bakarak genel durumunu hesaplar
+const getTaskOverallStatus = (operations) => {
+    if (!operations || operations.length === 0) return TASK_STATUS.BEKLIYOR;
+
+    const statuses = operations.map(op => op.status);
+
+    if (statuses.every(s => s === OPERATION_STATUS.COMPLETED)) return TASK_STATUS.TAMAMLANDI;
+    if (statuses.some(s => s === OPERATION_STATUS.IN_PROGRESS)) return TASK_STATUS.CALISIYOR;
+    if (statuses.some(s => s === OPERATION_STATUS.PAUSED)) return TASK_STATUS.DURAKLATILDI;
+    if (statuses.some(s => s === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW)) return TASK_STATUS.ONAY_BEKLIYOR;
+    
+    return TASK_STATUS.BEKLIYOR; // Geri kalan her durum (hepsi NOT_STARTED ise)
+};
+
+// Bir parçanın genel ilerlemesini hesaplar
+const getTaskOverallProgress = (operations) => {
+    if (!operations || operations.length === 0) return 0;
+    const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
+    return Math.round(totalProgress / operations.length);
+};
+
+// Bir parçada o an aktif çalışan operatörü bulur
+const getActiveOperator = (operations) => {
+    if (!operations) return '---';
+    
+    // Önce "ÇALIŞIYOR" olan operatörü ara
+    let activeOp = operations.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+    
+    // Yoksa, "DURAKLATILDI" olan operatörü ara
+    if (!activeOp) {
+        activeOp = operations.find(op => op.status === OPERATION_STATUS.PAUSED);
+    }
+    
+    return activeOp ? activeOp.assignedOperator : '---';
+};
+// --- YENİ HESAPLAMA SONU ---
+const getTaskSummary = (operations) => {
+    if (!operations || operations.length === 0) {
+        return {
+            status: TASK_STATUS.BEKLIYOR,
+            progress: 0,
+            operator: '---',
+            type: '---'
+        };
+    }
+
+    const statuses = operations.map(op => op.status);
+    let overallStatus = TASK_STATUS.BEKLIYOR;
+    let activeOperator = '---';
+    let activeType = '---';
+
+    // Aktif durumları öncelik sırasına göre bul
+    const inProgressOp = operations.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+    const pausedOp = operations.find(op => op.status === OPERATION_STATUS.PAUSED);
+    const reviewOp = operations.find(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW);
+
+    if (inProgressOp) {
+        overallStatus = TASK_STATUS.CALISIYOR;
+        activeOperator = inProgressOp.assignedOperator;
+        activeType = inProgressOp.type;
+    } else if (pausedOp) {
+        overallStatus = TASK_STATUS.DURAKLATILDI;
+        activeOperator = pausedOp.assignedOperator;
+        activeType = pausedOp.type;
+    } else if (reviewOp) {
+        overallStatus = TASK_STATUS.ONAY_BEKLIYOR;
+        activeOperator = reviewOp.assignedOperator;
+        activeType = reviewOp.type;
+    } else if (statuses.every(s => s === OPERATION_STATUS.COMPLETED)) {
+        overallStatus = TASK_STATUS.TAMAMLANDI;
+        activeType = 'TAMAMLANDI';
+    } else {
+        overallStatus = TASK_STATUS.BEKLIYOR;
+        activeType = 'BEKLİYOR';
+    }
+
+    // Genel ilerleme
+    const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
+    const overallProgress = Math.round(totalProgress / operations.length);
+
+    return {
+        status: overallStatus,
+        progress: overallProgress,
+        operator: activeOperator,
+        type: activeType
+    };
+};
+// --- YENİ FONKSİYON SONU ---
 
 
 const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, handleAddOperation, projects, personnel, machines, handleUpdateMoldStatus, handleUpdateMoldDeadline, handleUpdateMoldPriority }) => {
@@ -130,53 +224,16 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
     // --- (Mevcut kod sonu) ---
 
 
-    // --- YENİ HESAPLAMA FONKSİYONLARI ---
-    
-    // Bir parçanın (task) tüm operasyonlarına bakarak genel durumunu hesaplar
-    const getTaskOverallStatus = (operations) => {
-        if (!operations || operations.length === 0) return TASK_STATUS.BEKLIYOR;
-
-        const statuses = operations.map(op => op.status);
-
-        if (statuses.every(s => s === OPERATION_STATUS.COMPLETED)) return TASK_STATUS.TAMAMLANDI;
-        if (statuses.some(s => s === OPERATION_STATUS.IN_PROGRESS)) return TASK_STATUS.CALISIYOR;
-        if (statuses.some(s => s === OPERATION_STATUS.PAUSED)) return TASK_STATUS.DURAKLATILDI;
-        if (statuses.some(s => s === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW)) return TASK_STATUS.ONAY_BEKLIYOR;
-        
-        return TASK_STATUS.BEKLIYOR; // Geri kalan her durum (hepsi NOT_STARTED ise)
-    };
-
-    // Bir parçanın genel ilerlemesini hesaplar
-    const getTaskOverallProgress = (operations) => {
-        if (!operations || operations.length === 0) return 0;
-        const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
-        return Math.round(totalProgress / operations.length);
-    };
-
-    // Bir parçada o an aktif çalışan operatörü bulur
-    const getActiveOperator = (operations) => {
-        if (!operations) return '---';
-        
-        // Önce "ÇALIŞIYOR" olan operatörü ara
-        let activeOp = operations.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
-        
-        // Yoksa, "DURAKLATILDI" olan operatörü ara
-        if (!activeOp) {
-            activeOp = operations.find(op => op.status === OPERATION_STATUS.PAUSED);
-        }
-        
-        return activeOp ? activeOp.assignedOperator : '---';
-    };
-    // --- YENİ HESAPLAMA SONU ---
-
-
     const renderModal = () => {
         const { isOpen, type, data } = modalState;
         if (!isOpen || !data) return null;
 
         const { mold, task, operation } = data;
         
-        if (type === 'assign' && (loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
+        // --- DÜZELTME 1 ---
+        // Admin artık "assign" (atama) modalını AÇAMAZ. Sadece CAM operatörü açabilir.
+        // `|| isAdmin` kaldırıldı
+        if (type === 'assign' && loggedInUser.role === ROLES.CAM_OPERATOR && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
             return (
                 <AssignOperationModal
                     isOpen={isOpen}
@@ -193,6 +250,7 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
             );
         }
         
+        // Değerlendirme (Yetkili veya Admin - Bu doğru, Admin değerlendirebilir)
         if (type === 'review' && (loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) {
             return (
                 <SupervisorReviewModal
@@ -206,6 +264,7 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
             );
         }
         
+        // Admin - Yeni Operasyon Ekleme (Bu doğru)
         if (type === 'add_operation' && isAdmin) {
             return (
                 <AddOperationModal
@@ -250,7 +309,6 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
                             onChange={onStatusChange}
                             className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(currentMoldStatus)}`}
                         >
-                            {/* ... optionlar ... */}
                             <option value={MOLD_STATUS.WAITING}>BEKLEMEDE</option>
                             <option value={MOLD_STATUS.CNC}>CNC</option>
                             <option value={MOLD_STATUS.EREZYON}>EREZYON</option>
@@ -305,12 +363,12 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
              {/* --- (Sayfa Başı Son) --- */}
 
 
-            {/* --- İŞ PARÇALARI (AKORDİYON YAPI) --- */}
+            {/* --- İŞ PARÇALARI (Akordiyon Tasarımı) --- */}
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları</h3>
             <div className="space-y-2">
                 
-                {/* AKORDİYON BAŞLIKLARI */}
-                <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">
+                {/* AKORDİYON BAŞLIKLARI (Grid) */}
+                <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase rounded-t-lg bg-gray-100 dark:bg-gray-700">
                     <div className="col-span-4">Parça Adı</div>
                     <div className="col-span-2">Durum</div>
                     <div className="col-span-3">Aktif Operatör</div>
@@ -319,11 +377,11 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
                 </div>
 
                 {mold.tasks.length === 0 ? (
-                    <p className="text-gray-500 dark:text-gray-400">Bu kalıba atanmış alt parça bulunmamaktadır.</p>
+                    <p className="text-gray-500 dark:text-gray-400 p-4">Bu kalıba atanmış alt parça bulunmamaktadır.</p>
                 ) : (
                     mold.tasks.map(task => {
                         
-                        // İsteğiniz için 3 ana veriyi burada hesaplıyoruz
+                        // Parça için özet bilgileri hesapla
                         const overallStatus = getTaskOverallStatus(task.operations);
                         const overallProgress = getTaskOverallProgress(task.operations);
                         const operator = getActiveOperator(task.operations);
@@ -403,9 +461,12 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
                                                         </span>
                                                     </div>
                                                     
-                                                    {/* Butonlar (Aynen eski koddaki gibi) */}
+                                                    {/* --- DÜZELTME 2 & 3 ---
+                                                        'Ata' ve 'Devam Et' butonlarındaki '|| isAdmin' koşulu kaldırıldı.
+                                                    */}
                                                     <div className="flex flex-col md:flex-row gap-2">
-                                                        {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && operation.status === OPERATION_STATUS.NOT_STARTED && (
+                                                        {/* Sadece CAM Operatörü Ata yapabilir */}
+                                                        {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
                                                             <button
                                                                 onClick={() => handleOpenModal('assign', mold, task, operation)}
                                                                 className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"
@@ -413,7 +474,8 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
                                                                 <Zap className="w-4 h-4 mr-1"/> Ata
                                                             </button>
                                                         )}
-                                                        {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && operation.status === OPERATION_STATUS.PAUSED && (
+                                                        {/* Sadece CAM Operatörü Devam Et yapabilir */}
+                                                        {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.PAUSED && (
                                                             <button
                                                                 onClick={() => handleOpenModal('assign', mold, task, operation)}
                                                                 className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"
@@ -421,6 +483,8 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
                                                                 <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
                                                             </button>
                                                         )}
+                                                        
+                                                        {/* Yetkili veya Admin Değerlendirebilir (Bu doğru) */}
                                                         {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
                                                             <button
                                                                 onClick={() => handleOpenModal('review', mold, task, operation)}
@@ -443,7 +507,7 @@ const MoldDetailPage = ({ mold, onBack, loggedInUser, handleUpdateOperation, han
             
             {renderModal()}
             
-            {/* Notlar Modalı (Değişiklik Yok) */}
+            {/* Notlar Modalı (Değişiklik Yok, 'LabeL' hatası düzeltildi) */}
             <Modal
                 isOpen={isNoteModalOpen}
                 onClose={() => setIsNoteModalOpen(false)}
