@@ -8,13 +8,14 @@ import {
     signInWithCustomToken, signInAnonymously, 
     collection, query, getDocs, setDoc, 
     updateDoc, deleteDoc, doc, onSnapshot, where,
-    PROJECT_COLLECTION, PERSONNEL_COLLECTION, MACHINES_COLLECTION
+    PROJECT_COLLECTION, PERSONNEL_COLLECTION, MACHINES_COLLECTION,
+    MOLD_NOTES_COLLECTION // YENİ: Kalıp notlarını da silebilmek için eklendi
 } from './config/firebase.js';
 
 // Sabitleri (ROLES, STATUS vb.) config dosyamızdan alıyoruz
 import { 
-    ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus, MOLD_STATUS, 
-    PERSONNEL_ROLES, AVAILABLE_MACHINES // seedInitialData için eklendi
+    ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
+    PERSONNEL_ROLES 
 } from './config/constants.js';
 
 // Yardımcı fonksiyonları utils'den alıyoruz
@@ -102,7 +103,7 @@ const App = () => {
 
                 if (!project.tasks) {
                     console.warn(`Projede 'tasks' alanı yok, atlanıyor: ${project.moldName}`);
-                    continue; // tasks alanı olmayan projeleri atla
+                    continue; 
                 }
 
                 const migratedTasks = project.tasks.map(task => {
@@ -111,7 +112,7 @@ const App = () => {
                         console.log(`Migrasyon gerekli: ${project.moldName} -> ${task.taskName}`);
                         const cncOperation = {
                            id: task.id || `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                            type: "CNC", // OPERATION_TYPES.CNC
+                            type: "CNC", 
                             status: task.status,
                             progressPercentage: task.progressPercentage,
                             assignedOperator: task.assignedOperator,
@@ -158,7 +159,6 @@ const App = () => {
             }
         }
 
-        // Personel koleksiyonunu kontrol et (constants.js'den PERSONNEL_ROLES import edildi)
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
 
@@ -187,16 +187,13 @@ const App = () => {
             console.log("Örnek personel eklendi.");
         }
 
-        // Tezgah koleksiyonunu kontrol et (constants.js'den AVAILABLE_MACHINES import edildi)
-        // DİKKAT: AVAILABLE_MACHINES'ı constants.js'e eklemeniz gerekebilir.
-        // Şimdilik manuel olarak buraya ekliyorum:
         const HARDCODED_MACHINES = ['K40', 'K68', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
         
         const machinesQuery = query(collection(db, MACHINES_COLLECTION));
         const machinesSnapshot = await getDocs(machinesQuery);
         if (machinesSnapshot.empty) {
             console.log("Tezgah koleksiyonu boş, örnek veriler ekleniyor...");
-            for (const machine of HARDCODED_MACHINES) { // AVAILABLE_MACHINES yerine
+            for (const machine of HARDCODED_MACHINES) {
                 const machineId = `machine-${machine}`;
                 await setDoc(doc(db, MACHINES_COLLECTION, machineId), {
                     id: machineId,
@@ -205,13 +202,11 @@ const App = () => {
                 });
             }
         }
-    }, [db]); // db'yi bağımlılık olarak ekledim
+    }, [db]); 
     
     // 1. Firebase Başlatma ve Kimlik Doğrulama
     useEffect(() => {
         try {
-            // db state'ini artık set etmiyoruz, doğrudan import edileni kullanıyoruz
-            
             const authenticate = async () => {
                  if (initialAuthToken) {
                     try {
@@ -241,7 +236,7 @@ const App = () => {
             console.error("Firebase başlatılırken bir hata oluştu:", error);
             setLoading(false);
         }
-    }, []); // Bağımlılıklar boş
+    }, []); 
 
     // 2. Personel ve Tezgah verilerini dinleme
     useEffect(() => {
@@ -254,7 +249,7 @@ const App = () => {
         const checkCoreLoadingDone = async () => {
              if (personnelListenerFired && machinesListenerFired && !dataSeeded) {
                 dataSeeded = true;
-                await seedInitialData(); // seedInitialData'yı çağır
+                await seedInitialData(); 
                 setLoading(false);
             }
         };
@@ -287,7 +282,7 @@ const App = () => {
             unsubscribePersonnel();
             unsubscribeMachines();
         };
-    }, [db, userId, seedInitialData]); // seedInitialData'yı bağımlılığa ekledik
+    }, [db, userId, seedInitialData]); 
     
     // 4. Proje Verilerini Gerçek Zamanlı Dinleme
     useEffect(() => {
@@ -396,7 +391,49 @@ const App = () => {
              console.error("Kalıp aciliyet güncelleme hatası: ", e);
         }
     }, [db]);
+
     
+    // --- YENİ FONKSİYON 1: KALIP SİLME ---
+    const handleDeleteMold = useCallback(async (moldId) => {
+        if (!db || !moldId) return;
+        console.log(`Kalıp siliniyor: ${moldId}`);
+        try {
+            // 1. Ana Proje dökümanını sil
+            await deleteDoc(doc(db, PROJECT_COLLECTION, moldId));
+            
+            // 2. (Önemli) Bu kalıba ait notları da sil
+            const noteRef = doc(db, MOLD_NOTES_COLLECTION, moldId);
+            await deleteDoc(noteRef); // Not olmasa bile hata vermez
+            
+            console.log(`Kalıp ${moldId} ve ilişkili notlar başarıyla silindi.`);
+            
+            // Eğer silinen kalıp o an seçili kalıpsa, detay sayfasından geri dön
+            if (selectedMold && selectedMold.id === moldId) {
+                setSelectedMold(null);
+                setCurrentPage('list');
+            }
+        } catch (e) {
+            console.error("Kalıp silinirken hata: ", e);
+        }
+    }, [db, selectedMold]); // selectedMold'u bağımlılığa ekledik
+    // --- YENİ FONKSİYON 1 SONU ---
+
+
+    // --- YENİ FONKSİYON 2: KALIP GÜNCELLEME (Ad, Müşteri) ---
+    const handleUpdateMold = useCallback(async (moldId, updatedData) => {
+        if (!db || !moldId) return;
+        console.log(`Kalıp güncelleniyor: ${moldId}`, updatedData);
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, updatedData); // Sadece { moldName, customer } gönderilecek
+            console.log(`Kalıp ${moldId} başarıyla güncellendi.`);
+        } catch (e) {
+            console.error("Kalıp güncellenirken hata: ", e);
+        }
+    }, [db]);
+    // --- YENİ FONKSİYON 2 SONU ---
+
+
     // Değerlendirme Bekleyen Operasyon Sayısı
     const tasksWaitingSupervisorReviewCount = useMemo(() => {
         return projects.flatMap(p => p.tasks.flatMap(t => t.operations))
@@ -435,13 +472,21 @@ const App = () => {
                         projects={projects} 
                         personnel={personnel} 
                         machines={machines}
-                        db={db}
+                        db={db} // Notlar için db'yi paslıyoruz
                     />;
         }
 
         switch (currentPage) {
             case 'list':
-                return <EnhancedMoldList projects={projects} onSelectMold={setSelectedMold} />;
+                // --- DEĞİŞİKLİK BURADA ---
+                // EnhancedMoldList'e yeni fonksiyonları ve loggedInUser'ı iletiyoruz
+                return <EnhancedMoldList 
+                            projects={projects} 
+                            onSelectMold={setSelectedMold} 
+                            loggedInUser={loggedInUser}
+                            handleDeleteMold={handleDeleteMold}
+                            handleUpdateMold={handleUpdateMold}
+                        />;
             case 'active': 
                 return <ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} />;
             case 'cam':
@@ -449,17 +494,36 @@ const App = () => {
             case 'review':
                 return <SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />;
             case 'admin':
-                return <AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} />;
+                // --- DEĞİŞİKLİK BURADA ---
+                // AdminDashboard'a yeni fonksiyonları iletiyoruz
+                return <AdminDashboard 
+                            db={db} 
+                            projects={projects} 
+                            setProjects={setProjects} 
+                            personnel={personnel} 
+                            setPersonnel={setPersonnel} 
+                            machines={machines} 
+                            setMachines={setMachines}
+                            handleDeleteMold={handleDeleteMold}
+                            handleUpdateMold={handleUpdateMold}
+                        />;
             case 'history':
                 return <HistoryPage projects={projects} />;
             case 'analysis':
                 return <AnalysisPage projects={projects} personnel={personnel} />;
             default:
-                return <EnhancedMoldList projects={projects} onSelectMold={setSelectedMold} />;
+                // --- DEĞİŞİKLİK BURADA --- (Varsayılan durum için de ekliyoruz)
+                return <EnhancedMoldList 
+                            projects={projects} 
+                            onSelectMold={setSelectedMold} 
+                            loggedInUser={loggedInUser}
+                            handleDeleteMold={handleDeleteMold}
+                            handleUpdateMold={handleUpdateMold}
+                        />;
         }
     };
 
-    // --- RENDER MANTIĞI ---
+    // --- YENİ RENDER MANTIĞI ---
 
     // 1. Firebase auth bekleniyor
     if (!userId) {
