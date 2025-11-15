@@ -5,23 +5,31 @@ import React, { useState, useMemo } from 'react';
 // İkonlar
 import { 
     RefreshCw, Settings, List, CheckCircle, 
-    PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search 
+    PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search
+    // YENİ: Edit, Trash2, AlertTriangle, Save ikonları kaldırıldı.
 } from 'lucide-react';
 
 // Sabitler ('.js' uzantısını ekledim)
-import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS } from '../config/constants.js';
+import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS } from '../config/constants.js'; // YENİ: ROLES kaldırıldı.
 
 // Yardımcı Fonksiyonlar ('.js' uzantısını ekledim)
 import { getStatusClasses } from '../utils/styleUtils.js';
 import { formatDate, calculateRemainingWorkDays, calculateWorkDayDifference } from '../utils/dateUtils.js';
 
+// YENİ: Modal bileşeni ve ilgili fonksiyonlar kaldırıldı.
+
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
+// YENİ: Gereksiz props'lar kaldırıldı (loggedInUser, handleDeleteMold, handleUpdateMold)
 const EnhancedMoldList = ({ projects, onSelectMold }) => {
     const [activeFilter, setActiveFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+
+    // YENİ: Modal State'leri kaldırıldı.
+    // YENİ: isAdmin kontrolü kaldırıldı.
+    // YENİ: Modal Açma/Kapama Fonksiyonları kaldırıldı.
     
-    // GÜNCELLEME: Parça ilerlemesini hesaplar
+    // (Mevcut kod - Değişiklik yok)
     const calculateMoldProgress = (tasks) => {
         if (!tasks || tasks.length === 0) return 0;
         const allOperations = tasks.flatMap(t => t.operations);
@@ -52,7 +60,6 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
             );
         }
         
-        // YENİ: Aciliyet sırasına göre sırala
         filtered.sort((a, b) => {
             const priorityA = a.priority;
             const priorityB = b.priority;
@@ -123,83 +130,10 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl">
             {/* Filtreleme Kutucukları */}
             <div className="flex flex-wrap gap-4 mb-6">
-                <FilterCard 
-                    filterKey="all" 
-                    title="Tüm Kalıplar" 
-                    count={stats.total} 
-                    icon={Filter}
-                    colorClass="border-blue-500 bg-blue-50"
-                />
-                <FilterCard 
-                    filterKey="ACTIVE_OVERVIEW"
-                    title="Aktif Çalışan" 
-                    count={stats.activeOverview} 
-                    icon={PlayCircle}
-                    colorClass="border-green-500 bg-green-50 text-green-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.WAITING}
-                    title="Beklemede" 
-                    count={stats.waiting} 
-                    icon={RefreshCw}
-                    colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.CNC}
-                    title="CNC" 
-                    count={stats[MOLD_STATUS.CNC]} 
-                    icon={Cpu}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.EREZYON}
-                    title="Erezyon" 
-                    count={stats[MOLD_STATUS.EREZYON]} 
-                    icon={Zap}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.POLISAJ}
-                    title="Polisaj" 
-                    count={stats[MOLD_STATUS.POLISAJ]} 
-                    icon={Sparkles}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.DESEN}
-                    title="Desen" 
-                    count={stats[MOLD_STATUS.DESEN]} 
-                    icon={Edit2}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.MOLD_ASSEMBLY}
-                    title="Kalıp Montaj" 
-                    count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} 
-                    icon={HardHat}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.TRIAL}
-                    title="Deneme'de" 
-                    count={stats[MOLD_STATUS.TRIAL]} 
-                    icon={Settings}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.REVISION}
-                    title="Revizyon" 
-                    count={stats[MOLD_STATUS.REVISION]} 
-                    icon={Settings}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.COMPLETED}
-                    title="Tamamlanan" 
-                    count={stats.completed} 
-                    icon={CheckCircle}
-                    colorClass="border-green-500 bg-green-50 text-green-500"
-                />
+                <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
+                <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
+                <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
+                <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
             </div>
 
             {/* Arama Çubuğu */}
@@ -237,7 +171,6 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                         const totalProgress = calculateMoldProgress(project.tasks);
                         const moldStatus = project.status || MOLD_STATUS.WAITING;
                         
-                        
                         const assignedCamOperators = project.tasks
                             .flatMap(task => task.operations.map(op => op.assignedOperator))
                             .filter(op => op && op !== 'SEÇ');
@@ -259,9 +192,9 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                             ? 'bg-green-600'
                             : 'bg-blue-600';
                             
-                        const activeOperationCounts = {};
                         let workingPartCount = 0;
                         let idlePartCount = 0;
+                        const activeOperationCounts = {};
 
                         project.tasks.forEach(task => {
                             const operations = task.operations || [];
@@ -272,7 +205,7 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                             if (inProgressOps.length > 0) {
                                 workingPartCount++;
                             }
-
+   
                             if (operations.length > 0 && notStartedOps.length === operations.length) {
                                 idlePartCount++;
                             }
@@ -281,7 +214,6 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                                 activeOperationCounts[op.type] = (activeOperationCounts[op.type] || 0) + 1;
                             });
                         });
-
                         const activeOperationEntries = Object.entries(activeOperationCounts);
 
                         return (
@@ -295,6 +227,8 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                                         {project.priority}
                                     </div>
                                 )}
+                                
+                                {/* --- YENİ: ADMIN BUTONLARI KALDIRILDI --- */}
                         
                                 <div className="flex-grow">
                                     <div className="flex justify-between items-start mb-3">
@@ -308,12 +242,24 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                                         Müşteri: <span className="font-semibold">{project.customer}</span>
                                     </p>
                                     
+                                    {/* --- (Proje Sorumlusu / Tasarım Sorumlusu - Değişiklik Yok) --- */}
+                                    {project.projectManager && (
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
+                                            Proje Sor: <span className="font-semibold text-blue-700 dark:text-blue-300">{project.projectManager}</span>
+                                        </p>
+                                    )}
+                                    {project.moldDesigner && (
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
+                                            Tasarım Sor: <span className="font-semibold text-purple-700 dark:text-purple-300">{project.moldDesigner}</span>
+                                        </p>
+                                    )}
+
                                     <p className="text-gray-600 dark:text-gray-400 text-xs">
-                                        Termin: <span className="font-semibold">{formatDate(project.moldDeadline) || '---'}</span>
+                                        Termin: <span className="font-semibold">{formatDate(project.moldDeadline) || '---'}</span> 
                                     </p>
                                     
-                                    {moldStatus === MOLD_STATUS.COMPLETED ?
-                                    (
+                                    {/* (Termin Mantığı - Değişiklik Yok) */}
+                                    {moldStatus === MOLD_STATUS.COMPLETED ? (
                                         (() => {
                                             let latestCompletion = null;
                                             try {
@@ -331,9 +277,9 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                                             }
 
                                             let completionText = latestCompletion 
-                                                ? `Tamamlandı: ${formatDate(latestCompletion)}` 
+                                                ? `Tamamlandı: ${formatDate(latestCompletion)}`
                                                 : 'Tamamlandı (Tarih Yok)';
-                                            
+                                                
                                             const diff = calculateWorkDayDifference(latestCompletion, project.moldDeadline);
                                             
                                             let diffText = '';
@@ -409,6 +355,7 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                                             Boşta Parça: <span className="font-semibold">{idlePartCount}</span>
                                         </p>
                                     </div>
+
                 
                                     {uniqueCamOperators.length > 0 && (
                                         <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -443,6 +390,10 @@ const EnhancedMoldList = ({ projects, onSelectMold }) => {
                     })
                 )}
             </div>
+
+            {/* --- YENİ: MODALLAR KALDIRILDI --- */}
+            {/* Kalıp Düzenleme ve Silme Modalları bu dosyadan kaldırıldı. */}
+            
         </div>
     );
 };

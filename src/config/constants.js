@@ -1,19 +1,27 @@
 // src/config/constants.js
 
-// Kullanıcı rolleri
+// Kullanıcı rolleri (Giriş yapabilen roller)
 export const ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
     SUPERVISOR: 'Kalıphane Yetkilisi',
+    // --- YENİ ROLLER GİRİŞ YAPANLARA EKLENDİ ---
+    PROJE_SORUMLUSU: 'Proje Sorumlusu',
+    KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
 
-// Personel Rolleri
+// Personel Rolleri (Tüm roller)
 export const PERSONNEL_ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
     SUPERVISOR: 'Kalıphane Yetkilisi',
-    MACHINE_OPERATOR: 'Tezgah Operatörü'
+    MACHINE_OPERATOR: 'Tezgah Operatörü',
+    // --- YENİ ROLLER PERSONEL LİSTESİNE EKLENDİ ---
+    PROJE_SORUMLUSU: 'Proje Sorumlusu',
+    KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
+
+// --- (Kalan kodlar aynı, değişiklik yok) ---
 
 // Operasyon Durumları (Bireysel)
 export const OPERATION_STATUS = {
@@ -24,16 +32,14 @@ export const OPERATION_STATUS = {
     COMPLETED: 'TAMAMLANDI',
 };
 
-// --- YENİ EKLENDİ ---
 // Parçanın Genel Durumu (Hesaplanmış)
 export const TASK_STATUS = {
-    BEKLIYOR: 'BEKLİYOR',           // Tüm operasyonlar BAŞLAMADI ise
-    CALISIYOR: 'ÇALIŞIYOR',       // En az 1 operasyon ÇALIŞIYOR ise
-    DURAKLATILDI: 'DURAKLATILDI', // ÇALIŞIYOR yok ama en az 1 operasyon DURAKLATILDI ise
-    ONAY_BEKLIYOR: 'ONAY BEKLİYOR', // Diğerleri bitti, en az 1 operasyon ONAY BEKLİYOR ise
-    TAMAMLANDI: 'TAMAMLANDI',     // Tüm operasyonlar TAMAMLANDI ise
+    BEKLIYOR: 'BEKLİYOR',
+    CALISIYOR: 'ÇALIŞIYOR',
+    DURAKLATILDI: 'DURAKLATILDI',
+    ONAY_BEKLIYOR: 'ONAY BEKLİYOR',
+    TAMAMLANDI: 'TAMAMLANDI',
 };
-// --- YENİ BİTTİ ---
 
 // Operasyon Tipleri
 export const OPERATION_TYPES = {

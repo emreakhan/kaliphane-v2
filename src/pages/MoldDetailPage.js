@@ -1,21 +1,21 @@
 // src/pages/MoldDetailPage.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react'; // useMemo eklendi
 
 // İkonlar
-import { Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, ChevronDown, ChevronUp, User, Tool, FileText, Image as ImageIcon } from 'lucide-react';
+import { Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, ChevronDown, ChevronUp, FileText, Image as ImageIcon, User, Tool } from 'lucide-react'; 
 
-// Sabitler
-import { MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, OPERATION_TYPES } from '../config/constants.js'; 
+// Sabitler ('.js' uzantısını ekledim)
+import { MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, OPERATION_TYPES, PERSONNEL_ROLES } from '../config/constants.js'; // PERSONNEL_ROLES eklendi
 
 // Yardımcı Fonksiyonlar
-import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js'; 
+import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// Firebase
+// Firebase ('.js' uzantısını ekledim)
 import { db, MOLD_NOTES_COLLECTION, doc, onSnapshot, setDoc } from '../config/firebase.js';
 
-// Bileşenler
+// Bileşenler ('.js' uzantılarını ekledim)
 import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
@@ -23,7 +23,6 @@ import AddOperationModal from '../components/Modals/AddOperationModal.js';
 
 
 // --- HESAPLAMA FONKSİYONU ---
-// (Bu, bir önceki adımdan - Değişiklik yok)
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return {
@@ -77,10 +76,20 @@ const MoldDetailPage = ({
     projects, personnel, machines, 
     handleUpdateMoldStatus, handleUpdateMoldDeadline, handleUpdateMoldPriority,
     handleUpdateTrialReportUrl,
-    handleUpdateProductImageUrl
+    handleUpdateProductImageUrl,
+    // --- YENİ PROPLAR (V2.1.1) ---
+    handleUpdateProjectManager,
+    handleUpdateMoldDesigner
 }) => {
     
-    // --- (State'ler - Değişiklik Yok) ---
+    const [localTrialReportUrl, setLocalTrialReportUrl] = useState(mold.trialReportUrl || '');
+    const [localProductImageUrl, setLocalProductImageUrl] = useState(mold.productImageUrl || ''); 
+
+    // --- YENİ STATE'LER (V2.1.1) ---
+    const [localProjectManager, setLocalProjectManager] = useState(mold.projectManager || '');
+    const [localMoldDesigner, setLocalMoldDesigner] = useState(mold.moldDesigner || '');
+    // --- YENİ BİTTİ ---
+
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
     const [localDeadline, setLocalDeadline] = useState(mold.moldDeadline || '');
     const [localPriority, setLocalPriority] = useState(mold.priority || '');
@@ -89,14 +98,17 @@ const MoldDetailPage = ({
     const [newNoteContent, setNewNoteContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [expandedTasks, setExpandedTasks] = useState({});
-    const [localTrialReportUrl, setLocalTrialReportUrl] = useState(mold.trialReportUrl || '');
-    const [localProductImageUrl, setLocalProductImageUrl] = useState(mold.productImageUrl || '');
 
-    // --- (Effect'ler - Değişiklik Yok) ---
     useEffect(() => { setLocalDeadline(mold.moldDeadline || ''); }, [mold.moldDeadline]);
     useEffect(() => { setLocalPriority(mold.priority || ''); }, [mold.priority]);
     useEffect(() => { setLocalTrialReportUrl(mold.trialReportUrl || ''); }, [mold.trialReportUrl]);
     useEffect(() => { setLocalProductImageUrl(mold.productImageUrl || ''); }, [mold.productImageUrl]);
+
+    // --- YENİ EFFECT'LER (V2.1.1) ---
+    useEffect(() => { setLocalProjectManager(mold.projectManager || ''); }, [mold.projectManager]);
+    useEffect(() => { setLocalMoldDesigner(mold.moldDesigner || ''); }, [mold.moldDesigner]);
+    // --- YENİ BİTTİ ---
+    
     useEffect(() => {
         if (!db || !mold?.id) return;
         const noteRef = doc(db, MOLD_NOTES_COLLECTION, mold.id);
@@ -107,7 +119,6 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
-    // --- (Fonksiyonlar - Değişiklik Yok) ---
     const handleSaveNote = async () => {
         if (!db || !mold?.id || !newNoteContent.trim()) {
             if (!newNoteContent.trim()) setIsNoteModalOpen(false);
@@ -133,13 +144,23 @@ const MoldDetailPage = ({
           setIsNoteModalOpen(false);
         }
     };
+    
     const openNoteModal = () => {
         setNewNoteContent('');
         setIsNoteModalOpen(true);
     };
 
-    const currentMoldStatus = mold.status || MOLD_STATUS.WAITING;
+    // --- YETKİLENDİRME GÜNCELLEMESİ BURADA ---
     const isAdmin = loggedInUser.role === ROLES.ADMIN;
+    
+    // YENİ: "Yönetici" yetkisi (Admin, Proje Sorumlusu, Kalıp Tasarımcısı)
+    // Bu kişiler termin, aciliyet ve linkleri düzenleyebilir.
+    const isManager = 
+        loggedInUser.role === ROLES.ADMIN ||
+        loggedInUser.role === ROLES.PROJE_SORUMLUSU ||
+        loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    // --- GÜNCELLEME BİTTİ ---
+
     
     const onStatusChange = (e) => { handleUpdateMoldStatus(mold.id, e.target.value); };
     const onDeadlineChange = (e) => {
@@ -166,6 +187,31 @@ const MoldDetailPage = ({
         }
     };
 
+    // --- YENİ FONKSİYONLAR (V2.1.1) ---
+    // Dropdown'dan seçim yapılınca kaydeder
+    const handleProjectManagerChange = (e) => {
+        const newManager = e.target.value;
+        setLocalProjectManager(newManager);
+        handleUpdateProjectManager(mold.id, newManager);
+    };
+    const handleMoldDesignerChange = (e) => {
+        const newDesigner = e.target.value;
+        setLocalMoldDesigner(newDesigner);
+        handleUpdateMoldDesigner(mold.id, newDesigner);
+    };
+    // --- YENİ BİTTİ ---
+
+    // --- YENİ: Personel listesini role göre filtrele ---
+    const projectManagers = useMemo(() => 
+        personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), 
+    [personnel]);
+    
+    const moldDesigners = useMemo(() => 
+        personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), 
+    [personnel]);
+    // --- YENİ BİTTİ ---
+
+
     const handleOpenModal = (type, mold, task, operation) => {
         setModalState({ isOpen: true, type, data: { mold, task, operation } });
     };
@@ -183,12 +229,15 @@ const MoldDetailPage = ({
         const { mold, task, operation } = data;
         
         // --- (Modal Render - Değişiklik Yok) ---
+        // Admin'in "Ata" butonu (kaldırılmıştı, doğru)
         if (type === 'assign' && loggedInUser.role === ROLES.CAM_OPERATOR && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
             return <AssignOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} loggedInUser={loggedInUser} onSubmit={handleUpdateOperation} projects={projects} personnel={personnel} machines={machines} />;
         }
+        // Değerlendirme (Yetkili veya Admin - Bu doğru)
         if (type === 'review' && (loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) {
             return <SupervisorReviewModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} onSubmit={handleUpdateOperation} />;
         }
+        // Admin - Yeni Operasyon Ekleme (Bu doğru)
         if (type === 'add_operation' && isAdmin) {
             return <AddOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} onSubmit={handleAddOperation} />;
         }
@@ -237,16 +286,18 @@ const MoldDetailPage = ({
             
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
             
+            {/* --- YETKİLENDİRME GÜNCELLEMESİ BURADA --- */}
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
                 <div>
                     <span>Müşteri: {mold.customer} |
                     Ana Durum:</span>
+                    {/* Sadece Admin Ana Durumu değiştirebilir */}
                     {isAdmin ?
                     (
                         <select
-                            value={currentMoldStatus}
+                            value={mold.status || MOLD_STATUS.WAITING} 
                             onChange={onStatusChange}
-                            className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(currentMoldStatus)}`}
+                            className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}
                         >
                             <option value={MOLD_STATUS.WAITING}>BEKLEMEDE</option>
                             <option value={MOLD_STATUS.CNC}>CNC</option>
@@ -259,13 +310,14 @@ const MoldDetailPage = ({
                             <option value={MOLD_STATUS.COMPLETED}>TAMAMLANDI</option>
                         </select>
                     ) : (
-                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusClasses(currentMoldStatus)}`}>
-                            {currentMoldStatus}
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
+                            {mold.status || MOLD_STATUS.WAITING}
                         </span>
                     )}
                 </div>
                 
-                {isAdmin ? (
+                {/* YENİ: 'isManager' (Admin, Proje Sor., Tasarım Sor.) Termin ve Aciliyet girebilir */}
+                {isManager ? (
                     <div className="flex items-center gap-2">
                         <label htmlFor="moldDeadline" className="text-sm font-medium">Kalıp Termini:</label>
                         <input
@@ -284,7 +336,7 @@ const MoldDetailPage = ({
                     )
                 )}
                 
-                {isAdmin && (
+                {isManager && (
                      <div className="flex items-center gap-2">
                         <label htmlFor="moldPriority" className="text-sm font-medium">Aciliyet Sırası:</label>
                         <input
@@ -298,10 +350,55 @@ const MoldDetailPage = ({
                         />
                     </div>
                 )}
+             </div>
+             
+             {/* --- YENİ BÖLÜM (V2.1.1) --- */}
+             {/* Sorumlu Atama (Sadece Admin) ve Link Girişleri (Manager) */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 border-t dark:border-gray-700 pt-4">
+                {/* Proje Sorumlusu (Sadece Admin atar) */}
+                {isAdmin ? (
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="projectManager" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Proje Sorumlusu:</label>
+                        <select
+                            id="projectManager"
+                            value={localProjectManager}
+                            onChange={handleProjectManagerChange}
+                            className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200"
+                        >
+                            <option value="">Seçiniz...</option>
+                            {projectManagers.map(p => (
+                                <option key={p.id} value={p.name}>{p.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                ) : (
+                    mold.projectManager && <p className="text-sm dark:text-gray-300">Proje Sor.: <span className="font-semibold dark:text-white">{mold.projectManager}</span></p>
+                )}
 
-                {isAdmin && (
-                    <div className="flex items-center gap-2 w-full mt-2">
-                        <label htmlFor="trialReportUrl" className="text-sm font-medium whitespace-nowrap">Deneme Raporu Linki:</label>
+                {/* Kalıp Tasarımcısı (Sadece Admin atar) */}
+                {isAdmin ? (
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="moldDesigner" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Kalıp Tasarımcısı:</label>
+                        <select
+                            id="moldDesigner"
+                            value={localMoldDesigner}
+                            onChange={handleMoldDesignerChange}
+                            className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200"
+                        >
+                            <option value="">Seçiniz...</option>
+                            {moldDesigners.map(p => (
+                                <option key={p.id} value={p.name}>{p.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                ) : (
+                    mold.moldDesigner && <p className="text-sm dark:text-gray-300">Tasarım Sor.: <span className="font-semibold dark:text-white">{mold.moldDesigner}</span></p>
+                )}
+
+                {/* Rapor Linki (Managerlar girer) */}
+                {isManager && (
+                    <div className="flex items-center gap-2 w-full">
+                        <label htmlFor="trialReportUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Deneme Raporu Linki:</label>
                         <input
                             type="text"
                             id="trialReportUrl"
@@ -314,9 +411,10 @@ const MoldDetailPage = ({
                     </div>
                 )}
                 
-                {isAdmin && (
-                    <div className="flex items-center gap-2 w-full mt-2">
-                        <label htmlFor="productImageUrl" className="text-sm font-medium whitespace-nowrap">Ürün Görseli Linki:</label>
+                {/* Görsel Linki (Managerlar girer) */}
+                {isManager && (
+                    <div className="flex items-center gap-2 w-full">
+                        <label htmlFor="productImageUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Ürün Görseli Linki:</label>
                         <input
                             type="text"
                             id="productImageUrl"
@@ -329,14 +427,13 @@ const MoldDetailPage = ({
                     </div>
                 )}
              </div>
-             {/* --- (Sayfa Başı Son) --- */}
+             {/* --- GÜNCELLEME BİTTİ --- */}
 
 
-            {/* --- AKORDİYON TASARIMI --- */}
+            {/* --- AKORDİYON TASARIMI (Değişiklik Yok) --- */}
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları</h3>
             <div className="space-y-1">
                 
-                {/* AKORDİYON BAŞLIKLARI (Grid) */}
                 <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase rounded-t-lg bg-gray-100 dark:bg-gray-700">
                     <div className="col-span-3">Parça Adı</div>
                     <div className="col-span-2">Durum</div>
@@ -357,25 +454,21 @@ const MoldDetailPage = ({
                         return (
                             <div key={task.id} className="border border-gray-200 dark:border-gray-700 overflow-hidden first:rounded-t-lg last:rounded-b-lg shadow-sm">
                                 
-                                {/* --- ANA PARÇA SATIRI (ÖZET) --- */}
                                 <div 
                                     className={`grid grid-cols-12 gap-4 px-4 py-3 items-center cursor-pointer ${isExpanded ? 'bg-blue-50 dark:bg-gray-700 border-b border-blue-200 dark:border-blue-600' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
                                     onClick={() => toggleTaskExpansion(task.id)}
                                 >
                                     
-                                    {/* Parça Adı */}
                                     <div className="col-span-12 md:col-span-3 font-bold text-gray-900 dark:text-white">
                                         <span className="text-blue-600 mr-2">#{task.taskNumber}</span> {task.taskName}
                                     </div>
                                     
-                                    {/* Genel Durum */}
                                     <div className="col-span-6 md:col-span-2">
                                         <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getStatusClasses(summary.status)}`}>
                                             {summary.status}
                                         </span>
                                     </div>
                                     
-                                    {/* Aktif Operasyon Tipi */}
                                     <div className="col-span-6 md:col-span-2">
                                         {summary.type !== '---' && (
                                             <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getOperationTypeClasses(summary.type)}`}>
@@ -384,7 +477,6 @@ const MoldDetailPage = ({
                                         )}
                                     </div>
                                     
-                                    {/* Aktif Operatör */}
                                     <div className="col-span-6 md:col-span-2">
                                         <span className="flex items-center text-sm text-gray-700 dark:text-gray-300">
                                             {summary.operator !== '---' && <User className="w-4 h-4 mr-1 text-gray-400" />}
@@ -392,7 +484,6 @@ const MoldDetailPage = ({
                                         </span>
                                     </div>
 
-                                    {/* İlerleme Çubuğu */}
                                     <div className="col-span-10 md:col-span-2 text-center">
                                         <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-600">
                                             <div className={`h-1.5 rounded-full ${summary.progress === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${summary.progress}%` }}></div>
@@ -400,7 +491,6 @@ const MoldDetailPage = ({
                                         <span className="text-xs text-gray-500 dark:text-gray-400">{summary.progress}%</span>
                                     </div>
 
-                                    {/* Aç/Kapa İkonu */}
                                     <div className="col-span-2 md:col-span-1 flex justify-end items-center">
                                         {isAdmin && (
                                             <button
@@ -415,14 +505,12 @@ const MoldDetailPage = ({
                                     </div>
                                 </div>
 
-                                {/* --- DÜZELTME: AÇILIR DETAY (OPERASYON LİSTESİ) --- */}
                                 {isExpanded && (
-                                    <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
+                                    <div className="bg-gray-50 dark:bg-gray-800/50 p-3">
                                         <div className="space-y-3">
                                             {(task.operations || []).map(operation => (
                                                 <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-gray-700">
                                                     
-                                                    {/* Bu kısım, senin sevdiğin "kutu" tasarımındaki detayları içerir */}
                                                     <div className="flex-1 min-w-0 mb-2 md:mb-0">
                                                         <p className="font-semibold text-blue-700 dark:text-blue-300">
                                                             Operasyon: {operation.type}
@@ -453,7 +541,6 @@ const MoldDetailPage = ({
                                                         </span>
                                                     </div>
                                                     
-                                                    {/* Butonlar (Admin düzeltmesi dahil) */}
                                                     <div className="flex flex-col md:flex-row gap-2">
                                                         {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
                                                             <button
@@ -493,7 +580,7 @@ const MoldDetailPage = ({
             
             {renderModal()}
             
-            {/* Notlar Modalı (Değişiklik Yok) */}
+            {/* Notlar Modalı */}
             <Modal
                 isOpen={isNoteModalOpen}
                 onClose={() => setIsNoteModalOpen(false)}

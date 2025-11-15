@@ -9,13 +9,13 @@ import {
     collection, query, getDocs, setDoc, 
     updateDoc, deleteDoc, doc, onSnapshot, where,
     PROJECT_COLLECTION, PERSONNEL_COLLECTION, MACHINES_COLLECTION,
-    MOLD_NOTES_COLLECTION // YENİ: Kalıp notlarını da silebilmek için eklendi
+    MOLD_NOTES_COLLECTION
 } from './config/firebase.js';
 
 // Sabitleri (ROLES, STATUS vb.) config dosyamızdan alıyoruz
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
-    PERSONNEL_ROLES 
+    PERSONNEL_ROLES
 } from './config/constants.js';
 
 // Yardımcı fonksiyonları utils'den alıyoruz
@@ -45,7 +45,6 @@ import { initialProjects } from './config/initialData.js';
 // --- MAIN APP COMPONENT ---
 
 const App = () => {
-    // const [db, setDb] = useState(null); // Artık db'yi doğrudan import ediyoruz
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isProjectsLoading, setIsProjectsLoading] = useState(true);
@@ -91,6 +90,11 @@ const App = () => {
                 await setDoc(doc(db, PROJECT_COLLECTION, project.id), { 
                     ...project, 
                     status: project.status,
+                    trialReportUrl: project.trialReportUrl || '', // V2.0.3
+                    productImageUrl: project.productImageUrl || '', // V2.0.4
+                    // --- YENİ ALANLAR EKLENDİ (V2.1.1) ---
+                    projectManager: '',
+                    moldDesigner: '',
                 });
             }
             console.log("Örnek projeler eklendi.");
@@ -109,7 +113,7 @@ const App = () => {
                 const migratedTasks = project.tasks.map(task => {
                     if (task.operations === undefined) { 
                         needsMigration = true;
-                        console.log(`Migrasyon gerekli: ${project.moldName} -> ${task.taskName}`);
+                        // ... (migrasyon kodu)
                         const cncOperation = {
                            id: task.id || `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                             type: "CNC", 
@@ -153,15 +157,31 @@ const App = () => {
                 if (project.priority === undefined) {
                     updates.priority = null;
                 }
+                if (project.trialReportUrl === undefined) {
+                    updates.trialReportUrl = '';
+                }
+                if (project.productImageUrl === undefined) {
+                    updates.productImageUrl = '';
+                }
+                
+                // --- YENİ ALANLAR EKLENDİ (V2.1.1) ---
+                if (project.projectManager === undefined) {
+                    updates.projectManager = '';
+                }
+                if (project.moldDesigner === undefined) {
+                    updates.moldDesigner = '';
+                }
+                // --- YENİ BİTTİ ---
+
                 if(Object.keys(updates).length > 0) {
                      await updateDoc(doc(db, PROJECT_COLLECTION, project.id), updates);
                 }
             }
         }
 
+        // ... (Personel ve Tezgah seed/kontrol kodu - değişiklik yok) ...
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
-
         if (adminUserSnapshot.empty) {
             console.log("Admin kullanıcısı bulunamadı, personel koleksiyonu (yeniden) oluşturuluyor...");
             const allPersonnelQuery = query(collection(db, PERSONNEL_COLLECTION));
@@ -171,7 +191,6 @@ const App = () => {
                     await deleteDoc(doc(db, PERSONNEL_COLLECTION, docSnapshot.id));
                 }
             }
-            
             const samplePersonnel = [
                 { id: 'person-admin', name: 'Ayşe Hanım (Yönetici)', role: PERSONNEL_ROLES.ADMIN, createdAt: getCurrentDateTimeString(), username: 'admin', password: '123' },
                 { id: 'person-cam1', name: 'Emre Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'emre', password: '123' },
@@ -186,9 +205,7 @@ const App = () => {
             }
             console.log("Örnek personel eklendi.");
         }
-
         const HARDCODED_MACHINES = ['K40', 'K68', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
-        
         const machinesQuery = query(collection(db, MACHINES_COLLECTION));
         const machinesSnapshot = await getDocs(machinesQuery);
         if (machinesSnapshot.empty) {
@@ -204,7 +221,7 @@ const App = () => {
         }
     }, [db]); 
     
-    // 1. Firebase Başlatma ve Kimlik Doğrulama
+    // ... (useEffect hook'ları - değişiklik yok) ...
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -238,7 +255,6 @@ const App = () => {
         }
     }, []); 
 
-    // 2. Personel ve Tezgah verilerini dinleme
     useEffect(() => {
         if (!db || !userId) return;
 
@@ -284,7 +300,6 @@ const App = () => {
         };
     }, [db, userId, seedInitialData]); 
     
-    // 4. Proje Verilerini Gerçek Zamanlı Dinleme
     useEffect(() => {
         if (!db || !userId || !loggedInUser) return;
         
@@ -303,7 +318,7 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
     
-    // Merkezi Operasyon Güncelleme Fonksiyonu
+    // ... (handleUpdateOperation, handleAddOperation, vb. - değişiklik yok) ...
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -332,7 +347,6 @@ const App = () => {
         }
     }, [db, projects]);
 
-    // Yeni Operasyon Ekleme Fonksiyonu
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -356,7 +370,6 @@ const App = () => {
         }
     }, [db, projects]);
 
-    // Kalıp Ana Durumunu Güncelleme Fonksiyonu
     const handleUpdateMoldStatus = useCallback(async (moldId, newStatus) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -368,7 +381,6 @@ const App = () => {
         }
     }, [db]);
     
-    // Kalıp Termin Tarihini Güncelleme Fonksiyonu
     const handleUpdateMoldDeadline = useCallback(async (moldId, newDeadline) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -380,7 +392,6 @@ const App = () => {
         }
     }, [db]);
 
-    // Kalıp Aciliyet Sırasını Güncelleme Fonksiyonu
     const handleUpdateMoldPriority = useCallback(async (moldId, newPriority) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -392,22 +403,61 @@ const App = () => {
         }
     }, [db]);
 
+    const handleUpdateTrialReportUrl = useCallback(async (moldId, newUrl) => {
+        if (!db || !moldId) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, { trialReportUrl: newUrl || '' });
+            console.log(`Kalıp ${moldId} Rapor Linki güncellendi.`);
+        } catch (e) {
+             console.error("Kalıp Rapor Linki güncelleme hatası: ", e);
+        }
+    }, [db]);
     
-    // --- YENİ FONKSİYON 1: KALIP SİLME ---
+    const handleUpdateProductImageUrl = useCallback(async (moldId, newUrl) => {
+        if (!db || !moldId) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, { productImageUrl: newUrl || '' });
+            console.log(`Kalıp ${moldId} Görsel Linki güncellendi.`);
+        } catch (e) {
+             console.error("Kalıp Görsel Linki güncelleme hatası: ", e);
+        }
+    }, [db]);
+    
+    // --- YENİ FONKSİYONLAR (V2.1.1) ---
+    const handleUpdateProjectManager = useCallback(async (moldId, managerName) => {
+        if (!db || !moldId) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, { projectManager: managerName || '' });
+            console.log(`Kalıp ${moldId} Proje Sorumlusu güncellendi.`);
+        } catch (e) {
+             console.error("Proje Sorumlusu güncelleme hatası: ", e);
+        }
+    }, [db]);
+
+    const handleUpdateMoldDesigner = useCallback(async (moldId, designerName) => {
+        if (!db || !moldId) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, { moldDesigner: designerName || '' });
+            console.log(`Kalıp ${moldId} Kalıp Tasarımcısı güncellendi.`);
+        } catch (e) {
+             console.error("Kalıp Tasarımcısı güncelleme hatası: ", e);
+        }
+    }, [db]);
+    // --- YENİ BİTTİ ---
+
+    
     const handleDeleteMold = useCallback(async (moldId) => {
         if (!db || !moldId) return;
         console.log(`Kalıp siliniyor: ${moldId}`);
         try {
-            // 1. Ana Proje dökümanını sil
             await deleteDoc(doc(db, PROJECT_COLLECTION, moldId));
-            
-            // 2. (Önemli) Bu kalıba ait notları da sil
             const noteRef = doc(db, MOLD_NOTES_COLLECTION, moldId);
-            await deleteDoc(noteRef); // Not olmasa bile hata vermez
-            
+            await deleteDoc(noteRef); 
             console.log(`Kalıp ${moldId} ve ilişkili notlar başarıyla silindi.`);
-            
-            // Eğer silinen kalıp o an seçili kalıpsa, detay sayfasından geri dön
             if (selectedMold && selectedMold.id === moldId) {
                 setSelectedMold(null);
                 setCurrentPage('list');
@@ -415,45 +465,45 @@ const App = () => {
         } catch (e) {
             console.error("Kalıp silinirken hata: ", e);
         }
-    }, [db, selectedMold]); // selectedMold'u bağımlılığa ekledik
-    // --- YENİ FONKSİYON 1 SONU ---
+    }, [db, selectedMold]);
 
-
-    // --- YENİ FONKSİYON 2: KALIP GÜNCELLEME (Ad, Müşteri) ---
     const handleUpdateMold = useCallback(async (moldId, updatedData) => {
         if (!db || !moldId) return;
         console.log(`Kalıp güncelleniyor: ${moldId}`, updatedData);
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         try {
-            await updateDoc(moldRef, updatedData); // Sadece { moldName, customer } gönderilecek
+            await updateDoc(moldRef, updatedData); 
             console.log(`Kalıp ${moldId} başarıyla güncellendi.`);
         } catch (e) {
             console.error("Kalıp güncellenirken hata: ", e);
         }
     }, [db]);
-    // --- YENİ FONKSİYON 2 SONU ---
 
 
-    // Değerlendirme Bekleyen Operasyon Sayısı
     const tasksWaitingSupervisorReviewCount = useMemo(() => {
         return projects.flatMap(p => p.tasks.flatMap(t => t.operations))
                        .filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
     }, [projects]);
     
-    // 7. Navigasyon öğelerini role göre filtrele
+    // --- YETKİLENDİRME GÜNCELLEMESİ BURADA ---
     const navItems = useMemo(() => {
         if (!loggedInUser) return [];
-         const baseItems = [
-            { id: 'list', label: 'Kalıp Listesi', icon: List, roles: Object.values(ROLES) },
-            { id: 'active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: Object.values(ROLES) },
+
+        const allLoginRoles = Object.values(ROLES);
+
+        const finalBaseItems = [
+            { id: 'list', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
+            { id: 'active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { id: 'cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
-            { id: 'review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR] },
-            { id: 'admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN] },
-            { id: 'history', label: 'Geçmiş İşler', icon: History, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { id: 'analysis', label: 'Analiz', icon: BarChart2, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
+            { id: 'review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] }, // Proje Sor. GÖREMEZ
+            { id: 'admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] }, // Sadece Admin ve Tasarımcı
+            { id: 'history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
+            { id: 'analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
         ];
-        return baseItems.filter(item => item.roles.includes(loggedInUser.role));
+        
+        return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
+    // --- GÜNCELLEME BİTTİ ---
 
     // 8. Sayfa içeriğini render etme
     const renderPage = () => {
@@ -469,17 +519,20 @@ const App = () => {
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 
+                        handleUpdateTrialReportUrl={handleUpdateTrialReportUrl}
+                        handleUpdateProductImageUrl={handleUpdateProductImageUrl} 
+                        // --- YENİ PROPLAR (V2.1.1) ---
+                        handleUpdateProjectManager={handleUpdateProjectManager}
+                        handleUpdateMoldDesigner={handleUpdateMoldDesigner}
                         projects={projects} 
                         personnel={personnel} 
                         machines={machines}
-                        db={db} // Notlar için db'yi paslıyoruz
+                        db={db}
                     />;
         }
 
         switch (currentPage) {
             case 'list':
-                // --- DEĞİŞİKLİK BURADA ---
-                // EnhancedMoldList'e yeni fonksiyonları ve loggedInUser'ı iletiyoruz
                 return <EnhancedMoldList 
                             projects={projects} 
                             onSelectMold={setSelectedMold} 
@@ -494,8 +547,6 @@ const App = () => {
             case 'review':
                 return <SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />;
             case 'admin':
-                // --- DEĞİŞİKLİK BURADA ---
-                // AdminDashboard'a yeni fonksiyonları iletiyoruz
                 return <AdminDashboard 
                             db={db} 
                             projects={projects} 
@@ -512,7 +563,6 @@ const App = () => {
             case 'analysis':
                 return <AnalysisPage projects={projects} personnel={personnel} />;
             default:
-                // --- DEĞİŞİKLİK BURADA --- (Varsayılan durum için de ekliyoruz)
                 return <EnhancedMoldList 
                             projects={projects} 
                             onSelectMold={setSelectedMold} 
@@ -523,9 +573,7 @@ const App = () => {
         }
     };
 
-    // --- YENİ RENDER MANTIĞI ---
-
-    // 1. Firebase auth bekleniyor
+    // ... (Kalan Render Mantiği - Değişiklik Yok) ...
     if (!userId) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -534,8 +582,6 @@ const App = () => {
             </div>
         );
     }
-
-    // 2. Çekirdek Veri (personel, makineler) bekleniyor
     if (loading) {
          return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -544,13 +590,9 @@ const App = () => {
             </div>
         );
     }
-
-    // 3. Çekirdek veri tamam, Özel Giriş (şifre) bekleniyor
     if (!loggedInUser) {
         return <CredentialLoginScreen db={db} setLoggedInUser={setLoggedInUser} personnel={personnel} />;
     }
-    
-    // 4. Özel giriş yapıldı, Projeler yükleniyor
     if (isProjectsLoading) {
          return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -559,8 +601,6 @@ const App = () => {
             </div>
         );
     }
-
-    // 5. Her şey hazır, ana uygulama
     return (
         <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
             <header className="mb-8 border-b pb-4 dark:border-gray-700">
