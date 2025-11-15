@@ -9,13 +9,13 @@ import {
     collection, query, getDocs, setDoc, 
     updateDoc, deleteDoc, doc, onSnapshot, where,
     PROJECT_COLLECTION, PERSONNEL_COLLECTION, MACHINES_COLLECTION,
-    MOLD_NOTES_COLLECTION // YENİ: Kalıp notlarını da silebilmek için eklendi
+    MOLD_NOTES_COLLECTION
 } from './config/firebase.js';
 
 // Sabitleri (ROLES, STATUS vb.) config dosyamızdan alıyoruz
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
-    PERSONNEL_ROLES 
+    PERSONNEL_ROLES
 } from './config/constants.js';
 
 // Yardımcı fonksiyonları utils'den alıyoruz
@@ -45,7 +45,6 @@ import { initialProjects } from './config/initialData.js';
 // --- MAIN APP COMPONENT ---
 
 const App = () => {
-    // const [db, setDb] = useState(null); // Artık db'yi doğrudan import ediyoruz
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isProjectsLoading, setIsProjectsLoading] = useState(true);
@@ -153,6 +152,12 @@ const App = () => {
                 if (project.priority === undefined) {
                     updates.priority = null;
                 }
+                
+                // YENİ: trialReportUrl alanı eksikse ekle
+                if (project.trialReportUrl === undefined) {
+                    updates.trialReportUrl = '';
+                }
+
                 if(Object.keys(updates).length > 0) {
                      await updateDoc(doc(db, PROJECT_COLLECTION, project.id), updates);
                 }
@@ -392,22 +397,29 @@ const App = () => {
         }
     }, [db]);
 
+    // --- YENİ FONKSİYON 1: DENEME RAPORU LİNKİNİ GÜNCELLEME ---
+    const handleUpdateTrialReportUrl = useCallback(async (moldId, newUrl) => {
+        if (!db || !moldId) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        try {
+            await updateDoc(moldRef, { trialReportUrl: newUrl || '' });
+            console.log(`Kalıp ${moldId} Rapor Linki güncellendi.`);
+        } catch (e) {
+             console.error("Kalıp Rapor Linki güncelleme hatası: ", e);
+        }
+    }, [db]);
+    // --- YENİ FONKSİYON 1 SONU ---
+
     
-    // --- YENİ FONKSİYON 1: KALIP SİLME ---
+    // --- YENİ FONKSİYON 2: KALIP SİLME ---
     const handleDeleteMold = useCallback(async (moldId) => {
         if (!db || !moldId) return;
         console.log(`Kalıp siliniyor: ${moldId}`);
         try {
-            // 1. Ana Proje dökümanını sil
             await deleteDoc(doc(db, PROJECT_COLLECTION, moldId));
-            
-            // 2. (Önemli) Bu kalıba ait notları da sil
             const noteRef = doc(db, MOLD_NOTES_COLLECTION, moldId);
-            await deleteDoc(noteRef); // Not olmasa bile hata vermez
-            
+            await deleteDoc(noteRef); 
             console.log(`Kalıp ${moldId} ve ilişkili notlar başarıyla silindi.`);
-            
-            // Eğer silinen kalıp o an seçili kalıpsa, detay sayfasından geri dön
             if (selectedMold && selectedMold.id === moldId) {
                 setSelectedMold(null);
                 setCurrentPage('list');
@@ -415,23 +427,23 @@ const App = () => {
         } catch (e) {
             console.error("Kalıp silinirken hata: ", e);
         }
-    }, [db, selectedMold]); // selectedMold'u bağımlılığa ekledik
-    // --- YENİ FONKSİYON 1 SONU ---
+    }, [db, selectedMold]);
+    // --- YENİ FONKSİYON 2 SONU ---
 
 
-    // --- YENİ FONKSİYON 2: KALIP GÜNCELLEME (Ad, Müşteri) ---
+    // --- YENİ FONKSİYON 3: KALIP GÜNCELLEME (Ad, Müşteri) ---
     const handleUpdateMold = useCallback(async (moldId, updatedData) => {
         if (!db || !moldId) return;
         console.log(`Kalıp güncelleniyor: ${moldId}`, updatedData);
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         try {
-            await updateDoc(moldRef, updatedData); // Sadece { moldName, customer } gönderilecek
+            await updateDoc(moldRef, updatedData); 
             console.log(`Kalıp ${moldId} başarıyla güncellendi.`);
         } catch (e) {
             console.error("Kalıp güncellenirken hata: ", e);
         }
     }, [db]);
-    // --- YENİ FONKSİYON 2 SONU ---
+    // --- YENİ FONKSİYON 3 SONU ---
 
 
     // Değerlendirme Bekleyen Operasyon Sayısı
@@ -469,17 +481,17 @@ const App = () => {
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 
+                        // --- YENİ PROP EKLENDİ ---
+                        handleUpdateTrialReportUrl={handleUpdateTrialReportUrl}
                         projects={projects} 
                         personnel={personnel} 
                         machines={machines}
-                        db={db} // Notlar için db'yi paslıyoruz
+                        db={db}
                     />;
         }
 
         switch (currentPage) {
             case 'list':
-                // --- DEĞİŞİKLİK BURADA ---
-                // EnhancedMoldList'e yeni fonksiyonları ve loggedInUser'ı iletiyoruz
                 return <EnhancedMoldList 
                             projects={projects} 
                             onSelectMold={setSelectedMold} 
@@ -494,8 +506,6 @@ const App = () => {
             case 'review':
                 return <SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />;
             case 'admin':
-                // --- DEĞİŞİKLİK BURADA ---
-                // AdminDashboard'a yeni fonksiyonları iletiyoruz
                 return <AdminDashboard 
                             db={db} 
                             projects={projects} 
@@ -512,7 +522,6 @@ const App = () => {
             case 'analysis':
                 return <AnalysisPage projects={projects} personnel={personnel} />;
             default:
-                // --- DEĞİŞİKLİK BURADA --- (Varsayılan durum için de ekliyoruz)
                 return <EnhancedMoldList 
                             projects={projects} 
                             onSelectMold={setSelectedMold} 
@@ -523,7 +532,7 @@ const App = () => {
         }
     };
 
-    // --- YENİ RENDER MANTIĞI ---
+    // --- (Kalan kısım değişiklik yok) ---
 
     // 1. Firebase auth bekleniyor
     if (!userId) {
