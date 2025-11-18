@@ -1,16 +1,18 @@
 // src/components/Shared/NavItem.js
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom'; // Yönlendirme kancası eklendi
 
-/**
- * Navigation Component
- */
-const NavItem = ({ icon: Icon, label, isActive, onClick, role, taskCount }) => {
-    // ... (Mevcut bileşen - değişiklik yok)
+const NavItem = ({ icon: Icon, label, isActive, path, taskCount }) => { 
+    // 'onClick' yerine 'path' (gidilecek adres) alıyoruz
+    
+    const navigate = useNavigate(); // Yönlendirme fonksiyonunu tanımla
+    
     const showCount = (label === 'Değerlendirme') && taskCount > 0;
+    
     return (
         <button
-            onClick={onClick}
+            onClick={() => navigate(path)} // Tıklandığında ilgili 'path'e git
             className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors duration-150 relative ${
                 isActive
                     ? 'bg-blue-600 text-white shadow-lg'
@@ -28,5 +30,4 @@ const NavItem = ({ icon: Icon, label, isActive, onClick, role, taskCount }) => {
     );
 };
 
-// Bu satır çok önemli, App.js'in bu dosyayı "import" edebilmesini sağlar
 export default NavItem;

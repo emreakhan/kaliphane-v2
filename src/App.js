@@ -1,6 +1,7 @@
 // src/App.js
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'; // EKLENDİ
 
 // Firebase servislerini config dosyamızdan alıyoruz
 import { 
@@ -22,7 +23,7 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonları
-import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle, Users } from 'lucide-react';
+import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle } from 'lucide-react';
 
 // Sayfalar
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
@@ -51,10 +52,15 @@ const App = () => {
     const [projects, setProjects] = useState([]);
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
-    const [currentPage, setCurrentPage] = useState('list');
-    const [selectedMold, setSelectedMold] = useState(null);
+    // const [currentPage, setCurrentPage] = useState('list'); // KALDIRILDI
+    // const [selectedMold, setSelectedMold] = useState(null); // KALDIRILDI
     const [loggedInUser, setLoggedInUser] = useState(null);
+    
+    // Router Kancaları
+    const navigate = useNavigate(); 
+    const location = useLocation();
 
+    // ... (Seed ve Durum Hesaplama Fonksiyonları - SENİN DOSYANDAN AYNEN ALINDI) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) {
             return OPERATION_STATUS.NOT_STARTED;
@@ -90,9 +96,8 @@ const App = () => {
                 await setDoc(doc(db, PROJECT_COLLECTION, project.id), { 
                     ...project, 
                     status: project.status,
-                    trialReportUrl: project.trialReportUrl || '', // V2.0.3
-                    productImageUrl: project.productImageUrl || '', // V2.0.4
-                    // --- YENİ ALANLAR EKLENDİ (V2.1.1) ---
+                    trialReportUrl: project.trialReportUrl || '',
+                    productImageUrl: project.productImageUrl || '',
                     projectManager: '',
                     moldDesigner: '',
                 });
@@ -113,7 +118,6 @@ const App = () => {
                 const migratedTasks = project.tasks.map(task => {
                     if (task.operations === undefined) { 
                         needsMigration = true;
-                        // ... (migrasyon kodu)
                         const cncOperation = {
                            id: task.id || `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                             type: "CNC", 
@@ -163,15 +167,12 @@ const App = () => {
                 if (project.productImageUrl === undefined) {
                     updates.productImageUrl = '';
                 }
-                
-                // --- YENİ ALANLAR EKLENDİ (V2.1.1) ---
                 if (project.projectManager === undefined) {
                     updates.projectManager = '';
                 }
                 if (project.moldDesigner === undefined) {
                     updates.moldDesigner = '';
                 }
-                // --- YENİ BİTTİ ---
 
                 if(Object.keys(updates).length > 0) {
                      await updateDoc(doc(db, PROJECT_COLLECTION, project.id), updates);
@@ -179,7 +180,6 @@ const App = () => {
             }
         }
 
-        // ... (Personel ve Tezgah seed/kontrol kodu - değişiklik yok) ...
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
         if (adminUserSnapshot.empty) {
@@ -221,7 +221,7 @@ const App = () => {
         }
     }, [db]); 
     
-    // ... (useEffect hook'ları - değişiklik yok) ...
+    // ... (useEffect hook'ları - AYNEN KORUNDU) ...
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -318,7 +318,7 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
     
-    // ... (handleUpdateOperation, handleAddOperation, vb. - değişiklik yok) ...
+    // ... (Operasyon güncelleme fonksiyonları - AYNEN KORUNDU) ...
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -425,7 +425,6 @@ const App = () => {
         }
     }, [db]);
     
-    // --- YENİ FONKSİYONLAR (V2.1.1) ---
     const handleUpdateProjectManager = useCallback(async (moldId, managerName) => {
         if (!db || !moldId) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -447,8 +446,6 @@ const App = () => {
              console.error("Kalıp Tasarımcısı güncelleme hatası: ", e);
         }
     }, [db]);
-    // --- YENİ BİTTİ ---
-
     
     const handleDeleteMold = useCallback(async (moldId) => {
         if (!db || !moldId) return;
@@ -458,14 +455,15 @@ const App = () => {
             const noteRef = doc(db, MOLD_NOTES_COLLECTION, moldId);
             await deleteDoc(noteRef); 
             console.log(`Kalıp ${moldId} ve ilişkili notlar başarıyla silindi.`);
-            if (selectedMold && selectedMold.id === moldId) {
-                setSelectedMold(null);
-                setCurrentPage('list');
+            
+            // GÜNCELLEME: Eğer o an silinen kalıbın sayfasındaysak, ana sayfaya dön.
+            if (location.pathname.includes(moldId)) {
+                navigate('/');
             }
         } catch (e) {
             console.error("Kalıp silinirken hata: ", e);
         }
-    }, [db, selectedMold]);
+    }, [db, location.pathname, navigate]);
 
     const handleUpdateMold = useCallback(async (moldId, updatedData) => {
         if (!db || !moldId) return;
@@ -485,95 +483,27 @@ const App = () => {
                        .filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
     }, [projects]);
     
-    // --- YETKİLENDİRME GÜNCELLEMESİ BURADA ---
+    // GÜNCELLEME: Navigasyon artık path tabanlı
     const navItems = useMemo(() => {
         if (!loggedInUser) return [];
 
         const allLoginRoles = Object.values(ROLES);
 
         const finalBaseItems = [
-            { id: 'list', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
-            { id: 'active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
-            { id: 'cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
-            { id: 'review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] }, // Proje Sor. GÖREMEZ
-            { id: 'admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] }, // Sadece Admin ve Tasarımcı
-            { id: 'history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
-            { id: 'analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
+            { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
+            { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
+            { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
+            { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
+            { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
+            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
+            { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
         ];
         
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
-    // --- GÜNCELLEME BİTTİ ---
 
-    // 8. Sayfa içeriğini render etme
-    const renderPage = () => {
-        if (selectedMold) {
-            const currentSelectedMold = projects.find(p => p.id === selectedMold.id) || selectedMold;
-            
-            return <MoldDetailPage 
-                        mold={currentSelectedMold} 
-                        onBack={() => setSelectedMold(null)} 
-                        loggedInUser={loggedInUser} 
-                        handleUpdateOperation={handleUpdateOperation} 
-                        handleAddOperation={handleAddOperation} 
-                        handleUpdateMoldStatus={handleUpdateMoldStatus}
-                        handleUpdateMoldDeadline={handleUpdateMoldDeadline}
-                        handleUpdateMoldPriority={handleUpdateMoldPriority} 
-                        handleUpdateTrialReportUrl={handleUpdateTrialReportUrl}
-                        handleUpdateProductImageUrl={handleUpdateProductImageUrl} 
-                        // --- YENİ PROPLAR (V2.1.1) ---
-                        handleUpdateProjectManager={handleUpdateProjectManager}
-                        handleUpdateMoldDesigner={handleUpdateMoldDesigner}
-                        projects={projects} 
-                        personnel={personnel} 
-                        machines={machines}
-                        db={db}
-                    />;
-        }
+    // --- RENDER KISMI ---
 
-        switch (currentPage) {
-            case 'list':
-                return <EnhancedMoldList 
-                            projects={projects} 
-                            onSelectMold={setSelectedMold} 
-                            loggedInUser={loggedInUser}
-                            handleDeleteMold={handleDeleteMold}
-                            handleUpdateMold={handleUpdateMold}
-                        />;
-            case 'active': 
-                return <ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} />;
-            case 'cam':
-                return <CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />;
-            case 'review':
-                return <SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />;
-            case 'admin':
-                return <AdminDashboard 
-                            db={db} 
-                            projects={projects} 
-                            setProjects={setProjects} 
-                            personnel={personnel} 
-                            setPersonnel={setPersonnel} 
-                            machines={machines} 
-                            setMachines={setMachines}
-                            handleDeleteMold={handleDeleteMold}
-                            handleUpdateMold={handleUpdateMold}
-                        />;
-            case 'history':
-                return <HistoryPage projects={projects} />;
-            case 'analysis':
-                return <AnalysisPage projects={projects} personnel={personnel} />;
-            default:
-                return <EnhancedMoldList 
-                            projects={projects} 
-                            onSelectMold={setSelectedMold} 
-                            loggedInUser={loggedInUser}
-                            handleDeleteMold={handleDeleteMold}
-                            handleUpdateMold={handleUpdateMold}
-                        />;
-        }
-    };
-
-    // ... (Kalan Render Mantiği - Değişiklik Yok) ...
     if (!userId) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -582,6 +512,7 @@ const App = () => {
             </div>
         );
     }
+
     if (loading) {
          return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -590,9 +521,11 @@ const App = () => {
             </div>
         );
     }
+
     if (!loggedInUser) {
         return <CredentialLoginScreen db={db} setLoggedInUser={setLoggedInUser} personnel={personnel} />;
     }
+    
     if (isProjectsLoading) {
          return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -601,6 +534,7 @@ const App = () => {
             </div>
         );
     }
+
     return (
         <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
             <header className="mb-8 border-b pb-4 dark:border-gray-700">
@@ -611,7 +545,8 @@ const App = () => {
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
                         <button
-                            onClick={() => {setLoggedInUser(null); setSelectedMold(null); setCurrentPage('list');}}
+                            // GÜNCELLEME: Çıkış yapınca ana sayfaya yönlendir
+                            onClick={() => {setLoggedInUser(null); navigate('/');}}
                             className="flex items-center text-sm px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
                          >
                             <LogOut className="w-4 h-4 mr-1"/> Çıkış
@@ -622,18 +557,17 @@ const App = () => {
                 <nav className="mt-4 flex flex-wrap gap-2">
                     {navItems.map(item => {
                         let taskCount = 0;
-                        if (item.id === 'review') {
+                        if (item.label === 'Değerlendirme') {
                             taskCount = tasksWaitingSupervisorReviewCount;
                         }
 
                         return (
                             <NavItem
-                                key={item.id}
-                                 icon={item.icon}
+                                key={item.path}
+                                icon={item.icon}
                                 label={item.label}
-                                isActive={currentPage === item.id}
-                                 onClick={() => {setCurrentPage(item.id); setSelectedMold(null);}}
-                                role={loggedInUser.role}
+                                isActive={location.pathname === item.path}
+                                path={item.path}
                                 taskCount={taskCount}
                              />
                         );
@@ -641,8 +575,86 @@ const App = () => {
                 </nav>
             </header>
 
-            {/* Main Content Area */}
-            {renderPage()}
+            {/* GÜNCELLEME: Routes Yapısı (renderPage yerine) */}
+            <Routes>
+                <Route path="/" element={
+                    <EnhancedMoldList 
+                        projects={projects} 
+                        loggedInUser={loggedInUser}
+                        handleDeleteMold={handleDeleteMold}
+                        handleUpdateMold={handleUpdateMold}
+                    />
+                } />
+                
+                <Route path="/active" element={
+                    <ActiveTasksPage 
+                        projects={projects} 
+                        machines={machines} 
+                        loggedInUser={loggedInUser} 
+                        personnel={personnel} 
+                    />
+                } />
+                
+                <Route path="/cam" element={
+                    <CamDashboard 
+                        loggedInUser={loggedInUser} 
+                        projects={projects} 
+                        handleUpdateOperation={handleUpdateOperation} 
+                        personnel={personnel} 
+                        machines={machines} 
+                    />
+                } />
+                
+                <Route path="/review" element={
+                    <SupervisorReviewPage 
+                        loggedInUser={loggedInUser} 
+                        projects={projects} 
+                        handleUpdateOperation={handleUpdateOperation} 
+                    />
+                } />
+                
+                <Route path="/admin" element={
+                    <AdminDashboard 
+                        db={db} 
+                        projects={projects} 
+                        setProjects={setProjects} 
+                        personnel={personnel} 
+                        setPersonnel={setPersonnel} 
+                        machines={machines} 
+                        setMachines={setMachines}
+                        handleDeleteMold={handleDeleteMold}
+                        handleUpdateMold={handleUpdateMold}
+                    />
+                } />
+                
+                <Route path="/history" element={<HistoryPage projects={projects} />} />
+                
+                <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} />} />
+                
+                {/* GÜNCELLEME: Dinamik Kalıp Detay Rotası */}
+                <Route path="/mold/:moldId" element={
+                    <MoldDetailPage 
+                        // mold prop'u artık URL'den (useParams) çözülüyor
+                        loggedInUser={loggedInUser} 
+                        handleUpdateOperation={handleUpdateOperation} 
+                        handleAddOperation={handleAddOperation} 
+                        handleUpdateMoldStatus={handleUpdateMoldStatus}
+                        handleUpdateMoldDeadline={handleUpdateMoldDeadline}
+                        handleUpdateMoldPriority={handleUpdateMoldPriority} 
+                        handleUpdateTrialReportUrl={handleUpdateTrialReportUrl}
+                        handleUpdateProductImageUrl={handleUpdateProductImageUrl} 
+                        handleUpdateProjectManager={handleUpdateProjectManager}
+                        handleUpdateMoldDesigner={handleUpdateMoldDesigner}
+                        projects={projects} 
+                        personnel={personnel} 
+                        machines={machines}
+                        db={db}
+                    />
+                } />
+                
+                {/* Bilinmeyen sayfa gelirse ana sayfaya yönlendir */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
             
             <footer className="mt-8 text-center text-xs text-gray-500 dark:text-gray-600 border-t pt-4 dark:border-gray-700">
                  Veritabanı Kimliği: {userId}
