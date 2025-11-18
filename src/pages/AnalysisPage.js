@@ -3,22 +3,23 @@
 import React, { useState, useMemo } from 'react';
 
 // İkonlar
-import { Search } from 'lucide-react';
+import { Search, Users, Box, Calendar, Clock, CheckCircle, AlertTriangle, BarChart2, PieChart, Monitor } from 'lucide-react';
 
-// Sabitler ('.js' uzantısı eklendi)
+// Sabitler
 import { OPERATION_STATUS, PERSONNEL_ROLES } from '../config/constants.js';
 
-// Yardımcı Fonksiyonlar ('.js' uzantısı eklendi)
+// Yardımcı Fonksiyonlar
 import { formatDate } from '../utils/dateUtils.js';
 
 
-// --- GÜNCELLENMİŞ: ANALİZ SAYFASI ---
+// --- GÜNCELLENMİŞ: ANALİZ SAYFASI (V2.2.1) ---
 const AnalysisPage = ({ projects, personnel }) => {
     
+    const [activeTab, setActiveTab] = useState('personnel'); 
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedPersonnelId, setSelectedPersonnelId] = useState(null);
+    const [selectedId, setSelectedId] = useState(null); 
 
-    // GÜNCELLEME: Tüm tamamlanmış *operasyonları* al
+    // --- ORTAK VERİ HAZIRLIĞI ---
     const allCompletedOperations = useMemo(() => {
         return projects.flatMap(mold => 
             mold.tasks.flatMap(task => 
@@ -33,6 +34,7 @@ const AnalysisPage = ({ projects, personnel }) => {
         );
     }, [projects]);
 
+    // --- 1. SEKME: PERSONEL ANALİZİ MANTIĞI ---
     const filteredPersonnel = useMemo(() => {
         const lowerSearchTerm = searchTerm.toLowerCase();
         return personnel.filter(p => 
@@ -41,15 +43,13 @@ const AnalysisPage = ({ projects, personnel }) => {
         ).sort((a, b) => a.name.localeCompare(b.name));
     }, [personnel, searchTerm]);
 
-    // GÜNCELLEME: Operasyonlara göre veri bul
     const selectedPersonnelData = useMemo(() => {
-        if (!selectedPersonnelId) return null;
+        if (activeTab !== 'personnel' || !selectedId) return null;
         
-        const person = personnel.find(p => p.id === selectedPersonnelId);
+        const person = personnel.find(p => p.id === selectedId);
         if (!person) return null;
 
         let relevantTasks = []; 
-        let averageRating = 0;
         let totalRatings = 0;
         let ratingCount = 0;
         
@@ -71,30 +71,132 @@ const AnalysisPage = ({ projects, personnel }) => {
             });
         }
         
-        if (ratingCount > 0) {
-            averageRating = (totalRatings / ratingCount).toFixed(1);
-        }
+        const averageRating = ratingCount > 0 ? (totalRatings / ratingCount).toFixed(1) : 0;
 
         return {
             ...person,
             completedTasks: relevantTasks.sort((a, b) => new Date(b.finishDate) - new Date(a.finishDate)),
-            averageRating: averageRating,
-            ratingCount: ratingCount
+            averageRating,
+            ratingCount
         };
-    }, [selectedPersonnelId, personnel, allCompletedOperations]);
+    }, [selectedId, personnel, allCompletedOperations, activeTab]);
 
 
-    // --- Bileşenler ---
+    // --- 2. SEKME: KALIP KARNESİ MANTIĞI ---
+    const filteredMolds = useMemo(() => {
+        const lowerSearchTerm = searchTerm.toLowerCase();
+        return projects.filter(p => 
+            p.moldName.toLowerCase().includes(lowerSearchTerm) ||
+            p.customer.toLowerCase().includes(lowerSearchTerm)
+        ).sort((a, b) => a.moldName.localeCompare(b.moldName));
+    }, [projects, searchTerm]);
 
-    // 1. Sol Taraf: Arama ve Personel Listesi
-    const PersonnelSidebar = () => (
-        <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-inner">
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Personel Listesi</h3>
+    const selectedMoldData = useMemo(() => {
+        if (activeTab !== 'mold' || !selectedId) return null;
+        
+        const mold = projects.find(p => p.id === selectedId);
+        if (!mold) return null;
+
+        const allOps = mold.tasks.flatMap(t => t.operations);
+        const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
+        
+        // 1. Tarih Hesaplamaları
+        const startDates = allOps.map(op => op.startDate ? new Date(op.startDate).getTime() : null).filter(d => d);
+        const endDates = completedOps.map(op => op.finishDate ? new Date(op.finishDate).getTime() : null).filter(d => d);
+        
+        const firstStartDate = startDates.length > 0 ? new Date(Math.min(...startDates)) : null;
+        const lastFinishDate = endDates.length > 0 ? new Date(Math.max(...endDates)) : null;
+        
+        let totalDurationDays = 0;
+        if (firstStartDate && lastFinishDate) {
+            totalDurationDays = Math.ceil((lastFinishDate - firstStartDate) / (1000 * 60 * 60 * 24));
+        }
+
+        // 2. İşçilik Saati Toplamı
+        const totalManHours = completedOps.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
+
+        // 3. Kalite Puanı
+        let totalQuality = 0;
+        let qualityCount = 0;
+        completedOps.forEach(op => {
+            if(op.supervisorRating) {
+                totalQuality += op.supervisorRating;
+                qualityCount++;
+            }
+        });
+        const averageQuality = qualityCount > 0 ? (totalQuality / qualityCount).toFixed(1) : "---";
+
+        // 4. Termin Durumu
+        let deadlineStatus = "Belirsiz";
+        let deadlineColor = "text-gray-500";
+        if (mold.moldDeadline && lastFinishDate) {
+            const deadline = new Date(mold.moldDeadline);
+            const diffTime = deadline - lastFinishDate;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            
+            if (diffDays >= 0) {
+                deadlineStatus = `${diffDays} Gün Erken Bitti`;
+                deadlineColor = "text-green-600";
+            } else {
+                deadlineStatus = `${Math.abs(diffDays)} Gün Gecikti`;
+                deadlineColor = "text-red-600";
+            }
+        } else if (mold.moldDeadline) {
+             deadlineStatus = "Devam Ediyor";
+             deadlineColor = "text-blue-600";
+        }
+
+        // 5. Operasyon Sayı Dağılımı
+        const opDistribution = {};
+        allOps.forEach(op => {
+            opDistribution[op.type] = (opDistribution[op.type] || 0) + 1;
+        });
+
+        // 6. Operasyon Süre Dağılımı (Tip Bazlı)
+        const opHourDistribution = {};
+        completedOps.forEach(op => {
+            const duration = parseFloat(op.durationInHours) || 0;
+            opHourDistribution[op.type] = (opHourDistribution[op.type] || 0) + duration;
+        });
+
+        // 7. İstasyon/Tezgah Süre Dağılımı (YENİ EKLENDİ)
+        const machineHourDistribution = {};
+        completedOps.forEach(op => {
+            const duration = parseFloat(op.durationInHours) || 0;
+            // Eğer makine adı yoksa (örn: Tasarım veya dış iş), 'Diğer' olarak grupla
+            const machineName = op.machineName && op.machineName !== 'SEÇ' ? op.machineName : 'Tezgahsız / Diğer';
+            machineHourDistribution[machineName] = (machineHourDistribution[machineName] || 0) + duration;
+        });
+
+        return {
+            ...mold,
+            stats: {
+                firstStartDate,
+                lastFinishDate,
+                totalDurationDays,
+                totalManHours: totalManHours.toFixed(1),
+                averageQuality,
+                deadlineStatus,
+                deadlineColor,
+                totalOps: allOps.length,
+                completedOpsCount: completedOps.length,
+                opDistribution,
+                opHourDistribution,
+                machineHourDistribution // Yeni veri
+            }
+        };
+    }, [selectedId, projects, activeTab]);
+
+
+    // --- ARAYÜZ BİLEŞENLERİ ---
+
+    const SidebarList = () => (
+        <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-inner h-full min-h-[500px]">
             <div className="relative mb-4">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                     type="text"
-                    placeholder="Personel ara..."
+                    placeholder={activeTab === 'personnel' ? "Personel ara..." : "Kalıp ara..."}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -102,23 +204,37 @@ const AnalysisPage = ({ projects, personnel }) => {
             </div>
             <div className="max-h-[60vh] overflow-y-auto">
                 <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredPersonnel.length === 0 ?
-                    (
-                        <p className="p-4 text-sm text-center text-gray-500 dark:text-gray-400">Personel bulunamadı.</p>
-                    ) : (
+                    {activeTab === 'personnel' ? (
                         filteredPersonnel.map(person => (
                             <button
                                 key={person.id}
-                                onClick={() => setSelectedPersonnelId(person.id)}
-                                className={`w-full text-left p-3 transition ${
-                                    selectedPersonnelId === person.id 
-                                        ? 'bg-blue-600 text-white rounded-lg' 
-                                        : 'hover:bg-gray-200 dark:hover:bg-gray-700'
+                                onClick={() => setSelectedId(person.id)}
+                                className={`w-full text-left p-3 transition rounded-lg ${
+                                    selectedId === person.id 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200'
                                 }`}
                             >
                                 <p className="font-medium">{person.name}</p>
-                                <p className={`text-sm ${selectedPersonnelId === person.id ? 'text-blue-200' : 'text-gray-500 dark:text-gray-400'}`}>
+                                <p className={`text-sm ${selectedId === person.id ? 'text-blue-200' : 'text-gray-500 dark:text-gray-400'}`}>
                                     {person.role}
+                                </p>
+                            </button>
+                        ))
+                    ) : (
+                        filteredMolds.map(mold => (
+                            <button
+                                key={mold.id}
+                                onClick={() => setSelectedId(mold.id)}
+                                className={`w-full text-left p-3 transition rounded-lg ${
+                                    selectedId === mold.id 
+                                        ? 'bg-purple-600 text-white' 
+                                        : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200'
+                                }`}
+                            >
+                                <p className="font-medium">{mold.moldName}</p>
+                                <p className={`text-sm ${selectedId === mold.id ? 'text-purple-200' : 'text-gray-500 dark:text-gray-400'}`}>
+                                    {mold.customer}
                                 </p>
                             </button>
                         ))
@@ -128,212 +244,256 @@ const AnalysisPage = ({ projects, personnel }) => {
         </div>
     );
 
-    // 2. Sağ Taraf (Varsayılan): Genel Bakış Dashboard'u (GÜNCELLENDİ)
-    const DashboardContent = () => {
-        const dashboardData = useMemo(() => {
-            const camOperatorData = {};
-            const machineOperatorData = {};
-            const monthlyCamData = {};
-            
-            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-            allCompletedOperations.forEach(op => {
-                const camOp = op.assignedOperator;
-                const machineOp = op.machineOperatorName;
-
-                // 1. Yetkili -> CAM Puanları
-                if (camOp && camOp !== 'SEÇ' && op.supervisorRating) {
-                    if (!camOperatorData[camOp]) {
-                        camOperatorData[camOp] = { total: 0, count: 0 };
-                    }
-                    camOperatorData[camOp].total += op.supervisorRating;
-                    camOperatorData[camOp].count++;
-                }
-
-                // 2. CAM -> Tezgah Puanları
-                if (machineOp && machineOp !== 'SEÇ' && op.camOperatorRatingForMachineOp) {
-                     if (!machineOperatorData[machineOp]) {
-                        machineOperatorData[machineOp] = { total: 0, count: 0 };
-                    }
-                    machineOperatorData[machineOp].total += op.camOperatorRatingForMachineOp;
-                    machineOperatorData[machineOp].count++;
-                }
-                
-                // 3. Aylık CAM Grafiği
-                const finishDate = new Date(op.finishDate);
-                if (camOp && camOp !== 'SEÇ' && finishDate >= thirtyDaysAgo) {
-                    if (!monthlyCamData[camOp]) {
-                        monthlyCamData[camOp] = 0;
-                    }
-                    monthlyCamData[camOp]++;
-                }
-            });
-            
-            const formatData = (data) => Object.fromEntries(
-                Object.entries(data).map(([key, val]) => [key, (val.total / val.count).toFixed(1)])
-            );
-            
-            return {
-                camAverages: formatData(camOperatorData),
-                machineOpAverages: formatData(machineOperatorData),
-                monthlyCamCounts: monthlyCamData
-            };
-        }, [allCompletedOperations]);
+    const MoldReportCard = () => {
+        if (!selectedMoldData) return <div className="flex-1 p-10 text-center text-gray-500">Lütfen soldan bir kalıp seçiniz.</div>;
         
-        const maxMonthlyCount = Math.max(0, ...Object.values(dashboardData.monthlyCamCounts));
+        const stats = selectedMoldData.stats;
 
         return (
-            <div className="space-y-6">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Performans Genel Bakış</h3>
-                
-                <div className="p-4 border rounded-lg dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                    <h4 className="text-lg font-semibold dark:text-white mb-3">Son 30 Günde Biten Operasyon Sayısı (CAM Operatörleri)</h4>
-                    <div className="space-y-2">
-                        {Object.keys(dashboardData.monthlyCamCounts).length === 0 ? (
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Son 30 günde tamamlanan operasyon yok.</p>
-                        ) : (
-                            Object.entries(dashboardData.monthlyCamCounts)
-                                .sort((a, b) => b[1] - a[1])
-                                .map(([operator, count]) => (
-                                <div key={operator}>
-                                    <div className="flex justify-between text-sm font-medium dark:text-gray-300 mb-1">
-                                        <span>{operator}</span>
-                                        <span>{count} operasyon</span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-600">
-                                        <div 
-                                            className="bg-blue-600 h-4 rounded-full text-xs font-bold text-white text-center" 
-                                            style={{ width: `${(count / (maxMonthlyCount || 1)) * 100}%` }}
-                                        >
-                                            {count}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
-                        )}
+            <div className="flex-1 space-y-6 p-2">
+                <div className="flex justify-between items-start border-b dark:border-gray-700 pb-4">
+                    <div>
+                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{selectedMoldData.moldName}</h3>
+                        <p className="text-lg text-gray-600 dark:text-gray-400">{selectedMoldData.customer} | {selectedMoldData.status}</p>
+                    </div>
+                    <div className={`text-right font-bold text-xl ${stats.deadlineColor}`}>
+                        {stats.deadlineStatus}
                     </div>
                 </div>
 
+                {/* Özet Kartları */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center text-blue-600 dark:text-blue-400 mb-2">
+                            <Calendar className="w-5 h-5 mr-2" /> <span className="font-semibold">Toplam Süre</span>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalDurationDays} Gün</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">İlk işlemden teslime</p>
+                    </div>
+
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
+                        <div className="flex items-center text-green-600 dark:text-green-400 mb-2">
+                            <Clock className="w-5 h-5 mr-2" /> <span className="font-semibold">İşçilik Saati</span>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalManHours} Saat</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Toplam makine/insan saati</p>
+                    </div>
+
+                    <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
+                        <div className="flex items-center text-purple-600 dark:text-purple-400 mb-2">
+                            <CheckCircle className="w-5 h-5 mr-2" /> <span className="font-semibold">Kalite Skoru</span>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.averageQuality} / 10</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Yetkili puan ortalaması</p>
+                    </div>
+
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center text-orange-600 dark:text-orange-400 mb-2">
+                            <Box className="w-5 h-5 mr-2" /> <span className="font-semibold">Operasyonlar</span>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.completedOpsCount} / {stats.totalOps}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Tamamlanan / Toplam</p>
+                    </div>
+                </div>
+
+                {/* Detay Grafikleri Grid Yapısı */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="p-4 border rounded-lg dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                        <h4 className="text-lg font-semibold dark:text-white mb-3">Tezgah Operatörü Puan Ortalamaları (CAM Puanlarına Göre)</h4>
-                        <div className="space-y-2">
-                            {Object.keys(dashboardData.machineOpAverages).length === 0 ?
-                            (
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Puanlanmış tezgah operatörü işi yok.</p>
+                    
+                    {/* 1. Operasyon Sayı Dağılımı */}
+                    <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                            <BarChart2 className="w-5 h-5 mr-2" /> Operasyon Adetleri
+                        </h4>
+                        <div className="space-y-3">
+                            {Object.entries(stats.opDistribution).map(([type, count]) => (
+                                <div key={type} className="flex justify-between items-center">
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span>
+                                    <div className="flex items-center w-2/3">
+                                        <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2">
+                                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${(count / stats.totalOps) * 100}%` }}></div>
+                                        </div>
+                                        <span className="text-sm font-bold text-gray-900 dark:text-white w-8 text-right">{count}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 2. Operasyon Süre Dağılımı */}
+                    <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                            <PieChart className="w-5 h-5 mr-2" /> Operasyon Süreleri (Saat)
+                        </h4>
+                        <div className="space-y-3">
+                            {Object.keys(stats.opHourDistribution).length === 0 ? (
+                                <p className="text-gray-500 text-sm">Henüz tamamlanmış işlem süresi yok.</p>
                             ) : (
-                                Object.entries(dashboardData.machineOpAverages).map(([operator, avg]) => (
-                                    <div key={operator} className="flex justify-between items-center">
-                                        <span className="font-medium dark:text-gray-300">{operator}</span>
-                                        <span className="font-bold text-lg text-blue-600 dark:text-blue-400">{avg} / 10</span>
+                                Object.entries(stats.opHourDistribution).map(([type, hours]) => (
+                                    <div key={type} className="flex justify-between items-center">
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span>
+                                        <div className="flex items-center w-2/3">
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2">
+                                                <div className="bg-green-600 h-2.5 rounded-full" style={{ width: `${(hours / (parseFloat(stats.totalManHours) || 1)) * 100}%` }}></div>
+                                            </div>
+                                            <span className="text-sm font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span>
+                                        </div>
                                     </div>
                                 ))
                             )}
                         </div>
                     </div>
-                    
-                    <div className="p-4 border rounded-lg dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                        <h4 className="text-lg font-semibold dark:text-white mb-3">CAM Operatörü Puan Ortalamaları (Yetkili Puanlarına Göre)</h4>
-                        <div className="space-y-2">
-                            {Object.keys(dashboardData.camAverages).length === 0 ?
-                            (
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Puanlanmış CAM operatörü işi yok.</p>
+
+                    {/* 3. Tezgah/İstasyon Kullanımı (YENİ EKLENDİ) */}
+                    <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                            <Monitor className="w-5 h-5 mr-2" /> Tezgah/İstasyon Kullanımı (Saat)
+                        </h4>
+                        <div className="space-y-3">
+                            {Object.keys(stats.machineHourDistribution).length === 0 ? (
+                                <p className="text-gray-500 text-sm">Henüz makine verisi yok.</p>
                             ) : (
-                                Object.entries(dashboardData.camAverages).map(([operator, avg]) => (
-                                    <div key={operator} className="flex justify-between items-center">
-                                        <span className="font-medium dark:text-gray-300">{operator}</span>
-                                        <span className="font-bold text-lg text-purple-600 dark:text-purple-400">{avg} / 10</span>
+                                Object.entries(stats.machineHourDistribution).map(([machine, hours]) => (
+                                    <div key={machine} className="flex justify-between items-center">
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{machine}</span>
+                                        <div className="flex items-center w-2/3">
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2">
+                                                <div className="bg-orange-500 h-2.5 rounded-full" style={{ width: `${(hours / (parseFloat(stats.totalManHours) || 1)) * 100}%` }}></div>
+                                            </div>
+                                            <span className="text-sm font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span>
+                                        </div>
                                     </div>
                                 ))
                             )}
                         </div>
+                    </div>
+
+                    {/* 4. Kritik Bilgiler */}
+                    <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                            <AlertTriangle className="w-5 h-5 mr-2" /> Kritik Bilgiler
+                        </h4>
+                        <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                            <li>• <strong>Başlangıç:</strong> {stats.firstStartDate ? formatDate(stats.firstStartDate) : 'Henüz başlamadı'}</li>
+                            <li>• <strong>Bitiş (Son İşlem):</strong> {stats.lastFinishDate ? formatDate(stats.lastFinishDate) : 'Devam ediyor'}</li>
+                            <li>• <strong>Hedeflenen Termin:</strong> {selectedMoldData.moldDeadline ? formatDate(selectedMoldData.moldDeadline) : 'Belirtilmemiş'}</li>
+                            <li>• <strong>Proje Sorumlusu:</strong> {selectedMoldData.projectManager || 'Atanmamış'}</li>
+                            <li>• <strong>Tasarım Sorumlusu:</strong> {selectedMoldData.moldDesigner || 'Atanmamış'}</li>
+                        </ul>
                     </div>
                 </div>
             </div>
         );
     };
 
-    // 3. Sağ Taraf (Seçim Var): Detaylı Performans Raporu (GÜNCELLENDİ)
-    const ReportContent = () => (
-        <div className="space-y-6">
-            <div className="flex justify-between items-start">
-                <div>
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Performans Raporu: {selectedPersonnelData.name}</h3>
-                    <p className="text-lg text-gray-600 dark:text-gray-400">{selectedPersonnelData.role}</p>
+    const PersonnelReportCard = () => {
+        if (!selectedPersonnelData) return <div className="flex-1 p-10 text-center text-gray-500">Lütfen soldan bir personel seçiniz.</div>;
+        
+        return (
+            <div className="flex-1 space-y-6 p-2">
+                <div className="flex justify-between items-start border-b dark:border-gray-700 pb-4">
+                    <div>
+                        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{selectedPersonnelData.name}</h3>
+                        <p className="text-lg text-gray-600 dark:text-gray-400">{selectedPersonnelData.role}</p>
+                    </div>
                 </div>
-                 <button 
-                    onClick={() => setSelectedPersonnelId(null)}
-                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                    &larr; Genel Bakışa Dön
-                </button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Toplam Tamamlanan Operasyon</p>
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white">{selectedPersonnelData.completedTasks.length}</p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Toplam Tamamlanan İş</p>
+                        <p className="text-3xl font-bold text-gray-900 dark:text-white">{selectedPersonnelData.completedTasks.length}</p>
+                    </div>
+                    <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Puan Ortalaması</p>
+                        <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+                            {selectedPersonnelData.ratingCount > 0 ? `${selectedPersonnelData.averageRating} / 10` : 'N/A'}
+                        </p>
+                    </div>
                 </div>
-                <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Puan Ortalaması</p>
-                    <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                        {selectedPersonnelData.ratingCount > 0 ?
-                        `${selectedPersonnelData.averageRating} / 10` : 'N/A'}
-                    </p>
-                </div>
-            </div>
 
-            <div>
-                <h4 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">Tamamlanan Operasyon Dökümü ve Yorumlar</h4>
-                <div className="space-y-4 max-h-[50vh] overflow-y-auto">
-                    {selectedPersonnelData.completedTasks.length === 0 ?
-                    (
-                        <p className="text-gray-500 dark:text-gray-400">Bu personel için tamamlanmış operasyon bulunmamaktadır.</p>
-                    ) : (
-                        selectedPersonnelData.completedTasks.map(op => (
-                            <div key={op.id} className="p-4 border rounded-lg dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                                <p className="font-semibold dark:text-white">{op.moldName} - {op.taskName}</p>
-                                <p className="font-medium text-blue-600 dark:text-blue-400">{op.type}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Bitiş Tarihi: {formatDate(op.finishDate)}</p>
-                                
-                                <div className="mt-3 space-y-2">
-                                    {selectedPersonnelData.role === PERSONNEL_ROLES.CAM_OPERATOR && (
-                                        <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-md">
-                                            <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">Yetkili Değerlendirmesi:</p>
-                                            <p className="text-sm font-bold text-purple-700 dark:text-purple-300">Puan: {op.supervisorRating || 'N/A'} / 10</p>
-                                            <p className="text-sm text-purple-700 dark:text-purple-300 italic">Yorum: "{op.supervisorComment || 'Yorum yok'}"</p>
-                                        </div>
-                                    )}
+                <div>
+                    <h4 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">Tamamlanan Operasyonlar</h4>
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                        {selectedPersonnelData.completedTasks.length === 0 ?
+                        (
+                            <p className="text-gray-500 dark:text-gray-400">Bu personel için tamamlanmış operasyon bulunmamaktadır.</p>
+                        ) : (
+                            selectedPersonnelData.completedTasks.map(op => (
+                                <div key={op.id} className="p-4 border rounded-lg dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                                    <div className="flex justify-between">
+                                        <p className="font-semibold dark:text-white">{op.moldName}</p>
+                                        <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{formatDate(op.finishDate)}</span>
+                                    </div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-300">{op.taskName} - <span className="text-blue-600 dark:text-blue-400 font-medium">{op.type}</span></p>
                                     
-                                     {selectedPersonnelData.role === PERSONNEL_ROLES.MACHINE_OPERATOR && (
-                                        <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-md">
-                                            <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">CAM Değerlendirmesi ({op.assignedOperator}):</p>
-                                            <p className="text-sm font-bold text-blue-700 dark:text-blue-300">Puan: {op.camOperatorRatingForMachineOp || 'N/A'} / 10</p>
-                                            <p className="text-sm text-blue-700 dark:text-blue-300 italic">Yorum: "{op.camOperatorCommentForMachineOp || 'Yorum yok'}"</p>
-                                        </div>
-                                    )}
+                                    <div className="mt-3 space-y-2">
+                                        {selectedPersonnelData.role === PERSONNEL_ROLES.CAM_OPERATOR && (
+                                            <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-100 dark:border-purple-900">
+                                                <div className="flex justify-between text-xs text-purple-800 dark:text-purple-300 mb-1">
+                                                    <span className="font-bold">Yetkili Puanı: {op.supervisorRating || 'N/A'} / 10</span>
+                                                </div>
+                                                <p className="text-xs italic text-purple-700 dark:text-purple-400">"{op.supervisorComment || 'Yorum yok'}"</p>
+                                            </div>
+                                        )}
+                                        
+                                         {selectedPersonnelData.role === PERSONNEL_ROLES.MACHINE_OPERATOR && (
+                                            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-100 dark:border-blue-900">
+                                                <div className="flex justify-between text-xs text-blue-800 dark:text-blue-300 mb-1">
+                                                    <span className="font-bold">CAM ({op.assignedOperator}) Puanı: {op.camOperatorRatingForMachineOp || 'N/A'} / 10</span>
+                                                </div>
+                                                <p className="text-xs italic text-blue-700 dark:text-blue-400">"{op.camOperatorCommentForMachineOp || 'Yorum yok'}"</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))
-                    )}
+                            ))
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
-        <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performans Merkezi</h2>
+        <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl min-h-[85vh]">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performans ve Analiz Merkezi</h2>
             
-            <div className="flex flex-col lg:flex-row gap-6">
-                <PersonnelSidebar />
-                <div className="flex-1">
-                    {selectedPersonnelId ? <ReportContent /> : <DashboardContent />}
+            {/* Sekme Başlıkları */}
+            <div className="flex space-x-4 border-b border-gray-200 dark:border-gray-700 mb-6">
+                <button
+                    onClick={() => { setActiveTab('personnel'); setSelectedId(null); setSearchTerm(''); }}
+                    className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors ${
+                        activeTab === 'personnel'
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                >
+                    <Users className="w-4 h-4 inline mr-2" />
+                    Personel Analizi
+                </button>
+                <button
+                    onClick={() => { setActiveTab('mold'); setSelectedId(null); setSearchTerm(''); }}
+                    className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors ${
+                        activeTab === 'mold'
+                            ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                >
+                    <Box className="w-4 h-4 inline mr-2" />
+                    Kalıp Karnesi
+                </button>
+            </div>
+
+            <div className="flex flex-col lg:flex-row gap-6 h-full">
+                {/* Sol Menü (Liste) */}
+                <SidebarList />
+                
+                {/* Sağ Taraf (İçerik) */}
+                <div className="flex-1 border rounded-lg p-4 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-inner">
+                    {activeTab === 'personnel' ? <PersonnelReportCard /> : <MoldReportCard />}
                 </div>
             </div>
         </div>
     );
 };
-// --- GÜNCELLENMİŞ ANALİZ SAYFASI SONU ---
 
 export default AnalysisPage;
