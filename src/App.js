@@ -56,7 +56,7 @@ const App = () => {
     const navigate = useNavigate(); 
     const location = useLocation();
 
-    // ... (Seed Fonksiyonları - Aynı) ...
+    // ... (Seed Fonksiyonları - SENİN DOSYANDAKİ GİBİ KORUNDU) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -149,6 +149,8 @@ const App = () => {
         }
     }, [db]); 
     
+    // ... (useEffect ve diğer fonksiyonlar - SENİN DOSYANDAKİ GİBİ KORUNDU) ...
+
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -200,7 +202,22 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
     
-    // YENİ FONKSİYON: HATA BİLDİRİMİ VE SIFIRLAMA
+    // YENİ FONKSİYON: TEZGAH DURUM GÜNCELLEME (Senin dosyanın üzerine eklendi)
+    const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
+        if (!db) return;
+        try {
+            const machineRef = doc(db, MACHINES_COLLECTION, machineId);
+            await updateDoc(machineRef, {
+                currentStatus: newStatus,
+                statusReason: reason,
+                statusStartTime: getCurrentDateTimeString()
+            });
+            console.log(`Tezgah ${machineId} durumu güncellendi: ${newStatus}`);
+        } catch (e) {
+            console.error("Tezgah durumu güncelleme hatası:", e);
+        }
+    }, [db]);
+
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -208,43 +225,20 @@ const App = () => {
         if (!currentProject) return;
         const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return;
-        const currentTask = currentProject.tasks[taskIndex];
-        const opIndex = currentTask.operations.findIndex(op => op.id === opId);
+        const opIndex = currentProject.tasks[taskIndex].operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
         
+        const currentTask = currentProject.tasks[taskIndex];
         const currentOp = currentTask.operations[opIndex];
-        
-        // Yeni geçmiş kaydı oluştur
-        const newHistoryEntry = {
-            id: Date.now(),
-            reason: reason,
-            description: description || '',
-            reportedBy: loggedInUser.name,
-            date: getCurrentDateTimeString(),
-            previousProgress: currentOp.progressPercentage || 0,
-            previousStatus: currentOp.status
-        };
+        const newHistoryEntry = { id: Date.now(), reason, description, reportedBy: loggedInUser.name, date: getCurrentDateTimeString(), previousProgress: currentOp.progressPercentage };
+        const updatedOp = { ...currentOp, status: OPERATION_STATUS.NOT_STARTED, progressPercentage: 0, reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry] };
 
-        // Operasyonu güncelle (Sıfırla ve geçmişe ekle)
-        const updatedOp = {
-            ...currentOp,
-            status: OPERATION_STATUS.NOT_STARTED, // Başa sar
-            progressPercentage: 0, // Sıfırla
-            // Geçmişi koru veya yeni dizi başlat
-            reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry]
-        };
-
-        const newOperations = [...currentTask.operations];
-        newOperations[opIndex] = updatedOp;
+        const newOps = [...currentTask.operations];
+        newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
-        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
-
-        try {
-            await updateDoc(moldRef, { tasks: newTasks });
-            console.log("Hata bildirildi ve operasyon sıfırlandı.");
-        } catch (e) {
-            console.error("Hata bildirme işlemi başarısız:", e);
-        }
+        newTasks[taskIndex] = { ...currentTask, operations: newOps };
+        
+        await updateDoc(moldRef, { tasks: newTasks });
     }, [db, projects, loggedInUser]);
 
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
@@ -344,9 +338,7 @@ const App = () => {
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
-            
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: Map, roles: [ROLES.ADMIN] },
-
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
             { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
         ];
@@ -400,7 +392,18 @@ const App = () => {
 
             <Routes>
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
-                <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} />} />
+                
+                {/* --- DÜZELTME BURADA: handleUpdateMachineStatus PROP'U EKLENDİ --- */}
+                <Route path="/active" element={
+                    <ActiveTasksPage 
+                        projects={projects} 
+                        machines={machines} 
+                        loggedInUser={loggedInUser} 
+                        personnel={personnel} 
+                        handleUpdateMachineStatus={handleUpdateMachineStatus} 
+                    />
+                } />
+                
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/review" element={<SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />} />
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
@@ -413,7 +416,7 @@ const App = () => {
                         loggedInUser={loggedInUser} 
                         handleUpdateOperation={handleUpdateOperation} 
                         handleAddOperation={handleAddOperation} 
-                        handleReportOperationIssue={handleReportOperationIssue} // YENİ: Fonksiyon prop olarak geçildi
+                        handleReportOperationIssue={handleReportOperationIssue} 
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 

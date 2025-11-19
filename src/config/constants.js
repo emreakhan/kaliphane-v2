@@ -98,3 +98,9 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
             return MOLD_STATUS.WAITING;
     }
 };
+
+export const MACHINE_STATUS = {
+    AVAILABLE: 'MEVCUT',      // Çalışabilir durumda
+    FAULT: 'ARIZALI',         // Arıza var
+    MAINTENANCE: 'BAKIMDA'    // Bakım var
+};
