@@ -1,21 +1,19 @@
 // src/pages/ActiveTasksPage.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Responsive, WidthProvider } from 'react-grid-layout'; // Harita için
-import { doc, onSnapshot } from 'firebase/firestore'; // Veritabanı dinleme
+import GridLayout from 'react-grid-layout'; // DÜZELTME BURADA: Doğru bileşen import edildi
+import { doc, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../config/firebase';
 
 // İkonlar
-import { Users, Cpu, AlertTriangle, Map as MapIcon, List as ListIcon, Activity, Clock, Wrench, AlertOctagon } from 'lucide-react'; // Wrench eklendi
+import { Users, Cpu, AlertTriangle, Map as MapIcon, List as ListIcon, Activity, Clock, Wrench, AlertOctagon } from 'lucide-react'; 
 
 // Sabitler
-import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES, MACHINE_STATUS } from '../config/constants.js'; // MACHINE_STATUS eklendi
+import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES, MACHINE_STATUS } from '../config/constants.js'; 
 
 // Yardımcı Fonksiyonlar
 import { formatDate } from '../utils/dateUtils';
-import MachineStatusModal from '../components/Modals/MachineStatusModal'; // Modal import edildi
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
+import MachineStatusModal from '../components/Modals/MachineStatusModal'; 
 
 const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUpdateMachineStatus }) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -27,22 +25,19 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [selectedMachine, setSelectedMachine] = useState(null);
 
-    // Harita verisini veritabanından çekme
+    // Harita verisini çek
     useEffect(() => {
         if (viewMode === 'map') {
             const docRef = doc(db, 'workshop_settings', 'layout');
             const unsubscribe = onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    setSavedLayout(docSnap.data().layout || []);
-                }
+                if (docSnap.exists()) setSavedLayout(docSnap.data().layout || []);
                 setIsLayoutLoaded(true);
             });
             return () => unsubscribe();
         }
     }, [viewMode]);
 
-
-    // Süreyi formatlayan yardımcı fonksiyon
+    // Süre Formatlama
     const formatDuration = (startDate) => {
         if (!startDate) return '---';
         const start = new Date(startDate);
@@ -78,7 +73,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         );
     }, [projects]);
 
-    // --- TEZGAH DURUM HARİTASI (GÜNCELLENDİ) ---
+    // TEZGAH DURUM HARİTASI
     const machineStatusMap = useMemo(() => {
         const map = {};
         machines.forEach(machine => {
@@ -100,7 +95,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         return map;
     }, [allRunningOperations, machines]);
 
-    // Liste görünümü için veri
     const machineStatusList = useMemo(() => {
         return Object.entries(machineStatusMap).map(([name, status]) => ({
             machineName: name,
@@ -112,8 +106,22 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         })).sort((a, b) => a.machineName.localeCompare(b.machineName));
     }, [machineStatusMap]);
 
-    // İş Dağılımı Listesi (Geri Getirildi)
+    const waitingReviewTasks = useMemo(() => {
+        const allWaitingTasks = projects.flatMap(mold => 
+            mold.tasks.flatMap(task => 
+                task.operations
+                    .filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW)
+                    .map(op => ({
+                        ...op, moldName: mold.moldName, taskName: task.taskName, moldId: mold.id, taskId: task.id
+                    }))
+            )
+        );
+        if (!searchTerm.trim()) return allWaitingTasks;
+        return allWaitingTasks.filter(task => task.moldName.toLowerCase().includes(lowerSearchTerm));
+    }, [projects, searchTerm, lowerSearchTerm]);
+
     const canViewWorkDistribution = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.SUPERVISOR;
+    
     const workDistribution = useMemo(() => {
         if (!canViewWorkDistribution) return [];
         const camOperators = personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR);
@@ -121,13 +129,14 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         camOperators.forEach(op => { workCounts.set(op.name, 0); });
         allRunningOperations.forEach(op => {
             const operatorName = op.assignedOperator;
-            if (workCounts.has(operatorName)) workCounts.set(operatorName, workCounts.get(operatorName) + 1);
+            if (workCounts.has(operatorName)) {
+                workCounts.set(operatorName, workCounts.get(operatorName) + 1);
+            }
         });
         const distributionList = Array.from(workCounts.entries()).map(([name, count]) => ({ name, count }));
         return distributionList.sort((a, b) => a.count - b.count);
     }, [personnel, canViewWorkDistribution, allRunningOperations]);
 
-    // Modal Açma
     const openStatusModal = (machineName) => {
         if (loggedInUser.role === ROLES.MACHINE_OPERATOR) return; 
         const statusInfo = machineStatusMap[machineName];
@@ -140,67 +149,89 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         }
     };
 
+    const totalActiveCount = machineStatusList.filter(m => m.statusType === 'WORKING').length + waitingReviewTasks.length;
+
+    // --- HARİTA GÖRÜNÜMÜ (SABİT GENİŞLİK) ---
     const WorkshopMap = () => {
         if (!isLayoutLoaded) return <div className="text-center p-10 text-gray-500">Harita yükleniyor...</div>;
         if (savedLayout.length === 0) return <div className="text-center p-10 text-red-500">Henüz yerleşim planı çizilmemiş. Admin panelinden düzenleyin.</div>;
 
+        const MAP_WIDTH = 1200;
+
         return (
-            <div className="bg-gray-200 dark:bg-gray-900/30 p-6 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 overflow-hidden min-h-[600px] animate-fadeIn">
-                <ResponsiveGridLayout
-                    className="layout"
-                    layouts={{ lg: savedLayout }}
-                    breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-                    cols={{ lg: 24, md: 20, sm: 12, xs: 8, xxs: 4 }}
-                    rowHeight={40}
-                    isDraggable={false}
-                    isResizable={false}
-                    compactType={null}
-                    margin={[10, 10]}
-                >
-                    {savedLayout.map((item) => {
-                        const info = machineStatusMap[item.i] || { colorClass: 'bg-gray-400', text: '??' };
+            <div className="bg-gray-200 dark:bg-gray-900/30 p-6 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 overflow-auto min-h-[600px] animate-fadeIn">
+                <div style={{ width: `${MAP_WIDTH}px`, minHeight: '600px' }}>
+                    <GridLayout
+                        className="layout"
+                        layout={savedLayout}
+                        width={MAP_WIDTH} 
+                        cols={24} 
+                        rowHeight={40}
+                        isDraggable={false}
+                        isResizable={false}
+                        compactType={null}
+                        margin={[10, 10]}
+                    >
+                        {savedLayout.map((item) => {
+                            const info = machineStatusMap[item.i] || { colorClass: 'bg-gray-400', text: '??', status: 'UNKNOWN' };
 
-                        return (
-                            <div 
-                                key={item.i} 
-                                onClick={() => openStatusModal(item.i)}
-                                className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer
-                                    ${info.colorClass}`}
-                            >
-                                <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">
-                                    {item.i}
-                                </span>
+                            return (
+                                <div 
+                                    key={item.i} 
+                                    onClick={() => openStatusModal(item.i)}
+                                    className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer
+                                        ${info.colorClass}`}
+                                >
+                                    <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">
+                                        {item.i}
+                                    </span>
 
-                                {/* TOOLTIP */}
-                                <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full mb-2 left-1/2 transform -translate-x-1/2 z-50 w-64 pointer-events-none">
-                                    <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 border border-gray-700">
-                                        <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between"><span>{item.i}</span>{info.icon}</div>
-                                        {info.status === 'WORKING' ? (
-                                            <div className="space-y-1">
-                                                <div className="font-semibold text-green-400">ÇALIŞIYOR</div>
-                                                <div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div>
-                                                <div><span className="text-gray-400">İş:</span> {info.task.taskName}</div>
-                                                <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>
+                                    {/* TOOLTIP (BİLGİ BALONCUĞU) */}
+                                    <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full mb-2 left-1/2 transform -translate-x-1/2 z-50 w-64 pointer-events-none">
+                                        <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 border border-gray-700">
+                                            <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between">
+                                                <span>{item.i}</span>
+                                                {info.icon}
                                             </div>
-                                        ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' ? (
-                                            <div className="space-y-1">
-                                                <div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : 'text-yellow-500'}`}>{info.text}</div>
-                                                <div className="text-gray-300 italic">"{info.detail}"</div>
-                                                <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>
-                                            </div>
-                                        ) : ( <div className="text-red-400 font-semibold flex items-center"><AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA</div> )}
-                                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
+                                            
+                                            {info.status === 'WORKING' ? (
+                                                <div className="space-y-1">
+                                                    <div className="font-semibold text-green-400">ÇALIŞIYOR</div>
+                                                    <div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div>
+                                                    <div><span className="text-gray-400">İş:</span> {info.task.taskName}</div>
+                                                    <div><span className="text-gray-400">Op:</span> {info.task.type} (%{info.task.progressPercentage})</div>
+                                                    
+                                                    {/* CAM OPERATÖRÜ EKLENDİ */}
+                                                    <div className="text-blue-300">
+                                                        <span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}
+                                                    </div>
+                                                    
+                                                    <div className="text-xs text-right text-gray-500 mt-1">
+                                                        <Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}
+                                                    </div>
+                                                </div>
+                                            ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' ? (
+                                                <div className="space-y-1">
+                                                    <div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : 'text-yellow-500'}`}>{info.text}</div>
+                                                    <div className="text-gray-300 italic">"{info.detail}"</div>
+                                                    <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>
+                                                </div>
+                                            ) : (
+                                                <div className="text-red-400 font-semibold flex items-center">
+                                                    <AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA
+                                                </div>
+                                            )}
+                                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </ResponsiveGridLayout>
+                            );
+                        })}
+                    </GridLayout>
+                </div>
             </div>
         );
     };
-
-    const totalActiveCount = Object.values(machineStatusMap).filter(s => s.status === 'WORKING').length;
 
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8 min-h-[85vh]">
@@ -222,15 +253,11 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                 </div>
             </div>
 
-            {/* İçerik */}
             {viewMode === 'map' ? <WorkshopMap /> : (
                 <div>
                     {/* Liste Görünümü */}
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                        Tezgah Durumları ({machineStatusList.length})
-                    </h3>
-                     {/* --- DÜZELTİLMİŞ TABLO --- */}
-                     <div className="overflow-x-auto border rounded-lg dark:border-gray-700 shadow-sm">
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Tezgah Durumları</h3>
+                    <div className="overflow-x-auto border rounded-lg dark:border-gray-700 shadow-sm">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                                 <tr>
@@ -248,6 +275,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                 {machineStatusList.filter(item => {
                                     if (!searchTerm.trim()) return true;
                                     if (item.machineName.toLowerCase().includes(lowerSearchTerm)) return true;
+                                    if (item.task && item.task.moldName.toLowerCase().includes(lowerSearchTerm)) return true;
                                     return false; 
                                 }).map((item) => (
                                     <tr key={item.machineName} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
@@ -279,11 +307,9 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                             {item.task ? (item.task.machineOperatorName || '---') : '---'}
                                         </td>
                                         <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">
-                                            {/* DÜZELTME: item.startTime alanı kullanıldı */}
                                             {item.startTime ? formatDate(item.startTime) : '---'}
                                         </td>
                                         <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
-                                            {/* DÜZELTME: item.startTime alanı kullanıldı */}
                                             {item.startTime ? formatDuration(item.startTime) : '---'}
                                         </td>
                                     </tr>
@@ -292,7 +318,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                         </table>
                     </div>
 
-                    {/* İŞ DAĞILIMI TABLOSU (GERİ GETİRİLDİ) */}
                     {canViewWorkDistribution && (
                         <div className="mt-8">
                             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
