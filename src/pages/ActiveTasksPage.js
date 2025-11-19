@@ -1,36 +1,41 @@
 // src/pages/ActiveTasksPage.js
 
 import React, { useState, useMemo } from 'react';
+
+// İkonlar
 import { Users, Cpu, AlertTriangle } from 'lucide-react';
-// '.js' uzantılarını ekledim
-import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES } from '../config/constants.js'; 
-import { formatDate } from '../utils/dateUtils.js'; 
+
+// Sabitler
+import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES } from '../config/constants.js';
+
+// Yardımcı Fonksiyonlar
+import { formatDate } from '../utils/dateUtils';
+
 
 const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Süreyi formatlayan yardımcı fonksiyon
     const formatDuration = (startDate) => {
         if (!startDate) return '---';
         const start = new Date(startDate);
         const now = new Date();
         const diffMs = now - start;
         const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        if (diffHours < 24) return `${diffHours} saat`;
+        if (diffHours < 24) return `${diffHours}s`;
         const days = Math.floor(diffHours / 24);
         const hours = diffHours % 24;
-        return `${days}gün ${hours}saat`;
+        return `${days}g ${hours}s`;
     };
 
     const lowerSearchTerm = searchTerm.toLowerCase();
     
-    // --- KRİTİK DÜZELTME ---
     // Sadece 'IN_PROGRESS' (Gerçekten Çalışan) operasyonları alıyoruz.
-    // PAUSED olanlar buraya girmez, böylece tezgahlar "BOŞTA" görünür.
     const allRunningOperations = useMemo(() => {
         return projects.flatMap(mold => 
             mold.tasks.flatMap(task => 
                 task.operations
-                    .filter(op => op.status === OPERATION_STATUS.IN_PROGRESS) // SADECE IN_PROGRESS
+                    .filter(op => op.status === OPERATION_STATUS.IN_PROGRESS)
                     .map(op => ({
                         ...op,
                         moldName: mold.moldName,
@@ -41,9 +46,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         );
     }, [projects]);
 
-    // Tezgah Durumları Listesi
-    // allRunningOperations sadece çalışanları içerdiği için, duraklatılan işler burada 'runningTask' olarak görünmeyecek
-    // ve tezgah otomatik olarak 'isIdle: true' (BOŞTA) olacak.
+    // TEZGAH DURUM LİSTESİ
     const machineStatusList = useMemo(() => {
         const allMachineNames = machines.map(m => m.name);
         
@@ -85,7 +88,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
         });
     }, [allRunningOperations, machines, searchTerm, lowerSearchTerm]);
 
-    // Onay Bekleyen İşler Listesi (Burası zaten doğru çalışıyordu ama temiz kalsın)
+    // Onay Bekleyen İşler Listesi
     const waitingReviewTasks = useMemo(() => {
         const allWaitingTasks = projects.flatMap(mold => 
             mold.tasks.flatMap(task => 
@@ -173,7 +176,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                         </p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto border rounded-lg dark:border-gray-700">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                                 <tr>
@@ -286,6 +289,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                 )}
             </div>
 
+            {/* BÖLÜM 2: İŞ DAĞILIMI (SADECE ADMİN VE YETKİLİ) */}
             {canViewWorkDistribution && (
                 <div>
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">

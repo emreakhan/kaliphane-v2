@@ -1,7 +1,7 @@
 // src/pages/EnhancedMoldList.js
 
 import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom'; // Eklendi: Yönlendirme kancası
+import { useNavigate } from 'react-router-dom'; // Yönlendirme kancası
 
 // İkonlar
 import { 
@@ -18,10 +18,11 @@ import { formatDate, calculateRemainingWorkDays, calculateWorkDayDifference } fr
 
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
-const EnhancedMoldList = ({ projects }) => { // onSelectMold prop'u kaldırıldı
+const EnhancedMoldList = ({ projects }) => { 
     const [activeFilter, setActiveFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
-    const navigate = useNavigate(); // Yönlendirme fonksiyonunu tanımla
+    
+    const navigate = useNavigate(); // Yönlendirme fonksiyonu
     
     // Parça ilerlemesini hesaplar
     const calculateMoldProgress = (tasks) => {
@@ -289,7 +290,7 @@ const EnhancedMoldList = ({ projects }) => { // onSelectMold prop'u kaldırıld�
                         return (
                             <div
                                 key={project.id}
-                                onClick={() => navigate(`/mold/${project.id}`)} // Tıklandığında URL değişir
+                                onClick={() => navigate(`/mold/${project.id}`)} 
                                 className={`p-4 rounded-xl shadow-lg hover:shadow-xl transition duration-300 transform hover:-translate-y-1 cursor-pointer border-t-4 flex flex-col ${cardHighlightClasses} relative`}
                             >
                                 {project.priority && (
@@ -309,6 +310,19 @@ const EnhancedMoldList = ({ projects }) => { // onSelectMold prop'u kaldırıld�
                                     <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
                                         Müşteri: <span className="font-semibold">{project.customer}</span>
                                     </p>
+                                    
+                                    {/* --- EKLENEN KISIM BAŞLANGIÇ --- */}
+                                    {project.projectManager && (
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
+                                            Proje Sor: <span className="font-semibold text-blue-700 dark:text-blue-300">{project.projectManager}</span>
+                                        </p>
+                                    )}
+                                    {project.moldDesigner && (
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
+                                            Tasarım Sor: <span className="font-semibold text-purple-700 dark:text-purple-300">{project.moldDesigner}</span>
+                                        </p>
+                                    )}
+                                    {/* --- EKLENEN KISIM BİTİŞ --- */}
                                     
                                     <p className="text-gray-600 dark:text-gray-400 text-xs">
                                         Termin: <span className="font-semibold">{formatDate(project.moldDeadline) || '---'}</span>
