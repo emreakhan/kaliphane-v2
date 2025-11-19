@@ -193,7 +193,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                         return (
                             <div 
                                 key={item.i} 
-                                className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all
+                                // DÜZELTME BURADA: hover:z-50 ve transition özellikleri eklendi
+                                className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105
                                     ${isIdle 
                                         ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' 
                                         : 'bg-gradient-to-br from-green-500 to-green-600 text-white animate-pulse-slow' 
@@ -280,7 +281,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel }) => {
                         <div className="w-full md:w-64">
                             <input
                                 type="text"
-                                placeholder="Kalıp, parça, operatör veya tezgah ara..."
+                                placeholder="Ara..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
