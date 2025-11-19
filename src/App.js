@@ -51,12 +51,7 @@ const App = () => {
     const [projects, setProjects] = useState([]);
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
-    
-    // --- DÜZELTME: Sayfa yenilenince localStorage'dan kullanıcıyı geri getir ---
-    const [loggedInUser, setLoggedInUser] = useState(() => {
-        const savedUser = localStorage.getItem('kaliphane_user');
-        return savedUser ? JSON.parse(savedUser) : null;
-    });
+    const [loggedInUser, setLoggedInUser] = useState(null);
     
     const navigate = useNavigate(); 
     const location = useLocation();
@@ -206,8 +201,8 @@ const App = () => {
         });
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
-    
-    // YENİ FONKSİYON: TEZGAH DURUM GÜNCELLEME (Senin dosyanın üzerine eklendi)
+
+    // YENİ FONKSİYONLAR
     const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
         if (!db) return;
         try {
@@ -223,7 +218,6 @@ const App = () => {
         }
     }, [db]);
     
-    // YENİ FONKSİYON: HATA BİLDİRİMİ VE SIFIRLAMA (Senin dosyanın üzerine eklendi)
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -372,12 +366,7 @@ const App = () => {
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
                         <button
-                            // DÜZELTME: Çıkışta localstorage temizle
-                            onClick={() => {
-                                setLoggedInUser(null); 
-                                localStorage.removeItem('kaliphane_user'); // <--- BURASI ÖNEMLİ
-                                navigate('/');
-                            }}
+                            onClick={() => {setLoggedInUser(null); navigate('/');}}
                             className="flex items-center text-sm px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
                          >
                             <LogOut className="w-4 h-4 mr-1"/> Çıkış
@@ -411,14 +400,15 @@ const App = () => {
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
-                <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} />} />
+                {/* GÜNCELLEME: AnalysisPage'e loggedInUser gönderildi */}
+                <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/mold/:moldId" element={
                     <MoldDetailPage 
                         loggedInUser={loggedInUser} 
                         handleUpdateOperation={handleUpdateOperation} 
                         handleAddOperation={handleAddOperation} 
-                        handleReportOperationIssue={handleReportOperationIssue} // YENİ: Fonksiyon prop olarak geçildi
+                        handleReportOperationIssue={handleReportOperationIssue} 
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 
