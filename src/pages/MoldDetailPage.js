@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom'; // Yönlendirme kanca
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, Tool 
+    User, Tool, AlertTriangle // EKLENDİ: AlertTriangle
 } from 'lucide-react'; 
 
 // Sabitler
@@ -28,6 +28,7 @@ import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
 import AddOperationModal from '../components/Modals/AddOperationModal.js';
+import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; // EKLENDİ: Hata Bildirim Modalı
 
 
 // --- HESAPLAMA FONKSİYONU ---
@@ -86,6 +87,7 @@ const MoldDetailPage = ({
     loggedInUser, 
     handleUpdateOperation, 
     handleAddOperation, 
+    handleReportOperationIssue, // EKLENDİ: Prop olarak alındı
     projects, 
     personnel, 
     machines, 
@@ -98,13 +100,11 @@ const MoldDetailPage = ({
     handleUpdateMoldDesigner
 }) => {
     
-    const { moldId } = useParams(); // URL'den ID al
-    const navigate = useNavigate(); // Yönlendirme fonksiyonu
+    const { moldId } = useParams(); 
+    const navigate = useNavigate(); 
     
-    // Kalıbı bul (ID'ye göre)
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
 
-    // State'ler
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
     const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
     const [localProjectManager, setLocalProjectManager] = useState('');
@@ -118,7 +118,6 @@ const MoldDetailPage = ({
     const [isSaving, setIsSaving] = useState(false);
     const [expandedTasks, setExpandedTasks] = useState({});
 
-    // Mold verisi yüklendiğinde state'leri güncelle
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
@@ -130,7 +129,6 @@ const MoldDetailPage = ({
         }
     }, [mold]);
 
-    // Notları dinle
     useEffect(() => {
         if (!db || !mold?.id) return;
         const noteRef = doc(db, MOLD_NOTES_COLLECTION, mold.id);
@@ -144,7 +142,6 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
-    // Eğer kalıp bulunamazsa yükleniyor göster
     if (!mold) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -184,7 +181,6 @@ const MoldDetailPage = ({
         setIsNoteModalOpen(true);
     };
 
-    // --- YETKİ KONTROLLERİ ---
     const isAdmin = loggedInUser.role === ROLES.ADMIN;
     
     const isManager = 
@@ -192,12 +188,10 @@ const MoldDetailPage = ({
         loggedInUser.role === ROLES.PROJE_SORUMLUSU ||
         loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     
-    // "Operasyon Ekleme" Yetkisi (Admin VEYA Kalıp Tasarımcısı)
     const canAddOperations = 
         loggedInUser.role === ROLES.ADMIN ||
         loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
-    // --- INPUT HANDLERS ---
     const onStatusChange = (e) => { handleUpdateMoldStatus(mold.id, e.target.value); };
     
     const onDeadlineChange = (e) => {
@@ -239,7 +233,6 @@ const MoldDetailPage = ({
         handleUpdateMoldDesigner(mold.id, newDesigner);
     };
 
-    // Dropdown listeleri için personel filtreleme
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const projectManagers = useMemo(() => 
         personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), 
@@ -278,12 +271,16 @@ const MoldDetailPage = ({
         if (type === 'add_operation' && canAddOperations) {
             return <AddOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} onSubmit={handleAddOperation} />;
         }
+        // YENİ: Hata Bildirim Modalı
+        if (type === 'report_issue') {
+            return <ReportIssueModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} onSubmit={handleReportOperationIssue} />;
+        }
+
         return null;
     };
     
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl relative">
-            {/* Geri Dön Butonu - React Router ile */}
             <button 
                 onClick={() => navigate('/')} 
                 className="mb-4 text-blue-600 dark:text-blue-400 hover:underline flex items-center"
@@ -309,7 +306,6 @@ const MoldDetailPage = ({
             
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
             
-            {/* --- ÜST BİLGİ ALANI --- */}
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
                 <div>
                     <span>Müşteri: {mold.customer} | Ana Durum:</span>
@@ -390,7 +386,6 @@ const MoldDetailPage = ({
              </div>
 
 
-            {/* --- İŞ PARÇALARI LİSTESİ (AKORDİYON GÖRÜNÜMÜ) --- */}
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları</h3>
             <div className="space-y-1">
                 <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase rounded-t-lg bg-gray-100 dark:bg-gray-700">
@@ -451,33 +446,85 @@ const MoldDetailPage = ({
                                     <div className="bg-gray-50 dark:bg-gray-800/50 p-3">
                                         <div className="space-y-3">
                                             {(task.operations || []).map(operation => (
-                                                <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-gray-700">
-                                                    <div className="flex-1 min-w-0 mb-2 md:mb-0">
-                                                        <p className="font-semibold text-blue-700 dark:text-blue-300">Operasyon: {operation.type}</p>
-                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
-                                                            <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
-                                                            <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
-                                                            <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
-                                                            <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
-                                                            <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
-                                                            {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
-                                                            {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
-                                                            {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
-                                                            {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-400">Yorum:</span> <span className="italic">"{operation.supervisorComment}"</span></div>}
+                                                <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
+                                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+                                                        <div className="flex-1 min-w-0 mb-2 md:mb-0">
+                                                            <div className="flex items-center">
+                                                                <p className="font-semibold text-blue-700 dark:text-blue-300 mr-2">Operasyon: {operation.type}</p>
+                                                                {/* YENİ: Hata Geçmişi Uyarısı */}
+                                                                {operation.reworkHistory && operation.reworkHistory.length > 0 && (
+                                                                    <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded flex items-center">
+                                                                        <AlertTriangle className="w-3 h-3 mr-1" />
+                                                                        {operation.reworkHistory.length}. Hata Kaydı
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
+                                                                <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
+                                                                <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
+                                                                <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
+                                                                <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
+                                                                <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
+                                                                {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
+                                                                {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
+                                                                {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
+                                                                {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-400">Yorum:</span> <span className="italic">"{operation.supervisorComment}"</span></div>}
+                                                            </div>
+                                                            <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
                                                         </div>
-                                                        <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
+
+                                                        {/* YENİ: BUTONLAR VE HATA BİLDİRİMİ */}
+                                                        <div className="flex flex-col gap-2 mt-2 md:mt-0">
+                                                            <div className="flex flex-col md:flex-row gap-2">
+                                                                {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
+                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
+                                                                )}
+                                                                {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.PAUSED && (
+                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
+                                                                )}
+                                                                {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
+                                                                    <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
+                                                                )}
+                                                                
+                                                                {/* YENİ: Hata Bildirim Butonu */}
+                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && 
+                                                                  (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
+                                                                    <button 
+                                                                        onClick={() => handleOpenModal('report_issue', mold, task, operation)}
+                                                                        className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"
+                                                                        title="Hata Bildir ve Sıfırla"
+                                                                    >
+                                                                        <AlertTriangle className="w-4 h-4" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex flex-col md:flex-row gap-2">
-                                                        {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
-                                                            <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
-                                                        )}
-                                                        {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.PAUSED && (
-                                                            <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
-                                                        )}
-                                                        {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
-                                                            <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
-                                                        )}
-                                                    </div>
+
+                                                    {/* YENİ: Hata Geçmişi Detayları */}
+                                                    {operation.reworkHistory && operation.reworkHistory.length > 0 && (
+                                                        <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-900/30">
+                                                            <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-2">⚠️ Hata ve Yeniden İşleme Geçmişi:</p>
+                                                            <div className="space-y-2">
+                                                                {operation.reworkHistory.map((history) => (
+                                                                    <div key={history.id} className="bg-red-50 dark:bg-red-900/10 p-2 rounded text-xs border border-red-100 dark:border-red-900/30">
+                                                                        <div className="flex justify-between text-red-700 dark:text-red-400 font-semibold">
+                                                                            <span>{history.reason}</span>
+                                                                            <span>{formatDateTime(history.date)}</span>
+                                                                        </div>
+                                                                        <div className="text-gray-600 dark:text-gray-400 mt-1">
+                                                                            {history.description}
+                                                                        </div>
+                                                                        <div className="text-gray-500 dark:text-gray-500 mt-1 italic">
+                                                                            Bildiren: {history.reportedBy} (Sıfırlanan İlerleme: %{history.previousProgress})
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    
                                                 </div>
                                             ))}
                                         </div>
@@ -491,7 +538,7 @@ const MoldDetailPage = ({
             
             {renderModal()}
             
-            {/* Notlar Modalı */}
+            {/* Notlar Modalı (Aynı Kaldı) */}
             <Modal isOpen={isNoteModalOpen} onClose={() => setIsNoteModalOpen(false)} title={`${mold.moldName} - Ortak Notlar`}>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Yeni Not Ekle ({loggedInUser.name})</label>
                 <textarea value={newNoteContent} onChange={(e) => setNewNoteContent(e.target.value)} placeholder="Yeni notunuzu buraya yazın..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />

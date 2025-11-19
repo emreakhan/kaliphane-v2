@@ -22,7 +22,7 @@ import {
 // Yardımcılar
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar (Map ikonu eklendi)
+// İkonlar
 import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle, Map } from 'lucide-react';
 
 // Sayfalar
@@ -56,7 +56,7 @@ const App = () => {
     const navigate = useNavigate(); 
     const location = useLocation();
 
-    // ... (Seed Fonksiyonları - Değişiklik Yok) ...
+    // ... (Seed Fonksiyonları - Aynı) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -200,6 +200,53 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
     
+    // YENİ FONKSİYON: HATA BİLDİRİMİ VE SIFIRLAMA
+    const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
+        if (!db) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+        const currentTask = currentProject.tasks[taskIndex];
+        const opIndex = currentTask.operations.findIndex(op => op.id === opId);
+        if (opIndex === -1) return;
+        
+        const currentOp = currentTask.operations[opIndex];
+        
+        // Yeni geçmiş kaydı oluştur
+        const newHistoryEntry = {
+            id: Date.now(),
+            reason: reason,
+            description: description || '',
+            reportedBy: loggedInUser.name,
+            date: getCurrentDateTimeString(),
+            previousProgress: currentOp.progressPercentage || 0,
+            previousStatus: currentOp.status
+        };
+
+        // Operasyonu güncelle (Sıfırla ve geçmişe ekle)
+        const updatedOp = {
+            ...currentOp,
+            status: OPERATION_STATUS.NOT_STARTED, // Başa sar
+            progressPercentage: 0, // Sıfırla
+            // Geçmişi koru veya yeni dizi başlat
+            reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry]
+        };
+
+        const newOperations = [...currentTask.operations];
+        newOperations[opIndex] = updatedOp;
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
+
+        try {
+            await updateDoc(moldRef, { tasks: newTasks });
+            console.log("Hata bildirildi ve operasyon sıfırlandı.");
+        } catch (e) {
+            console.error("Hata bildirme işlemi başarısız:", e);
+        }
+    }, [db, projects, loggedInUser]);
+
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
         if (!db) return;
         const currentProject = projects.find(p => p.id === moldId);
@@ -288,7 +335,6 @@ const App = () => {
                        .filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
     }, [projects]);
     
-    // --- GÜNCELLENMİŞ MENÜ YAPISI (ATÖLYE YERLEŞİMİ EKLENDİ) ---
     const navItems = useMemo(() => {
         if (!loggedInUser) return [];
         const allLoginRoles = Object.values(ROLES);
@@ -299,7 +345,6 @@ const App = () => {
             { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             
-            // YENİ EKLENEN MENÜ BUTONU
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: Map, roles: [ROLES.ADMIN] },
 
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
@@ -359,10 +404,7 @@ const App = () => {
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/review" element={<SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />} />
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
-                
-                {/* YENİ: Yerleşim Editörü Rotası */}
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
-                
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} />} />
                 
@@ -371,6 +413,7 @@ const App = () => {
                         loggedInUser={loggedInUser} 
                         handleUpdateOperation={handleUpdateOperation} 
                         handleAddOperation={handleAddOperation} 
+                        handleReportOperationIssue={handleReportOperationIssue} // YENİ: Fonksiyon prop olarak geçildi
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 
