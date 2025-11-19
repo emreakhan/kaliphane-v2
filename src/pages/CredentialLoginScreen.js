@@ -1,122 +1,125 @@
 // src/pages/CredentialLoginScreen.js
 
 import React, { useState } from 'react';
-// İkonları import etmemiz gerekiyor
-import { RefreshCw, AlertTriangle, User, Lock, Eye, EyeOff, LogOut } from 'lucide-react';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../config/firebase';
+import { Lock, User, LogIn, AlertCircle, Hexagon } from 'lucide-react'; // Hexagon ikonu logo yerine eklendi
 
-/**
- * YENİ: Gerçek Giriş Ekranı (Kullanıcı Adı / Şifre ile)
- */
-const CredentialLoginScreen = ({ db, setLoggedInUser, personnel }) => {
+// --- TEK RESİM IMPORTU ---
+// Sadece assets klasörüne attığın arka plan resmini çağırıyoruz.
+import backgroundImage from '../assets/kaliphane-bg.jpg'; 
+
+const CredentialLoginScreen = ({ setLoggedInUser, personnel }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
 
-    const handleLogin = async () => {
-        if (!username || !password) {
-            setError('Kullanıcı adı ve şifre zorunludur.');
-            return;
-        }
-        setLoading(true);
+    const handleLogin = async (e) => {
+        e.preventDefault();
         setError('');
-        try {
-            const lowerCaseUsername = username.trim().toLowerCase();
-            const userData = personnel.find(p => p.username === lowerCaseUsername);
+        setLoading(true);
 
-            if (!userData) {
-                setError('Kullanıcı bulunamadı.');
-                setLoading(false);
-                return;
-            }
-            if (userData.password === password) {
-                setLoggedInUser({ ...userData });
+        try {
+            const user = personnel.find(p => p.username === username && p.password === password);
+
+            if (user) {
+                setLoggedInUser(user);
+                localStorage.setItem('kaliphane_user', JSON.stringify(user));
             } else {
-                setError('Hatalı şifre.');
+                setError('Kullanıcı adı veya şifre hatalı!');
             }
         } catch (err) {
-            console.error("Giriş hatası:", err);
-            setError('Giriş sırasında bir hata oluştu.');
+            setError('Giriş yapılırken bir hata oluştu.');
+            console.error(err);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-            <div className="w-full max-w-md bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl">
-                <h2 className="text-3xl font-bold text-center text-gray-900 dark:text-white mb-6">
-                    Kalıphane Takip Sistemi
-                </h2>
-    
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Kullanıcı Adı
-                        </label>
-                        <div className="relative">
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                                <User className="w-5 h-5 text-gray-400" />
-                            </span>
+        <div 
+            className="min-h-screen flex items-center justify-center bg-gray-900 px-4 relative overflow-hidden bg-cover bg-center"
+            style={{ backgroundImage: `url(${backgroundImage})` }} 
+        >
+            {/* Arka Plan Karartma (Yazılar okunsun diye) */}
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+
+            {/* Login Kartı */}
+            <div className="max-w-md w-full space-y-8 bg-black/40 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-white/10 relative z-10 animate-fade-in-up">
+                
+                {/* --- LOGO YERİNE İKON VE YAZI --- */}
+                <div className="flex flex-col items-center justify-center">
+                    <div className="mb-2 p-3 bg-white/10 rounded-full shadow-lg border border-white/20">
+                        {/* Resim yerine Lucide'in şık bir ikonunu koyduk */}
+                        <Hexagon className="h-10 w-10 text-blue-400" strokeWidth={1.5} />
+                    </div>
+                    <h2 className="mt-2 text-3xl font-extrabold text-white tracking-tight drop-shadow-md text-center">
+                        Etka-D Kalıp
+                    </h2>
+                    <p className="mt-1 text-sm text-gray-300 drop-shadow-sm text-center">
+                        Üretim Takip Sistemi
+                    </p>
+                </div>
+
+                {error && (
+                    <div className="bg-red-500/20 border-l-4 border-red-500 p-4 rounded-md flex items-center">
+                        <AlertCircle className="h-5 w-5 text-red-400 mr-3" />
+                        <p className="text-sm text-red-100 font-medium">{error}</p>
+                    </div>
+                )}
+
+                <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+                    <div className="space-y-4">
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <User className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
+                            </div>
                             <input
                                 type="text"
+                                required
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                placeholder="kullanici.adi"
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                className="block w-full px-3 py-3 pl-10 border border-white/20 rounded-lg bg-black/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm transition-all"
+                                placeholder="Kullanıcı Adı"
                             />
                         </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Şifre
-                        </label>
-                        <div className="relative">
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                                <Lock className="w-5 h-5 text-gray-400" />
-                            </span>
+
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
+                            </div>
                             <input
-                                type={showPassword ? 'text' : 'password'}
+                                type="password"
+                                required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                className="block w-full px-3 py-3 pl-10 border border-white/20 rounded-lg bg-black/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm transition-all"
+                                placeholder="Şifre"
                             />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                            >
-                                {showPassword ?
-                                    <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                            </button>
                         </div>
                     </div>
 
-                    
-                    {error && (
-                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-sm text-red-700 dark:text-red-300 flex items-center">
-                            <AlertTriangle className="w-4 h-4 mr-2" />
-                            {error}
-                        </div>
-                    )}
+                    <div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 shadow-lg hover:shadow-blue-500/30 transform hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                            <span className="absolute left-0 inset-y-0 flex items-center pl-3">
+                                <LogIn className="h-5 w-5 text-blue-200 group-hover:text-white transition-colors" />
+                            </span>
+                            {loading ? 'Giriş Yapılıyor...' : 'Sisteme Giriş Yap'}
+                        </button>
+                    </div>
+                </form>
 
+                <div className="text-center mt-6">
+                    <p className="text-xs text-gray-500/80">
+                        &copy; {new Date().getFullYear()} Etka-D Kalıp ve Plastik San. Tic. Ltd. Şti.
+                    </p>
                 </div>
-                <button
-                    onClick={handleLogin}
-                    disabled={loading}
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 mt-6 disabled:opacity-50"
-                >
-                    {loading ?
-                        <RefreshCw className="w-5 h-5 animate-spin" /> : <LogOut className="w-5 h-5 mr-2 rotate-180"/>}
-                    {loading ? 'Giriş Yapılıyor...' : 'Giriş Yap'}
-                </button>
             </div>
-            <p className="mt-4 text-xs text-red-500 dark:text-red-400 text-center max-w-md">
-                <AlertTriangle className="w-4 h-4 inline mr-1" />
-                Bu sistem, şifreleri güvensiz (şifrelenmemiş) olarak saklamaktadır.
-                Bu yalnızca bir demo/prototip içindir.
-            </p>
         </div>
     );
 };
