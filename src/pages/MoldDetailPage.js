@@ -1,13 +1,13 @@
 // src/pages/MoldDetailPage.js
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom'; // Yönlendirme kancaları
+import { useParams, useNavigate } from 'react-router-dom';
 
 // İkonlar
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, Tool, AlertTriangle // EKLENDİ: AlertTriangle
+    User, Tool, AlertTriangle, ShieldAlert 
 } from 'lucide-react'; 
 
 // Sabitler
@@ -28,18 +28,13 @@ import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
 import AddOperationModal from '../components/Modals/AddOperationModal.js';
-import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; // EKLENDİ: Hata Bildirim Modalı
+import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; 
 
 
 // --- HESAPLAMA FONKSİYONU ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
-        return {
-            status: TASK_STATUS.BEKLIYOR,
-            progress: 0,
-            operator: '---',
-            type: '---'
-        };
+        return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
     }
     const statuses = operations.map(op => op.status);
     let overallStatus = TASK_STATUS.BEKLIYOR;
@@ -69,25 +64,18 @@ const getTaskSummary = (operations) => {
         overallStatus = TASK_STATUS.BEKLIYOR;
         activeType = 'BEKLİYOR';
     }
-    
     const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
     const overallProgress = Math.round(totalProgress / operations.length);
-    
-    return {
-        status: overallStatus,
-        progress: overallProgress,
-        operator: activeOperator,
-        type: activeType
-    };
+    return { status: overallStatus, progress: overallProgress, operator: activeOperator, type: activeType };
 };
-// --- HESAPLAMA SONU ---
 
 
 const MoldDetailPage = ({ 
     loggedInUser, 
     handleUpdateOperation, 
     handleAddOperation, 
-    handleReportOperationIssue, // EKLENDİ: Prop olarak alındı
+    handleReportOperationIssue, 
+    handleSetCriticalTask, // YENİ: Kritik parça güncelleme fonksiyonu
     projects, 
     personnel, 
     machines, 
@@ -97,11 +85,12 @@ const MoldDetailPage = ({
     handleUpdateTrialReportUrl,
     handleUpdateProductImageUrl,
     handleUpdateProjectManager,
-    handleUpdateMoldDesigner
+    handleUpdateMoldDesigner,
+    db // db prop'u eklendi
 }) => {
     
-    const { moldId } = useParams(); 
-    const navigate = useNavigate(); 
+    const { moldId } = useParams();
+    const navigate = useNavigate();
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
 
@@ -117,6 +106,11 @@ const MoldDetailPage = ({
     const [newNoteContent, setNewNoteContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [expandedTasks, setExpandedTasks] = useState({});
+    
+    // YENİ: Kritik Parça Modalı State'leri
+    const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
+    const [criticalNote, setCriticalNote] = useState('');
+    const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
 
     useEffect(() => {
         if (mold) {
@@ -143,11 +137,7 @@ const MoldDetailPage = ({
     }, [db, mold?.id]);
     
     if (!mold) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                <p className="text-lg text-gray-600 dark:text-gray-400">Kalıp verisi yükleniyor veya bulunamadı...</p>
-            </div>
-        );
+        return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
     }
 
     const handleSaveNote = async () => {
@@ -182,24 +172,46 @@ const MoldDetailPage = ({
     };
 
     const isAdmin = loggedInUser.role === ROLES.ADMIN;
+    const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     
-    const isManager = 
-        loggedInUser.role === ROLES.ADMIN ||
-        loggedInUser.role === ROLES.PROJE_SORUMLUSU ||
-        loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    // YENİ: Kritik Parça İşaretleme Yetkisi (Tasarımcı veya Admin)
+    const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+
+    // YENİ: Kritik Parça Modalını Açma
+    const openCriticalModal = (task) => {
+        setSelectedTaskForCritical(task);
+        setCriticalNote(task.criticalNote || ''); // Varsa eski notu getir
+        setIsCriticalModalOpen(true);
+    };
+
+    // YENİ: Kritik Parça Kaydetme
+    const saveCriticalStatus = () => {
+        if (selectedTaskForCritical) {
+            handleSetCriticalTask(mold.id, selectedTaskForCritical.id, true, criticalNote);
+            setIsCriticalModalOpen(false);
+            setCriticalNote('');
+            setSelectedTaskForCritical(null);
+        }
+    };
     
-    const canAddOperations = 
-        loggedInUser.role === ROLES.ADMIN ||
-        loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    // YENİ: Kritik Parça İptal Etme (Opsiyonel)
+    const removeCriticalStatus = () => {
+         if (selectedTaskForCritical) {
+            handleSetCriticalTask(mold.id, selectedTaskForCritical.id, false, '');
+            setIsCriticalModalOpen(false);
+            setCriticalNote('');
+            setSelectedTaskForCritical(null);
+        }
+    };
+
 
     const onStatusChange = (e) => { handleUpdateMoldStatus(mold.id, e.target.value); };
-    
     const onDeadlineChange = (e) => {
         const newDeadline = e.target.value;
         setLocalDeadline(newDeadline);
         handleUpdateMoldDeadline(mold.id, newDeadline);
     };
-    
     const onPriorityChange = (e) => {
         const val = e.target.value;
         setLocalPriority(val); 
@@ -208,25 +220,21 @@ const MoldDetailPage = ({
              handleUpdateMoldPriority(mold.id, numVal);
         }
     };
-    
     const handleReportUrlBlur = () => {
         if (localTrialReportUrl !== (mold.trialReportUrl || '')) {
             handleUpdateTrialReportUrl(mold.id, localTrialReportUrl);
         }
     };
-    
     const handleImageUrlBlur = () => {
         if (localProductImageUrl !== (mold.productImageUrl || '')) {
             handleUpdateProductImageUrl(mold.id, localProductImageUrl);
         }
     };
-    
     const handleProjectManagerChange = (e) => {
         const newManager = e.target.value;
         setLocalProjectManager(newManager);
         handleUpdateProjectManager(mold.id, newManager);
     };
-    
     const handleMoldDesignerChange = (e) => {
         const newDesigner = e.target.value;
         setLocalMoldDesigner(newDesigner);
@@ -234,24 +242,16 @@ const MoldDetailPage = ({
     };
 
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    const projectManagers = useMemo(() => 
-        personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), 
-    [personnel]);
-    
+    const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    const moldDesigners = useMemo(() => 
-        personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), 
-    [personnel]);
-
+    const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
 
     const handleOpenModal = (type, mold, task, operation) => {
         setModalState({ isOpen: true, type, data: { mold, task, operation } });
     };
-    
     const handleCloseModal = () => {
         setModalState({ isOpen: false, type: null, data: null });
     };
-    
     const toggleTaskExpansion = (taskId) => {
         setExpandedTasks(prev => ({ ...prev, [taskId]: !prev[taskId] }));
     };
@@ -259,7 +259,6 @@ const MoldDetailPage = ({
     const renderModal = () => {
         const { isOpen, type, data } = modalState;
         if (!isOpen || !data) return null;
-
         const { mold, task, operation } = data;
         
         if (type === 'assign' && loggedInUser.role === ROLES.CAM_OPERATOR && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
@@ -271,11 +270,9 @@ const MoldDetailPage = ({
         if (type === 'add_operation' && canAddOperations) {
             return <AddOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} onSubmit={handleAddOperation} />;
         }
-        // YENİ: Hata Bildirim Modalı
         if (type === 'report_issue') {
             return <ReportIssueModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} onSubmit={handleReportOperationIssue} />;
         }
-
         return null;
     };
     
@@ -306,20 +303,13 @@ const MoldDetailPage = ({
             
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
             
+            {/* ... (ÜST BİLGİ ALANI - AYNI) ... */}
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
                 <div>
                     <span>Müşteri: {mold.customer} | Ana Durum:</span>
                     {isAdmin ? (
                         <select value={mold.status || MOLD_STATUS.WAITING} onChange={onStatusChange} className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
-                            <option value={MOLD_STATUS.WAITING}>BEKLEMEDE</option>
-                            <option value={MOLD_STATUS.CNC}>CNC</option>
-                            <option value={MOLD_STATUS.EREZYON}>EREZYON</option>
-                            <option value={MOLD_STATUS.POLISAJ}>POLİSAJ</option>
-                            <option value={MOLD_STATUS.DESEN}>DESEN</option>
-                            <option value={MOLD_STATUS.MOLD_ASSEMBLY}>KALIP MONTAJ</option>
-                            <option value={MOLD_STATUS.TRIAL}>DENEME'DE</option>
-                            <option value={MOLD_STATUS.REVISION}>REVİZYON</option>
-                            <option value={MOLD_STATUS.COMPLETED}>TAMAMLANDI</option>
+                           {Object.values(MOLD_STATUS).map(status => <option key={status} value={status}>{status}</option>)}
                         </select>
                     ) : (
                         <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
@@ -327,7 +317,6 @@ const MoldDetailPage = ({
                         </span>
                     )}
                 </div>
-                
                 {isManager ? (
                     <div className="flex items-center gap-2">
                         <label htmlFor="moldDeadline" className="text-sm font-medium">Kalıp Termini:</label>
@@ -336,7 +325,6 @@ const MoldDetailPage = ({
                 ) : (
                     mold.moldDeadline && <span className="text-sm">Kalıp Termini: <span className="font-semibold">{formatDate(mold.moldDeadline)}</span></span>
                 )}
-                
                 {isManager && (
                      <div className="flex items-center gap-2">
                         <label htmlFor="moldPriority" className="text-sm font-medium">Aciliyet Sırası:</label>
@@ -357,7 +345,6 @@ const MoldDetailPage = ({
                 ) : (
                     mold.projectManager && <p className="text-sm dark:text-gray-300">Proje Sor.: <span className="font-semibold dark:text-white">{mold.projectManager}</span></p>
                 )}
-
                 {isAdmin ? (
                     <div className="flex items-center gap-2">
                         <label htmlFor="moldDesigner" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Kalıp Tasarımcısı:</label>
@@ -369,14 +356,12 @@ const MoldDetailPage = ({
                 ) : (
                     mold.moldDesigner && <p className="text-sm dark:text-gray-300">Tasarım Sor.: <span className="font-semibold dark:text-white">{mold.moldDesigner}</span></p>
                 )}
-
                 {isManager && (
                     <div className="flex items-center gap-2 w-full">
                         <label htmlFor="trialReportUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Deneme Raporu Linki:</label>
                         <input type="text" id="trialReportUrl" value={localTrialReportUrl} onChange={(e) => setLocalTrialReportUrl(e.target.value)} onBlur={handleReportUrlBlur} placeholder="E-Tablo linkini buraya yapıştırın..." className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
                     </div>
                 )}
-                
                 {isManager && (
                     <div className="flex items-center gap-2 w-full">
                         <label htmlFor="productImageUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Ürün Görseli Linki:</label>
@@ -403,14 +388,23 @@ const MoldDetailPage = ({
                     mold.tasks.map(task => {
                         const summary = getTaskSummary(task.operations);
                         const isExpanded = !!expandedTasks[task.id];
+                        // YENİ: Kritik parça ise kırmızı çerçeve ve arka plan
+                        const isCritical = task.isCritical;
+
                         return (
-                            <div key={task.id} className="border border-gray-200 dark:border-gray-700 overflow-hidden first:rounded-t-lg last:rounded-b-lg shadow-sm">
+                            <div key={task.id} className={`border ${isCritical ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700'} overflow-hidden first:rounded-t-lg last:rounded-b-lg shadow-sm`}>
                                 <div 
-                                    className={`grid grid-cols-12 gap-4 px-4 py-3 items-center cursor-pointer ${isExpanded ? 'bg-blue-50 dark:bg-gray-700 border-b border-blue-200 dark:border-blue-600' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                    className={`grid grid-cols-12 gap-4 px-4 py-3 items-center cursor-pointer ${isExpanded ? 'border-b border-gray-200 dark:border-gray-600' : ''}`}
                                     onClick={() => toggleTaskExpansion(task.id)}
                                 >
-                                    <div className="col-span-12 md:col-span-3 font-bold text-gray-900 dark:text-white">
+                                    <div className="col-span-12 md:col-span-3 font-bold text-gray-900 dark:text-white flex items-center">
                                         <span className="text-blue-600 mr-2">#{task.taskNumber}</span> {task.taskName}
+                                        {/* YENİ: Kritik Parça İkonu */}
+                                        {isCritical && (
+                                            <span className="ml-2 text-red-600 animate-pulse" title={`Kritik: ${task.criticalNote}`}>
+                                                <ShieldAlert className="w-5 h-5" />
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="col-span-6 md:col-span-2">
                                         <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getStatusClasses(summary.status)}`}>
@@ -432,7 +426,18 @@ const MoldDetailPage = ({
                                         </div>
                                         <span className="text-xs text-gray-500 dark:text-gray-400">{summary.progress}%</span>
                                     </div>
-                                    <div className="col-span-2 md:col-span-1 flex justify-end items-center">
+                                    <div className="col-span-2 md:col-span-1 flex justify-end items-center space-x-2">
+                                        {/* YENİ: Kritik İşaretleme Butonu (Sadece Yetkili) */}
+                                        {canSetCritical && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); openCriticalModal(task); }}
+                                                className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${isCritical ? 'text-red-600' : 'text-gray-400'}`}
+                                                title="Kritik Olarak İşaretle"
+                                            >
+                                                <ShieldAlert className="w-4 h-4" />
+                                            </button>
+                                        )}
+
                                         {canAddOperations && (
                                             <button onClick={(e) => { e.stopPropagation(); handleOpenModal('add_operation', mold, task, null); }} className="mr-2 p-1 text-green-500 hover:text-green-700" title="Yeni Operasyon Ekle">
                                                 <Plus className="w-4 h-4" />
@@ -444,6 +449,17 @@ const MoldDetailPage = ({
 
                                 {isExpanded && (
                                     <div className="bg-gray-50 dark:bg-gray-800/50 p-3">
+                                        {/* YENİ: Kritik Not Gösterimi */}
+                                        {isCritical && (
+                                            <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 border-l-4 border-red-600 text-red-800 dark:text-red-200 rounded text-sm flex items-start">
+                                                <ShieldAlert className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
+                                                <div>
+                                                    <span className="font-bold block">⚠️ DİKKAT: KRİTİK PARÇA</span>
+                                                    {task.criticalNote}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="space-y-3">
                                             {(task.operations || []).map(operation => (
                                                 <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
@@ -451,7 +467,6 @@ const MoldDetailPage = ({
                                                         <div className="flex-1 min-w-0 mb-2 md:mb-0">
                                                             <div className="flex items-center">
                                                                 <p className="font-semibold text-blue-700 dark:text-blue-300 mr-2">Operasyon: {operation.type}</p>
-                                                                {/* YENİ: Hata Geçmişi Uyarısı */}
                                                                 {operation.reworkHistory && operation.reworkHistory.length > 0 && (
                                                                     <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded flex items-center">
                                                                         <AlertTriangle className="w-3 h-3 mr-1" />
@@ -459,7 +474,7 @@ const MoldDetailPage = ({
                                                                     </span>
                                                                 )}
                                                             </div>
-
+                                                            {/* ... (Detaylar - AYNI) ... */}
                                                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
                                                                 <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
                                                                 <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
@@ -474,7 +489,6 @@ const MoldDetailPage = ({
                                                             <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
                                                         </div>
 
-                                                        {/* YENİ: BUTONLAR VE HATA BİLDİRİMİ */}
                                                         <div className="flex flex-col gap-2 mt-2 md:mt-0">
                                                             <div className="flex flex-col md:flex-row gap-2">
                                                                 {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
@@ -487,7 +501,6 @@ const MoldDetailPage = ({
                                                                     <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
                                                                 )}
                                                                 
-                                                                {/* YENİ: Hata Bildirim Butonu */}
                                                                 {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && 
                                                                   (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
                                                                     <button 
@@ -502,7 +515,6 @@ const MoldDetailPage = ({
                                                         </div>
                                                     </div>
 
-                                                    {/* YENİ: Hata Geçmişi Detayları */}
                                                     {operation.reworkHistory && operation.reworkHistory.length > 0 && (
                                                         <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-900/30">
                                                             <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-2">⚠️ Hata ve Yeniden İşleme Geçmişi:</p>
@@ -538,7 +550,37 @@ const MoldDetailPage = ({
             
             {renderModal()}
             
-            {/* Notlar Modalı (Aynı Kaldı) */}
+            {/* YENİ: Kritik Parça Bildirim Modalı */}
+            {isCriticalModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[60] p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border-l-8 border-red-600 p-6">
+                        <h3 className="text-lg font-bold text-red-600 flex items-center mb-4">
+                            <ShieldAlert className="w-6 h-6 mr-2" />
+                            Kritik Parça İşaretle
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                            Bu parçayı "Kritik" olarak işaretlemek üzeresiniz. Operatörler işi almadan önce bu notu görüp onaylamak zorunda kalacaklar.
+                        </p>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Kritik Uyarı Notu:</label>
+                        <textarea 
+                            value={criticalNote}
+                            onChange={(e) => setCriticalNote(e.target.value)}
+                            placeholder="Örn: Yüzey hassasiyeti yüksek, soğutmaya dikkat!"
+                            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white resize-none h-24 mb-4"
+                        />
+                        <div className="flex justify-end space-x-3">
+                             {selectedTaskForCritical?.isCritical && (
+                                <button onClick={removeCriticalStatus} className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition text-sm">
+                                    İşareti Kaldır
+                                </button>
+                            )}
+                            <button onClick={() => setIsCriticalModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">İptal</button>
+                            <button onClick={saveCriticalStatus} disabled={!criticalNote.trim()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold disabled:opacity-50">Kaydet</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <Modal isOpen={isNoteModalOpen} onClose={() => setIsNoteModalOpen(false)} title={`${mold.moldName} - Ortak Notlar`}>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Yeni Not Ekle ({loggedInUser.name})</label>
                 <textarea value={newNoteContent} onChange={(e) => setNewNoteContent(e.target.value)} placeholder="Yeni notunuzu buraya yazın..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />

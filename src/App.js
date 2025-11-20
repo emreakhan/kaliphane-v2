@@ -52,7 +52,7 @@ const App = () => {
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
     
-    // --- DEĞİŞİKLİK BURADA: Kullanıcıyı localStorage'dan geri yükle ---
+    // Kullanıcıyı localStorage'dan geri yükle
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
             const savedUser = localStorage.getItem('kaliphane_user');
@@ -66,7 +66,7 @@ const App = () => {
     const navigate = useNavigate(); 
     const location = useLocation();
 
-    // ... (Seed Fonksiyonları - SENİN DOSYANDAKİ GİBİ KORUNDU) ...
+    // ... (Seed Fonksiyonları - KORUNDU) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -159,7 +159,7 @@ const App = () => {
         }
     }, [db]); 
     
-    // ... (useEffect ve diğer fonksiyonlar - SENİN DOSYANDAKİ GİBİ KORUNDU) ...
+    // ... (useEffect ve diğer fonksiyonlar - KORUNDU) ...
 
     useEffect(() => {
         try {
@@ -212,7 +212,45 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
 
-    // --- handleUpdateMachineStatus (KORUNDU) ---
+
+    // --- YENİ: KRİTİK PARÇA GÜNCELLEME FONKSİYONU ---
+    const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
+        if (!db) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        
+        // Mevcut projeyi bul
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        
+        // Task'ı bul
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+
+        const currentTask = currentProject.tasks[taskIndex];
+
+        // Task'ı güncelle
+        const updatedTask = {
+            ...currentTask,
+            isCritical: isCritical,
+            criticalNote: criticalNote || '',
+            criticalSetBy: loggedInUser.name,
+            criticalSetDate: getCurrentDateTimeString()
+        };
+
+        // Listeyi güncelle
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = updatedTask;
+
+        try {
+            await updateDoc(moldRef, { tasks: newTasks });
+            console.log(`Task ${taskId} kritik durumu güncellendi: ${isCritical}`);
+        } catch (e) {
+            console.error("Kritik durum güncelleme hatası:", e);
+        }
+    }, [db, projects, loggedInUser]);
+    // ------------------------------------------------
+
+
     const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
         if (!db) return;
         try {
@@ -228,7 +266,6 @@ const App = () => {
         }
     }, [db]);
     
-    // --- handleReportOperationIssue (KORUNDU) ---
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -341,7 +378,7 @@ const App = () => {
     }, [projects]);
     
     const navItems = useMemo(() => {
-        if (!loggedInUser) return [];
+        if (!loggedInUser || !loggedInUser.role) return [];
         const allLoginRoles = Object.values(ROLES);
         const finalBaseItems = [
             { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
@@ -375,7 +412,6 @@ const App = () => {
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
                         <button
-                            // --- DEĞİŞİKLİK BURADA: Çıkış Yapınca localStorage'ı Temizle ---
                             onClick={() => {
                                 setLoggedInUser(null); 
                                 localStorage.removeItem('kaliphane_user'); 
@@ -408,25 +444,12 @@ const App = () => {
 
             <Routes>
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
-                
-                {/* handleUpdateMachineStatus PROP OLARAK GEÇİLDİ */}
-                <Route path="/active" element={
-                    <ActiveTasksPage 
-                        projects={projects} 
-                        machines={machines} 
-                        loggedInUser={loggedInUser} 
-                        personnel={personnel} 
-                        handleUpdateMachineStatus={handleUpdateMachineStatus} 
-                    />
-                } />
-                
+                <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/review" element={<SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />} />
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
-                
-                {/* loggedInUser PROP OLARAK GEÇİLDİ */}
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/mold/:moldId" element={
@@ -435,6 +458,8 @@ const App = () => {
                         handleUpdateOperation={handleUpdateOperation} 
                         handleAddOperation={handleAddOperation} 
                         handleReportOperationIssue={handleReportOperationIssue} 
+                        // YENİ EKLENEN PROP
+                        handleSetCriticalTask={handleSetCriticalTask} 
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
                         handleUpdateMoldPriority={handleUpdateMoldPriority} 

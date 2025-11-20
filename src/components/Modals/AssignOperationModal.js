@@ -1,7 +1,7 @@
 // src/components/Modals/AssignOperationModal.js
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Send, AlertTriangle } from 'lucide-react';
+import { Send, AlertTriangle, ShieldAlert } from 'lucide-react'; // ShieldAlert eklendi
 import { PERSONNEL_ROLES, OPERATION_STATUS } from '../../config/constants.js'; 
 import { getCurrentDateTimeString, formatDate } from '../../utils/dateUtils.js';
 import Modal from './Modal.js';
@@ -11,6 +11,10 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
     const [operator, setOperator] = useState('');
     const [dueDate, setDueDate] = useState('');
     const [machineError, setMachineError] = useState('');
+    
+    // YENİ: Kritik onay durumu
+    const [isCriticalConfirmed, setIsCriticalConfirmed] = useState(false);
+
     const today = new Date().toISOString().split('T')[0];
 
     const machineOperators = useMemo(() => 
@@ -22,152 +26,176 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
         [machines]
     );
 
-    // --- BURASI TAMAMEN YENİDEN YAZILDI (HATA DÜZELTMESİ) ---
     useEffect(() => {
         if (isOpen) {
             const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
 
-            // 1. Tarih Ayarı: Eski termini koru, yoksa 3 gün ekle
-            let defaultDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            // 1. Tarih Ayarı
             if (operation && operation.estimatedDueDate) {
-                defaultDate = operation.estimatedDueDate;
-            }
-            setDueDate(defaultDate);
-
-            // 2. Tezgah Operatörü Ayarı: Eski operatörü koru, yoksa ilkini seç
-            if (operation && operation.machineOperatorName) {
-                setOperator(operation.machineOperatorName);
-            } else if (machineOperators.length > 0) {
-                setOperator(machineOperators[0] || '');
+                const datePart = operation.estimatedDueDate.split('T')[0]; 
+                setDueDate(datePart);
             } else {
-                setOperator('');
+                setDueDate('');
             }
             
-            // 3. Tezgah Ayarı (Kritik Düzeltme):
-            // Eğer yeni bir işse (NOT_STARTED), ilk tezgahı seç.
-            // Eğer duraklatılmış bir işse (PAUSED), tezgahı boş bırak ('')
-            // böylece operatör yeni bir tezgah seçmek zorunda kalır.
+            // 2. Makine ve Operatör Ayarı
             if (isResuming) {
-                setMachine(''); // Eski tezgahı (operation.machineName) SET ETME!
-            } else if (availableMachines.length > 0) {
-                setMachine(availableMachines[0] || '');
+                setMachine(operation.machineName || '');
+                setOperator(operation.machineOperatorName || '');
             } else {
                 setMachine('');
+                setOperator('');
+            }
+            setMachineError('');
+            
+            // YENİ: Her açılışta kritik onayı sıfırla
+            setIsCriticalConfirmed(false);
+        }
+    }, [isOpen, operation]);
+
+    const handleMachineChange = (e) => {
+        const selectedMachine = e.target.value;
+        setMachine(selectedMachine);
+        
+        if (selectedMachine) {
+            // Makine uygunluk kontrolü (Mevcut kodun aynısı)
+            let isBusy = false;
+            let busyInfo = '';
+
+            for (const p of projects) {
+                for (const t of p.tasks) {
+                    const activeOp = t.operations.find(op => 
+                        op.status === OPERATION_STATUS.IN_PROGRESS && 
+                        op.machineName === selectedMachine &&
+                        op.id !== operation.id 
+                    );
+
+                    if (activeOp) {
+                        isBusy = true;
+                        busyInfo = `${p.moldName} - ${t.taskName}`;
+                        break; 
+                    }
+                }
+                if (isBusy) break;
             }
 
-            // 4. Hataları temizle
-            setMachineError('');
-        }
-    // Bağımlılık dizisinden 'machine' ve 'operator' çıkarıldı,
-    // böylece kullanıcının seçimi ezilmeyecek.
-    }, [isOpen, availableMachines, machineOperators, operation]);
-    // --- YENİDEN YAZILAN BÖLÜM SONU ---
-
-
-    const checkMachineAvailability = useCallback((machineName) => {
-        const isMachineBusy = projects.some(project => 
-            project.tasks.some(t => 
-                t.operations.some(op => 
-                    op.machineName === machineName && 
-                    op.status === OPERATION_STATUS.IN_PROGRESS && // Sadece ÇALIŞIYOR ise dolu say
-                    op.id !== operation?.id
-                )
-            )
-        );
-        return !isMachineBusy;
-    }, [projects, operation]);
-
-    const handleMachineChange = (selectedMachine) => {
-        setMachine(selectedMachine);
-        if (!checkMachineAvailability(selectedMachine)) {
-            setMachineError(`⚠️ ${selectedMachine} tezgahı şu anda başka bir işte kullanılıyor!`);
+            if (isBusy) {
+                setMachineError(`DİKKAT: Bu tezgah şu anda dolu! (${busyInfo})`);
+            } else {
+                setMachineError('');
+            }
         } else {
             setMachineError('');
         }
     };
 
     const handleSave = () => {
-        if (!machine || !operator || !dueDate) {
-            console.error("Tüm alanlar doldurulmalıdır.");
-            return;
-        }
-        if (!checkMachineAvailability(machine)) {
-            setMachineError(`⚠️ ${machine} tezgahı başka bir işte kullanılıyor! Lütfen başka bir tezgah seçin.`);
-            return;
-        }
-
         const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
-        
+
         const updatedOperation = {
             ...operation,
+            status: OPERATION_STATUS.IN_PROGRESS,
             assignedOperator: loggedInUser.name,
             machineName: machine,
             machineOperatorName: operator,
+            startDate: isResuming ? operation.startDate : getCurrentDateTimeString(), 
             estimatedDueDate: dueDate,
-            // Eğer iş duraklatılmışsa, eski başlangıç tarihini koru.
-            // Eğer yeni bir işse (NOT_STARTED), şu anı başlangıç tarihi yap.
-            startDate: isResuming ? (operation.startDate || getCurrentDateTimeString()) : getCurrentDateTimeString(),
-            status: OPERATION_STATUS.IN_PROGRESS,
-            // Yüzdeyi koru
-            progressPercentage: operation.progressPercentage || 0, 
+            
+            // Eğer "Devam Et" deniliyorsa geçmişi koru, yoksa sıfırla
+            reworkHistory: operation.reworkHistory || []
         };
         
+        // Log ekle (Opsiyonel, audit için)
+        if (task.isCritical) {
+            console.log(`Kritik parça onayı alındı. Operatör: ${loggedInUser.name}, Parça: ${task.taskName}`);
+        }
+
         onSubmit(mold.id, task.id, updatedOperation);
         onClose();
     };
 
-    // Başlığı dinamik hale getirelim
-    const modalTitle = operation && operation.status === OPERATION_STATUS.PAUSED 
-        ? `İşi Devam Ettir: ${task.taskName}` 
-        : `Operasyon Atama: ${task.taskName}`;
+    // Kilit Mantığı: Makine, Operatör seçili olmalı VE (Eğer kritikse onaylanmış olmalı)
+    const isFormValid = 
+        !machineError && 
+        machine && 
+        operator && 
+        (!task?.isCritical || isCriticalConfirmed); 
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`${modalTitle} (${operation.type})`}>
-            <p className="text-gray-700 dark:text-gray-300 mb-4">
-                {operation && operation.status === OPERATION_STATUS.PAUSED 
-                    ? `Bu iş %${operation.progressPercentage} seviyesinde duraklatılmıştı. Lütfen devam edilecek tezgahı seçin.`
-                    : `Bu operasyonu kendinize atayarak ({loggedInUser.name}) gerekli tezgah ve operatör bilgilerini giriniz.`
-                }
-            </p>
+        <Modal isOpen={isOpen} onClose={onClose} title={operation && operation.status === OPERATION_STATUS.PAUSED ? "İşi Devam Ettir" : "Yeni İş Ata / Başlat"}>
+            
+            {/* --- YENİ: KRİTİK PARÇA UYARISI --- */}
+            {task?.isCritical && (
+                <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-600 rounded-r-lg animate-pulse-slow">
+                    <div className="flex items-start">
+                        <ShieldAlert className="w-8 h-8 text-red-600 mr-3 flex-shrink-0" />
+                        <div>
+                            <h3 className="text-lg font-bold text-red-700 dark:text-red-300">⚠️ DİKKAT: BU PARÇA KRİTİKTİR!</h3>
+                            <div className="mt-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-800 p-3 rounded border border-red-200 dark:border-red-800">
+                                <span className="font-semibold text-red-600">Tasarımcı Notu:</span> {task.criticalNote}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-red-200 dark:border-red-800">
+                        <label className="flex items-center space-x-3 cursor-pointer select-none">
+                            <input 
+                                type="checkbox" 
+                                checked={isCriticalConfirmed}
+                                onChange={(e) => setIsCriticalConfirmed(e.target.checked)}
+                                className="w-5 h-5 text-red-600 rounded focus:ring-red-500 border-gray-300"
+                            />
+                            <span className="font-bold text-sm text-red-800 dark:text-red-300">
+                                Kritik uyarıyı okudum, anladım ve dikkat edeceğimi taahhüt ediyorum.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            )}
+            {/* ---------------------------------- */}
 
             <div className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tezgah Seçimi</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Atanacak Tezgah
+                    </label>
                     <select
                         value={machine}
-                        onChange={(e) => handleMachineChange(e.target.value)}
-                        className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        onChange={handleMachineChange}
+                        className={`block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${machineError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
                     >
-                        <option value="">Tezgah Seçiniz</option>
-                        {availableMachines.map(m => <option key={m} value={m}>{m}</option>)}
+                        <option value="">Seçiniz...</option>
+                        {availableMachines.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                        ))}
                     </select>
                     {machineError && (
-                        <div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg">
-                            <AlertTriangle className="w-4 h-4 mr-2" />
-                            {machineError}
-                        </div>
+                        <p className="mt-1 text-sm text-red-600 font-medium flex items-center">
+                            <AlertTriangle className="w-4 h-4 mr-1" /> {machineError}
+                        </p>
                     )}
                 </div>
+
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tezgah Operatörü</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Tezgah Operatörü
+                    </label>
                     <select
                         value={operator}
                         onChange={(e) => setOperator(e.target.value)}
-                        className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        className="block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     >
-                        <option value="">Operatör Seçiniz</option>
-                        {machineOperators.map(op => <option key={op} value={op}>{op}</option>)}
+                        <option value="">Seçiniz...</option>
+                        {machineOperators.map(op => (
+                            <option key={op} value={op}>{op}</option>
+                        ))}
                     </select>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tahmini Termin Süresi (Tarih)</label>
 
-                    {mold && mold.moldDeadline && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-1">
-                            (Ana Kalıp Termini: {formatDate(mold.moldDeadline)})
-                        </p>
-                    )}
-                    
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Tahmini Bitiş (Termin)
+                    </label>
                     <input
                         type="date"
                         value={dueDate}
@@ -187,10 +215,11 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                 </button>
                 <button
                     onClick={handleSave}
-                    disabled={!!machineError || !machine || !operator}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition flex items-center disabled:bg-blue-400 disabled:cursor-not-allowed"
+                    disabled={!isFormValid} // Kilit Kontrolü
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                    <Send className="w-4 h-4 mr-2"/> {operation && operation.status === OPERATION_STATUS.PAUSED ? 'İşi Devam Ettir' : 'İşi Ata ve Başlat'}
+                    <Send className="w-4 h-4 mr-2"/> 
+                    {operation && operation.status === OPERATION_STATUS.PAUSED ? 'İşi Devam Ettir' : 'Başlat ve Ata'}
                 </button>
             </div>
         </Modal>
