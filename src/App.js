@@ -23,7 +23,7 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonlar
-import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle, Map } from 'lucide-react';
+import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle, Map as MapIcon, Monitor } from 'lucide-react';
 
 // Sayfalar
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
@@ -36,6 +36,7 @@ import AdminDashboard from './pages/AdminDashboard.js';
 import HistoryPage from './pages/HistoryPage.js';
 import AnalysisPage from './pages/AnalysisPage.js';
 import WorkshopEditorPage from './pages/WorkshopEditorPage.js'; 
+import TerminalPage from './pages/TerminalPage.js'; 
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -65,6 +66,16 @@ const App = () => {
     
     const navigate = useNavigate(); 
     const location = useLocation();
+
+    // Güvenlik Sigortası
+    useEffect(() => {
+        if (loggedInUser && !loggedInUser.role) {
+            console.warn("Kullanıcı verisi bozuk, otomatik çıkış yapılıyor.");
+            setLoggedInUser(null);
+            localStorage.removeItem('kaliphane_user');
+            navigate('/');
+        }
+    }, [loggedInUser, navigate]);
 
     // ... (Seed Fonksiyonları - KORUNDU) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
@@ -159,8 +170,7 @@ const App = () => {
         }
     }, [db]); 
     
-    // ... (useEffect ve diğer fonksiyonlar - KORUNDU) ...
-
+    // ... (useEffect'ler - KORUNDU) ...
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -213,57 +223,77 @@ const App = () => {
     }, [db, userId, loggedInUser]);
 
 
-    // --- YENİ: KRİTİK PARÇA GÜNCELLEME FONKSİYONU ---
-    const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
+    // --- DÜZELTİLEN TERMİNAL AKSİYONLARI ---
+    const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         
-        // Mevcut projeyi bul
         const currentProject = projects.find(p => p.id === moldId);
         if (!currentProject) return;
-        
-        // Task'ı bul
         const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return;
-
+        
+        // --- EKSİK OLAN TANIMLAMA BURASIYDI ---
         const currentTask = currentProject.tasks[taskIndex];
+        // ---------------------------------------
 
-        // Task'ı güncelle
-        const updatedTask = {
-            ...currentTask,
-            isCritical: isCritical,
-            criticalNote: criticalNote || '',
-            criticalSetBy: loggedInUser.name,
-            criticalSetDate: getCurrentDateTimeString()
-        };
+        const opIndex = currentTask.operations.findIndex(op => op.id === opId);
+        if (opIndex === -1) return;
+        
+        const currentOp = currentTask.operations[opIndex];
+        let updatedOp = { ...currentOp };
+        const now = getCurrentDateTimeString();
 
-        // Listeyi güncelle
+        if (actionType === 'START_SETUP') {
+            updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
+            updatedOp.setupStartTime = now;
+            updatedOp.isSettingUp = true;
+        } 
+        else if (actionType === 'START_PRODUCTION') {
+            updatedOp.isSettingUp = false;
+            updatedOp.productionStartTime = now;
+        } 
+        else if (actionType === 'FINISH_JOB') {
+            updatedOp.status = OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW;
+            updatedOp.finishTime = now;
+            updatedOp.progressPercentage = 100;
+            updatedOp.isSettingUp = false;
+        }
+
+        const newOps = [...currentTask.operations];
+        newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
-        newTasks[taskIndex] = updatedTask;
+        newTasks[taskIndex] = { ...currentTask, operations: newOps };
 
         try {
             await updateDoc(moldRef, { tasks: newTasks });
-            console.log(`Task ${taskId} kritik durumu güncellendi: ${isCritical}`);
+            console.log(`Terminal işlemi (${actionType}) başarılı.`);
         } catch (e) {
-            console.error("Kritik durum güncelleme hatası:", e);
+            console.error("Terminal işlemi hatası:", e);
         }
-    }, [db, projects, loggedInUser]);
-    // ------------------------------------------------
+    }, [db, projects]);
+    // -------------------------------------------------------
 
+    const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
+        if (!db) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+        const currentTask = currentProject.tasks[taskIndex];
+        const updatedTask = { ...currentTask, isCritical: isCritical, criticalNote: criticalNote || '', criticalSetBy: loggedInUser.name, criticalSetDate: getCurrentDateTimeString() };
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = updatedTask;
+        try { await updateDoc(moldRef, { tasks: newTasks }); } catch (e) { console.error("Kritik durum güncelleme hatası:", e); }
+    }, [db, projects, loggedInUser]);
 
     const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
         if (!db) return;
         try {
             const machineRef = doc(db, MACHINES_COLLECTION, machineId);
-            await updateDoc(machineRef, {
-                currentStatus: newStatus,
-                statusReason: reason,
-                statusStartTime: getCurrentDateTimeString()
-            });
-            console.log(`Tezgah ${machineId} durumu güncellendi: ${newStatus}`);
-        } catch (e) {
-            console.error("Tezgah durumu güncelleme hatası:", e);
-        }
+            await updateDoc(machineRef, { currentStatus: newStatus, statusReason: reason, statusStartTime: getCurrentDateTimeString() });
+        } catch (e) { console.error("Tezgah durumu güncelleme hatası:", e); }
     }, [db]);
     
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
@@ -275,17 +305,14 @@ const App = () => {
         if (taskIndex === -1) return;
         const opIndex = currentProject.tasks[taskIndex].operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
-        
         const currentTask = currentProject.tasks[taskIndex];
         const currentOp = currentTask.operations[opIndex];
         const newHistoryEntry = { id: Date.now(), reason, description, reportedBy: loggedInUser.name, date: getCurrentDateTimeString(), previousProgress: currentOp.progressPercentage };
         const updatedOp = { ...currentOp, status: OPERATION_STATUS.NOT_STARTED, progressPercentage: 0, reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry] };
-
         const newOps = [...currentTask.operations];
         newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
-        
         await updateDoc(moldRef, { tasks: newTasks });
     }, [db, projects, loggedInUser]);
 
@@ -320,61 +347,18 @@ const App = () => {
         catch (e) { console.error("Hata:", e); }
     }, [db, projects]);
 
-    const handleUpdateMoldStatus = useCallback(async (moldId, newStatus) => {
-        if (!db) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { status: newStatus }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateMoldDeadline = useCallback(async (moldId, newDeadline) => {
-        if (!db) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { moldDeadline: newDeadline }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateMoldPriority = useCallback(async (moldId, newPriority) => {
-        if (!db) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { priority: newPriority }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateTrialReportUrl = useCallback(async (moldId, newUrl) => {
-        if (!db || !moldId) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { trialReportUrl: newUrl || '' }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateProductImageUrl = useCallback(async (moldId, newUrl) => {
-        if (!db || !moldId) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { productImageUrl: newUrl || '' }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateProjectManager = useCallback(async (moldId, managerName) => {
-        if (!db || !moldId) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { projectManager: managerName || '' }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleUpdateMoldDesigner = useCallback(async (moldId, designerName) => {
-        if (!db || !moldId) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { moldDesigner: designerName || '' }); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-    const handleDeleteMold = useCallback(async (moldId) => {
-        if (!db || !moldId) return;
-        try { 
-            await deleteDoc(doc(db, PROJECT_COLLECTION, moldId));
-            await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, moldId)); 
-            if (location.pathname.includes(moldId)) {
-                navigate('/');
-            }
-        } catch (e) { console.error("Hata:", e); }
-    }, [db, location.pathname, navigate]);
-    const handleUpdateMold = useCallback(async (moldId, updatedData) => {
-        if (!db || !moldId) return;
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), updatedData); } 
-        catch (e) { console.error("Hata:", e); }
-    }, [db]);
-
+    const handleUpdateMoldStatus = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { status: val }); }, [db]);
+    const handleUpdateMoldDeadline = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDeadline: val }); }, [db]);
+    const handleUpdateMoldPriority = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { priority: val }); }, [db]);
+    const handleUpdateTrialReportUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { trialReportUrl: val || '' }); }, [db]);
+    const handleUpdateProductImageUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { productImageUrl: val || '' }); }, [db]);
+    const handleUpdateProjectManager = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { projectManager: val || '' }); }, [db]);
+    const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, [db]);
+    const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [db, location.pathname, navigate]);
+    const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, [db]);
 
     const tasksWaitingSupervisorReviewCount = useMemo(() => {
-        return projects.flatMap(p => p.tasks.flatMap(t => t.operations))
-                       .filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
+        return projects.flatMap(p => p.tasks.flatMap(t => t.operations)).filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
     }, [projects]);
     
     const navItems = useMemo(() => {
@@ -386,9 +370,11 @@ const App = () => {
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
-            { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: Map, roles: [ROLES.ADMIN] },
+            { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
             { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
+            // YENİ: Terminal Linki
+            { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
@@ -396,6 +382,11 @@ const App = () => {
     if (!userId) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Kimlik doğrulanıyor...</p></div>;
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Personel verisi yükleniyor...</p></div>;
     
+    // Terminal Sayfası
+    if (location.pathname === '/terminal') {
+        return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />;
+    }
+
     if (!loggedInUser) {
         return <CredentialLoginScreen db={db} setLoggedInUser={setLoggedInUser} personnel={personnel} />;
     }
@@ -452,13 +443,14 @@ const App = () => {
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
+                <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
+
                 <Route path="/mold/:moldId" element={
                     <MoldDetailPage 
                         loggedInUser={loggedInUser} 
                         handleUpdateOperation={handleUpdateOperation} 
                         handleAddOperation={handleAddOperation} 
                         handleReportOperationIssue={handleReportOperationIssue} 
-                        // YENİ EKLENEN PROP
                         handleSetCriticalTask={handleSetCriticalTask} 
                         handleUpdateMoldStatus={handleUpdateMoldStatus}
                         handleUpdateMoldDeadline={handleUpdateMoldDeadline}
