@@ -51,7 +51,17 @@ const App = () => {
     const [projects, setProjects] = useState([]);
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
-    const [loggedInUser, setLoggedInUser] = useState(null);
+    
+    // --- DEĞİŞİKLİK BURADA: Kullanıcıyı localStorage'dan geri yükle ---
+    const [loggedInUser, setLoggedInUser] = useState(() => {
+        try {
+            const savedUser = localStorage.getItem('kaliphane_user');
+            return savedUser ? JSON.parse(savedUser) : null;
+        } catch (error) {
+            console.error("Kullanıcı verisi okunamadı:", error);
+            return null;
+        }
+    });
     
     const navigate = useNavigate(); 
     const location = useLocation();
@@ -202,7 +212,7 @@ const App = () => {
         return () => unsubscribe();
     }, [db, userId, loggedInUser]);
 
-    // YENİ FONKSİYONLAR
+    // --- handleUpdateMachineStatus (KORUNDU) ---
     const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
         if (!db) return;
         try {
@@ -218,6 +228,7 @@ const App = () => {
         }
     }, [db]);
     
+    // --- handleReportOperationIssue (KORUNDU) ---
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -338,9 +349,7 @@ const App = () => {
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
-            
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: Map, roles: [ROLES.ADMIN] },
-
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
             { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
         ];
@@ -366,7 +375,12 @@ const App = () => {
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
                         <button
-                            onClick={() => {setLoggedInUser(null); navigate('/');}}
+                            // --- DEĞİŞİKLİK BURADA: Çıkış Yapınca localStorage'ı Temizle ---
+                            onClick={() => {
+                                setLoggedInUser(null); 
+                                localStorage.removeItem('kaliphane_user'); 
+                                navigate('/');
+                            }}
                             className="flex items-center text-sm px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
                          >
                             <LogOut className="w-4 h-4 mr-1"/> Çıkış
@@ -394,13 +408,25 @@ const App = () => {
 
             <Routes>
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
-                <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
+                
+                {/* handleUpdateMachineStatus PROP OLARAK GEÇİLDİ */}
+                <Route path="/active" element={
+                    <ActiveTasksPage 
+                        projects={projects} 
+                        machines={machines} 
+                        loggedInUser={loggedInUser} 
+                        personnel={personnel} 
+                        handleUpdateMachineStatus={handleUpdateMachineStatus} 
+                    />
+                } />
+                
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/review" element={<SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />} />
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
-                {/* GÜNCELLEME: AnalysisPage'e loggedInUser gönderildi */}
+                
+                {/* loggedInUser PROP OLARAK GEÇİLDİ */}
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/mold/:moldId" element={
