@@ -19,9 +19,14 @@ import {
     deleteDoc, 
     where 
 } from 'firebase/firestore';
+import { 
+    getStorage, 
+    ref, 
+    uploadBytes, 
+    getDownloadURL 
+} from 'firebase/storage';
 
 // --- FIREBASE AYARLARI ---
-// Firebase konsolundan aldığınız kodlar buraya eklendi
 const firebaseConfig = {
   apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I",
   authDomain: "kaliphane-v2.firebaseapp.com",
@@ -33,7 +38,6 @@ const firebaseConfig = {
 };
 
 // --- UYGULAMA SABİTLERİ ---
-// Eski kodda bu değerler dışarıdan geliyordu, şimdi burada sabitliyoruz.
 const appId = 'default-app-id'; 
 export const initialAuthToken = null; 
 
@@ -49,11 +53,13 @@ const app = initializeApp(firebaseConfig);
 // Servisleri başlat
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app); // <-- YENİ EKLENDİ
 
 // Diğer dosyaların kullanabilmesi için export et
 export { 
     db, 
     auth, 
+    storage, // <-- YENİ EKLENDİ
     
     // Firestore fonksiyonları
     collection,
@@ -66,6 +72,11 @@ export {
     deleteDoc, 
     where,
     
+    // Storage fonksiyonları
+    ref,
+    uploadBytes,
+    getDownloadURL,
+
     // Auth fonksiyonları
     signInAnonymously,
     signInWithCustomToken,
