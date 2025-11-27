@@ -4,22 +4,23 @@ import React, { useState, useMemo } from 'react';
 
 // İkonlar
 import { 
-    LayoutDashboard, Users, Plus, List, AlertTriangle, 
-    Database, Edit, Trash2, Search, Save // YENİ: İkonlar eklendi
+    Users, Plus, List, AlertTriangle, 
+    Database, Edit, Trash2, Search, Save,
+    Briefcase, RefreshCw, Tool 
 } from 'lucide-react';
 
 // Sabitler
-import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS } from '../config/constants.js';
+import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES } from '../config/constants.js';
 
-// Firebase (Bu sayfada doğrudan db'ye yazma işlemi var)
+// Firebase
 import { db, PROJECT_COLLECTION, setDoc, doc, updateDoc } from '../config/firebase.js';
 
 // Bileşenler
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
-import Modal from '../components/Modals/Modal.js'; // YENİ: Modal eklendi
+import Modal from '../components/Modals/Modal.js';
 
-// --- YENİ BİLEŞEN: Kalıp Yönetimi ---
+// --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
 const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [editModalOpen, setEditModalOpen] = useState(false);
@@ -176,22 +177,24 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
         </div>
     );
 };
-// --- YENİ BİLEŞEN SONU ---
 
-
-// --- (GÜNCELLENMİŞ) ADMIN DASHBOARD ---
+// --- ADMIN DASHBOARD ANA BİLEŞENİ ---
 const AdminDashboard = ({ 
     db, projects, setProjects, personnel, setPersonnel, machines, setMachines,
-    handleDeleteMold, handleUpdateMold // YENİ: App.js'den gelen fonksiyonlar
+    handleDeleteMold, handleUpdateMold
 }) => {
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
+    
+    // Proje Tipi State'i (Varsayılan: YENİ KALIP)
+    const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
+
     const [newTaskName, setNewTaskName] = useState('');
     const [batchTaskNames, setBatchTaskNames] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState('');
     const [moldError, setMoldError] = useState('');
     const [batchError, setBatchError] = useState('');
-    const [activeTab, setActiveTab] = useState('projects'); // Varsayılan sekme
+    const [activeTab, setActiveTab] = useState('projects');
 
     // Aynı kalıp ismi kontrolü
     const checkDuplicateMold = (moldName) => {
@@ -218,6 +221,7 @@ const AdminDashboard = ({
         }
 
         const newId = `mold-${Date.now()}`;
+        
         const newMold = {
             id: newId,
             moldName: newMoldName.trim(),
@@ -225,12 +229,14 @@ const AdminDashboard = ({
             tasks: [],
             status: MOLD_STATUS.WAITING,
             moldDeadline: '',
-            priority: null, 
+            priority: null,
+            projectType: newProjectType // Seçilen tip kaydediliyor
         };
         try {
             await setDoc(doc(db, PROJECT_COLLECTION, newId), newMold);
             setNewMoldName('');
             setNewCustomer('');
+            setNewProjectType(PROJECT_TYPES.NEW_MOLD); // Kayıttan sonra sıfırla
             setMoldError('');
             console.log("Yeni Kalıp Eklendi:", newMold.moldName);
         } catch (e) {
@@ -384,19 +390,38 @@ const AdminDashboard = ({
 
     const selectedMold = projects.find(p => p.id === selectedMoldId);
 
-    // --- YENİ: Sekme Değiştirme Fonksiyonu ---
     const renderActiveTab = () => {
         switch (activeTab) {
             case 'projects':
                 return (
                     <>
                         <div className="p-4 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/10">
-                            <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni Kalıp Ekle</h3>
+                            <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni İş / Kalıp Ekle</h3>
+                             
                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                
+                                {/* --- YENİ: AÇILIR LİSTE (DROPDOWN) GÜNCELLENDİ --- */}
                                 <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
+                                    <select
+                                        value={newProjectType}
+                                        onChange={(e) => setNewProjectType(e.target.value)}
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
+                                    >
+                                        <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
+                                        <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
+                                        <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
+                                        <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>       {/* YENİ */}
+                                        <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option> {/* YENİ */}
+                                    </select>
+                                </div>
+                                {/* ------------------------------------- */}
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
                                     <input 
                                         type="text" 
-                                        placeholder="Kalıp Numarası (Örn: 2847 FAN)" 
+                                        placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} 
                                         value={newMoldName} 
                                         onChange={(e) => {
                                             setNewMoldName(e.target.value);
@@ -411,9 +436,16 @@ const AdminDashboard = ({
                                         </div>
                                     )}
                                 </div>
-                                <input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
-                                <button onClick={handleAddNewMold} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>
-                                    Kalıp Ekle
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Müşteri</label>
+                                    <input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
+                                </div>
+                            </div>
+                            
+                            <div className="mt-4 flex justify-end">
+                                <button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>
+                                    Kaydet ve Ekle
                                 </button>
                             </div>
                          </div>
@@ -501,7 +533,6 @@ const AdminDashboard = ({
                         setMachines={setMachines}
                     />
                 );
-            // --- YENİ DURUM (CASE) EKLENDİ ---
             case 'mold_management':
                 return (
                     <MoldManagement
@@ -514,13 +545,11 @@ const AdminDashboard = ({
                 return null;
         }
     };
-    // --- YENİ FONKSİYON SONU ---
 
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Paneli</h2>
 
-            {/* --- YENİ SEKMELER (NAV) --- */}
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="flex flex-wrap -mb-px gap-x-8">
                     <button
@@ -545,7 +574,6 @@ const AdminDashboard = ({
                         <Users className="w-4 h-4 inline mr-2" />
                         Personel Yönetimi
                     </button>
-                    {/* YENİ SEKME BUTONU */}
                     <button
                          onClick={() => setActiveTab('mold_management')}
                         className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -560,13 +588,10 @@ const AdminDashboard = ({
                 </nav>
             </div>
             
-            {/* YENİ: Aktif sekmeyi render et */}
             {renderActiveTab()}
 
         </div>
     );
 };
-// --- (DÜZELTİLMİŞ) ADMIN DASHBOARD SONU ---
-
 
 export default AdminDashboard;

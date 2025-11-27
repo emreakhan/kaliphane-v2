@@ -1,16 +1,17 @@
 // src/pages/EnhancedMoldList.js
 
 import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom'; // Yönlendirme kancası
+import { useNavigate } from 'react-router-dom'; 
 
 // İkonlar
 import { 
     RefreshCw, Settings, List, CheckCircle, 
-    PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search 
+    PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search,
+    Briefcase, Tool // YENİ İKONLAR EKLENDİ
 } from 'lucide-react';
 
 // Sabitler
-import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS } from '../config/constants.js';
+import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
@@ -22,15 +23,20 @@ const EnhancedMoldList = ({ projects }) => {
     const [activeFilter, setActiveFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     
-    const navigate = useNavigate(); // Yönlendirme fonksiyonu
+    const navigate = useNavigate(); 
     
-    // Parça ilerlemesini hesaplar
     const calculateMoldProgress = (tasks) => {
         if (!tasks || tasks.length === 0) return 0;
         const allOperations = tasks.flatMap(t => t.operations);
         if (allOperations.length === 0) return 0;
         const totalProgress = allOperations.reduce((acc, op) => acc + op.progressPercentage, 0);
         return totalProgress / allOperations.length;
+    };
+
+    // Proje Tipine Göre Stil Getirme Yardımcısı
+    const getProjectTypeStyle = (type) => {
+        const typeKey = type || PROJECT_TYPES.NEW_MOLD;
+        return PROJECT_TYPE_CONFIG[typeKey] || PROJECT_TYPE_CONFIG[PROJECT_TYPES.NEW_MOLD];
     };
 
     const filteredProjects = useMemo(() => {
@@ -55,7 +61,6 @@ const EnhancedMoldList = ({ projects }) => {
             );
         }
         
-        // Aciliyet sırasına göre sırala
         filtered.sort((a, b) => {
             const priorityA = a.priority;
             const priorityB = b.priority;
@@ -124,88 +129,20 @@ const EnhancedMoldList = ({ projects }) => {
 
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl">
-            {/* Filtreleme Kutucukları */}
             <div className="flex flex-wrap gap-4 mb-6">
-                <FilterCard 
-                    filterKey="all" 
-                    title="Tüm Kalıplar" 
-                    count={stats.total} 
-                    icon={Filter}
-                    colorClass="border-blue-500 bg-blue-50"
-                />
-                <FilterCard 
-                    filterKey="ACTIVE_OVERVIEW"
-                    title="Aktif Çalışan" 
-                    count={stats.activeOverview} 
-                    icon={PlayCircle}
-                    colorClass="border-green-500 bg-green-50 text-green-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.WAITING}
-                    title="Beklemede" 
-                    count={stats.waiting} 
-                    icon={RefreshCw}
-                    colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.CNC}
-                    title="CNC" 
-                    count={stats[MOLD_STATUS.CNC]} 
-                    icon={Cpu}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.EREZYON}
-                    title="Erezyon" 
-                    count={stats[MOLD_STATUS.EREZYON]} 
-                    icon={Zap}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.POLISAJ}
-                    title="Polisaj" 
-                    count={stats[MOLD_STATUS.POLISAJ]} 
-                    icon={Sparkles}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.DESEN}
-                    title="Desen" 
-                    count={stats[MOLD_STATUS.DESEN]} 
-                    icon={Edit2}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.MOLD_ASSEMBLY}
-                    title="Kalıp Montaj" 
-                    count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} 
-                    icon={HardHat}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.TRIAL}
-                    title="Deneme'de" 
-                    count={stats[MOLD_STATUS.TRIAL]} 
-                    icon={Settings}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                 <FilterCard 
-                    filterKey={MOLD_STATUS.REVISION}
-                    title="Revizyon" 
-                    count={stats[MOLD_STATUS.REVISION]} 
-                    icon={Settings}
-                    colorClass="border-blue-500 bg-blue-50 text-blue-500"
-                />
-                <FilterCard 
-                    filterKey={MOLD_STATUS.COMPLETED}
-                    title="Tamamlanan" 
-                    count={stats.completed} 
-                    icon={CheckCircle}
-                    colorClass="border-green-500 bg-green-50 text-green-500"
-                />
+                <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
+                <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
+                <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
+                <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.EREZYON} title="Erezyon" count={stats[MOLD_STATUS.EREZYON]} icon={Zap} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.POLISAJ} title="Polisaj" count={stats[MOLD_STATUS.POLISAJ]} icon={Sparkles} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.REVISION} title="Revizyon" count={stats[MOLD_STATUS.REVISION]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
             </div>
 
-            {/* Arama Çubuğu */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 md:mb-0">
                     Kalıp Listesi
@@ -226,7 +163,6 @@ const EnhancedMoldList = ({ projects }) => {
                 </div>
             </div>
 
-            {/* Kalıp Listesi */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 {filteredProjects.length === 0 ? (
                     <div className="col-span-full text-center py-8">
@@ -240,7 +176,9 @@ const EnhancedMoldList = ({ projects }) => {
                         const totalProgress = calculateMoldProgress(project.tasks);
                         const moldStatus = project.status || MOLD_STATUS.WAITING;
                         
-                        
+                        // TİPE GÖRE STİL AYARINI ÇEKİYORUZ
+                        const typeStyle = getProjectTypeStyle(project.projectType);
+
                         const assignedCamOperators = project.tasks
                             .flatMap(task => task.operations.map(op => op.assignedOperator))
                             .filter(op => op && op !== 'SEÇ');
@@ -254,9 +192,10 @@ const EnhancedMoldList = ({ projects }) => {
                                          totalProgress <= 80 &&
                                          moldStatus !== MOLD_STATUS.COMPLETED;
                                          
+                        // RENKLİ KENAR ÇİZGİSİ BURAYA EKLENDİ
                         const cardHighlightClasses = isCritical 
                             ? 'bg-red-100 dark:bg-red-900/30 border-red-600 dark:border-red-500 animate-pulse'
-                            : 'bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-600';
+                            : `bg-white dark:bg-gray-800 ${typeStyle.borderClass}`; // Tipe göre renk
                             
                         const progressBarClass = moldStatus === MOLD_STATUS.COMPLETED 
                             ? 'bg-green-600'
@@ -268,18 +207,15 @@ const EnhancedMoldList = ({ projects }) => {
 
                         project.tasks.forEach(task => {
                             const operations = task.operations || [];
-                            
                             const inProgressOps = operations.filter(op => op.status === OPERATION_STATUS.IN_PROGRESS);
                             const notStartedOps = operations.filter(op => op.status === OPERATION_STATUS.NOT_STARTED);
 
                             if (inProgressOps.length > 0) {
                                 workingPartCount++;
                             }
-
                             if (operations.length > 0 && notStartedOps.length === operations.length) {
                                 idlePartCount++;
                             }
-
                             inProgressOps.forEach(op => {
                                 activeOperationCounts[op.type] = (activeOperationCounts[op.type] || 0) + 1;
                             });
@@ -291,7 +227,7 @@ const EnhancedMoldList = ({ projects }) => {
                             <div
                                 key={project.id}
                                 onClick={() => navigate(`/mold/${project.id}`)} 
-                                className={`p-4 rounded-xl shadow-lg hover:shadow-xl transition duration-300 transform hover:-translate-y-1 cursor-pointer border-t-4 flex flex-col ${cardHighlightClasses} relative`}
+                                className={`p-4 rounded-xl shadow-lg hover:shadow-xl transition duration-300 transform hover:-translate-y-1 cursor-pointer border-t-4 border-l-4 flex flex-col ${cardHighlightClasses} relative`}
                             >
                                 {project.priority && (
                                     <div className="absolute -top-3 -left-3 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-lg border-2 border-white dark:border-gray-800 z-10">
@@ -300,8 +236,15 @@ const EnhancedMoldList = ({ projects }) => {
                                 )}
                         
                                 <div className="flex-grow">
+                                    {/* TİP ETİKETİ (BADGE) */}
+                                    <div className="mb-2">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${typeStyle.colorClass}`}>
+                                            {typeStyle.label}
+                                        </span>
+                                    </div>
+
                                     <div className="flex justify-between items-start mb-3">
-                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{project.moldName}</h3>
+                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{project.moldName}</h3>
                                         <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClasses(moldStatus)}`}>
                                             {moldStatus}
                                         </span>
@@ -311,7 +254,6 @@ const EnhancedMoldList = ({ projects }) => {
                                         Müşteri: <span className="font-semibold">{project.customer}</span>
                                     </p>
                                     
-                                    {/* --- EKLENEN KISIM BAŞLANGIÇ --- */}
                                     {project.projectManager && (
                                         <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
                                             Proje Sor: <span className="font-semibold text-blue-700 dark:text-blue-300">{project.projectManager}</span>
@@ -322,7 +264,6 @@ const EnhancedMoldList = ({ projects }) => {
                                             Tasarım Sor: <span className="font-semibold text-purple-700 dark:text-purple-300">{project.moldDesigner}</span>
                                         </p>
                                     )}
-                                    {/* --- EKLENEN KISIM BİTİŞ --- */}
                                     
                                     <p className="text-gray-600 dark:text-gray-400 text-xs">
                                         Termin: <span className="font-semibold">{formatDate(project.moldDeadline) || '---'}</span>

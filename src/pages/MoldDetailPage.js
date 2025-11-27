@@ -13,7 +13,7 @@ import {
 // Sabitler
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
-    PERSONNEL_ROLES, OPERATION_TYPES 
+    PERSONNEL_ROLES, OPERATION_TYPES, PROJECT_TYPES // <-- PROJECT_TYPES Eklendi
 } from '../config/constants.js';
 
 // Yardımcı Fonksiyonlar
@@ -21,7 +21,7 @@ import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.j
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 // Firebase
-import { db, MOLD_NOTES_COLLECTION, doc, onSnapshot, setDoc } from '../config/firebase.js';
+import { db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc } from '../config/firebase.js'; // <-- PROJECT_COLLECTION ve updateDoc Eklendi
 
 // Bileşenler
 import Modal from '../components/Modals/Modal.js';
@@ -92,7 +92,7 @@ const MoldDetailPage = ({
     const { moldId } = useParams();
     const navigate = useNavigate();
     
-    // --- HOOK'LAR EN ÜSTTE (DÜZELTME YAPILDI) ---
+    // --- HOOK'LAR EN ÜSTTE ---
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
@@ -143,12 +143,30 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
-    // --- ERKEN RETURN (HOOKLARDAN SONRA OLMALI) ---
+    // --- ERKEN RETURN ---
     if (!mold) {
         return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
     }
 
     // --- HANDLER FONKSİYONLARI ---
+    
+    // YENİ: Proje Tipi Güncelleme (Sadece Admin)
+    const handleProjectTypeChange = async (e) => {
+        const newType = e.target.value;
+        if (!mold.id) return;
+        
+        try {
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, {
+                projectType: newType
+            });
+            // State otomatik güncellenir çünkü 'projects' prop'u parent'tan geliyor
+        } catch (error) {
+            console.error("Proje tipi güncellenirken hata:", error);
+            alert("Proje tipi güncellenemedi.");
+        }
+    };
+
     const handleSaveNote = async () => {
         if (!db || !mold?.id || !newNoteContent.trim()) {
             if (!newNoteContent.trim()) setIsNoteModalOpen(false);
@@ -312,10 +330,36 @@ const MoldDetailPage = ({
             
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
             
-            {/* ... (ÜST BİLGİ ALANI - AYNI) ... */}
+            {/* ... (ÜST BİLGİ ALANI) ... */}
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
+                
+                {/* --- YENİ EKLENEN: PROJE TİPİ DEĞİŞTİRME (SADECE ADMIN) --- */}
+                <div className="flex items-center">
+                    <span className="mr-2">Tür:</span>
+                    {isAdmin ? (
+                        <select 
+                            value={mold.projectType || PROJECT_TYPES.NEW_MOLD} 
+                            onChange={handleProjectTypeChange}
+                            className="px-2 py-1 rounded-lg text-xs font-bold border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                        >
+                            <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
+                            <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
+                            <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
+                            <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
+                            <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
+                        </select>
+                    ) : (
+                        <span className="font-bold text-gray-800 dark:text-gray-200">
+                            {mold.projectType || PROJECT_TYPES.NEW_MOLD}
+                        </span>
+                    )}
+                </div>
+                {/* ----------------------------------------------------------- */}
+
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
+
                 <div>
-                    <span>Müşteri: {mold.customer} | Ana Durum:</span>
+                    <span>Müşteri: {mold.customer} | Durum:</span>
                     {isAdmin ? (
                         <select value={mold.status || MOLD_STATUS.WAITING} onChange={onStatusChange} className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
                            {Object.values(MOLD_STATUS).map(status => <option key={status} value={status}>{status}</option>)}
@@ -328,16 +372,16 @@ const MoldDetailPage = ({
                 </div>
                 {isManager ? (
                     <div className="flex items-center gap-2">
-                        <label htmlFor="moldDeadline" className="text-sm font-medium">Kalıp Termini:</label>
+                        <label htmlFor="moldDeadline" className="text-sm font-medium">Termin:</label>
                         <input type="date" id="moldDeadline" value={localDeadline} onChange={onDeadlineChange} className="px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
                     </div>
                 ) : (
-                    mold.moldDeadline && <span className="text-sm">Kalıp Termini: <span className="font-semibold">{formatDate(mold.moldDeadline)}</span></span>
+                    mold.moldDeadline && <span className="text-sm">Termin: <span className="font-semibold">{formatDate(mold.moldDeadline)}</span></span>
                 )}
                 {isManager && (
                      <div className="flex items-center gap-2">
-                        <label htmlFor="moldPriority" className="text-sm font-medium">Aciliyet Sırası:</label>
-                        <input type="number" id="moldPriority" value={localPriority === null ? '' : localPriority} onChange={onPriorityChange} min="1" placeholder="Sıra No" className="w-24 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
+                        <label htmlFor="moldPriority" className="text-sm font-medium">Aciliyet:</label>
+                        <input type="number" id="moldPriority" value={localPriority === null ? '' : localPriority} onChange={onPriorityChange} min="1" placeholder="Sıra No" className="w-16 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
                     </div>
                 )}
              </div>
@@ -554,6 +598,7 @@ const MoldDetailPage = ({
             
             {renderModal()}
             
+            {/* YENİ: Kritik Parça Bildirim Modalı */}
             {isCriticalModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[60] p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border-l-8 border-red-600 p-6">

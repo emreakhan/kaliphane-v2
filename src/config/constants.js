@@ -1,38 +1,37 @@
 // src/config/constants.js
 
-// Kullanıcı rolleri (Giriş yapabilen roller)
+// Kullanıcı rolleri
 export const ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
     SUPERVISOR: 'Kalıphane Yetkilisi',
-    // --- YENİ ROLLER GİRİŞ YAPANLARA EKLENDİ ---
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
 
-// Personel Rolleri (Tüm roller)
+// Personel Rolleri
 export const PERSONNEL_ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
     SUPERVISOR: 'Kalıphane Yetkilisi',
     MACHINE_OPERATOR: 'Tezgah Operatörü',
-    // --- YENİ ROLLER PERSONEL LİSTESİNE EKLENDİ ---
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
 
-// --- (Kalan kodlar aynı, değişiklik yok) ---
-
-// Operasyon Durumları (Bireysel)
+// Operasyon Durumları
 export const OPERATION_STATUS = {
     NOT_STARTED: 'BAŞLAMADI',
     IN_PROGRESS: 'ÇALIŞIYOR',
     PAUSED: 'DURAKLATILDI',
+    WAITING: 'BEKLEMEDE',
     WAITING_SUPERVISOR_REVIEW: 'YETKİLİ DEĞERLENDİRMESİ BEKLİYOR',
     COMPLETED: 'TAMAMLANDI',
+    SUPERVISOR_APPROVED: 'ONAYLANDI',
+    SUPERVISOR_REJECTED: 'REDDEDİLDİ'
 };
 
-// Parçanın Genel Durumu (Hesaplanmış)
+// Parçanın Genel Durumu
 export const TASK_STATUS = {
     BEKLIYOR: 'BEKLİYOR',
     CALISIYOR: 'ÇALIŞIYOR',
@@ -93,6 +92,7 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
         case OPERATION_STATUS.IN_PROGRESS:
         case OPERATION_STATUS.PAUSED:
         case OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW:
+        case OPERATION_STATUS.WAITING: 
             return MOLD_STATUS.WAITING;
         default:
             return MOLD_STATUS.WAITING;
@@ -100,7 +100,50 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
 };
 
 export const MACHINE_STATUS = {
-    AVAILABLE: 'MEVCUT',      // Çalışabilir durumda
-    FAULT: 'ARIZALI',         // Arıza var
-    MAINTENANCE: 'BAKIMDA'    // Bakım var
+    AVAILABLE: 'MEVCUT',
+    FAULT: 'ARIZALI',
+    MAINTENANCE: 'BAKIMDA'
+};
+
+// --- YENİ EKLENEN KISIMLAR: PROJE TİPLERİ ---
+export const PROJECT_TYPES = {
+    NEW_MOLD: 'YENİ KALIP',
+    REVISION: 'REVİZYON KALIBI',
+    MACHINING: 'FASON / PROJE İMALAT',
+    IMPROVEMENT: 'İYİLEŞTİRME',          // <-- YENİ
+    T0_IMPROVEMENT: 'T0-İYİLEŞTİRME'     // <-- YENİ
+};
+
+// Proje Tipi Tasarım Ayarları
+export const PROJECT_TYPE_CONFIG = {
+    'YENİ KALIP': { 
+        label: 'YENİ KALIP', 
+        colorClass: 'bg-blue-100 text-blue-800 border-blue-500', 
+        borderClass: 'border-l-8 border-l-blue-600',
+        icon: '🟦'
+    },
+    'REVİZYON KALIBI': { 
+        label: '🛠️ REVİZYON', 
+        colorClass: 'bg-orange-100 text-orange-800 border-orange-500', 
+        borderClass: 'border-l-8 border-l-orange-500',
+        icon: 'Rg'
+    },
+    'FASON / PROJE İMALAT': { 
+        label: '⚙️ PROJE İMALAT', 
+        colorClass: 'bg-purple-100 text-purple-800 border-purple-500', 
+        borderClass: 'border-l-8 border-l-purple-500',
+        icon: 'Pr' 
+    },
+    'İYİLEŞTİRME': { 
+        label: '✨ İYİLEŞTİRME', 
+        colorClass: 'bg-teal-100 text-teal-800 border-teal-500', 
+        borderClass: 'border-l-8 border-l-teal-500',
+        icon: 'Iy' 
+    },
+    'T0-İYİLEŞTİRME': { 
+        label: '🚀 T0-İYİLEŞTİRME', 
+        colorClass: 'bg-indigo-100 text-indigo-800 border-indigo-500', 
+        borderClass: 'border-l-8 border-l-indigo-500',
+        icon: 'T0' 
+    }
 };
