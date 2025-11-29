@@ -5,14 +5,14 @@ import React, { useState, useEffect } from 'react';
 // İkonlar
 import { UserCheck } from 'lucide-react';
 
-// Sabitler ('.js' uzantısını ekledim)
+// Sabitler
 import { OPERATION_STATUS } from '../../config/constants.js';
 
 // Yardımcı Fonksiyonlar
 import { getCurrentDateTimeString } from '../../utils/dateUtils';
 import { calculateDurationInHours } from '../../utils/mathUtils';
 
-// Ana Modal Çerçevesi ('.js' uzantısını ekledim)
+// Ana Modal Çerçevesi
 import Modal from './Modal.js';
 
 const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSubmit }) => {
@@ -41,7 +41,8 @@ const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSub
             camOperatorRatingForMachineOp: rating,
             camOperatorCommentForMachineOp: comment,
             camOperatorReviewDate: getCurrentDateTimeString(),
-            status: OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW,
+            // DEĞİŞİKLİK BURADA: Artık onay beklemiyor, direkt tamamlanıyor.
+            status: OPERATION_STATUS.COMPLETED, 
         };
         
         await onSubmit(mold.id, task.id, updatedOperation);
@@ -97,7 +98,7 @@ const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSub
                     disabled={isSaving}
                     className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition flex items-center disabled:bg-green-400"
                  >
-                    <UserCheck className="w-4 h-4 mr-2"/> {isSaving ? 'Kaydediliyor...' : 'Değerlendir ve Yetkiliye Gönder'}
+                    <UserCheck className="w-4 h-4 mr-2"/> {isSaving ? 'Kaydediliyor...' : 'Değerlendir ve Bitir'}
                 </button>
             </div>
         </Modal>
