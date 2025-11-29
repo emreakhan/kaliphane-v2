@@ -1,12 +1,16 @@
 // src/pages/ActiveTasksPage.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import GridLayout from 'react-grid-layout'; // DÜZELTME BURADA: Doğru bileşen import edildi
+import GridLayout from 'react-grid-layout';
 import { doc, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../config/firebase';
 
 // İkonlar
-import { Users, Cpu, AlertTriangle, Map as MapIcon, List as ListIcon, Activity, Clock, Wrench, AlertOctagon } from 'lucide-react'; 
+import { 
+    Activity, Clock, Wrench, AlertOctagon, 
+    List as ListIcon, Map as MapIcon, AlertTriangle, 
+    Monitor, X, User, LayoutTemplate, Layers
+} from 'lucide-react'; 
 
 // Sabitler
 import { OPERATION_STATUS, ROLES, PERSONNEL_ROLES, MACHINE_STATUS } from '../config/constants.js'; 
@@ -18,16 +22,40 @@ import MachineStatusModal from '../components/Modals/MachineStatusModal';
 const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUpdateMachineStatus }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState('list'); 
+    
     const [savedLayout, setSavedLayout] = useState([]); 
+    const [tvLayout, setTvLayout] = useState([]); 
+
     const [isLayoutLoaded, setIsLayoutLoaded] = useState(false);
     
+    // --- TV Modu State'i ---
+    const [isTvMode, setIsTvMode] = useState(false);
+
+    // Ekran boyutlarını takip et
+    const [windowSize, setWindowSize] = useState({
+        width: window.innerWidth,
+        height: window.innerHeight
+    });
+
     // Modal State
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [selectedMachine, setSelectedMachine] = useState(null);
 
-    // Harita verisini çek
+    // Ekran boyutu değişirse yeniden hesapla
     useEffect(() => {
-        if (viewMode === 'map') {
+        const handleResize = () => {
+            setWindowSize({
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // 1. Standart Haritayı Çek
+    useEffect(() => {
+        if (viewMode === 'map' && !isTvMode) {
             const docRef = doc(db, 'workshop_settings', 'layout');
             const unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) setSavedLayout(docSnap.data().layout || []);
@@ -35,11 +63,48 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             });
             return () => unsubscribe();
         }
-    }, [viewMode]);
+    }, [viewMode, isTvMode]);
+
+    // 2. TV Layout'unu Çek
+    useEffect(() => {
+        if (isTvMode) {
+            setTvLayout([]); 
+            setIsLayoutLoaded(false);
+
+            const docRef = doc(db, 'workshop_settings', 'tv_layout');
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    setTvLayout(docSnap.data().layout || []);
+                } else {
+                    // Fallback
+                    const stdRef = doc(db, 'workshop_settings', 'layout');
+                    onSnapshot(stdRef, (stdSnap) => {
+                        if(stdSnap.exists()) setTvLayout(stdSnap.data().layout || []);
+                    });
+                }
+                setIsLayoutLoaded(true);
+            });
+            return () => unsubscribe();
+        }
+    }, [isTvMode]);
+
+    // Dinamik Yükseklik Hesaplama
+    const calculateTvRowHeight = useMemo(() => {
+        if (!isTvMode || tvLayout.length === 0) return 30;
+        const maxRowsUsed = Math.max(...tvLayout.map(item => (item.y || 0) + (item.h || 0)), 1);
+        const headerHeight = 64;
+        const paddingY = 32;
+        const safeArea = 20;
+        const availableHeight = windowSize.height - (headerHeight + paddingY + safeArea);
+        const totalMarginSpace = Math.max(0, maxRowsUsed - 1) * 10;
+        const rowHeight = (availableHeight - totalMarginSpace) / maxRowsUsed;
+        return Math.max(rowHeight, 10);
+    }, [isTvMode, tvLayout, windowSize.height]);
+
 
     // Süre Formatlama
     const formatDuration = (startDate) => {
-        if (!startDate) return '---';
+        if (!startDate) return '';
         const start = new Date(startDate);
         const now = new Date();
         const diffMs = now - start;
@@ -83,13 +148,43 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             const runningTask = allRunningOperations.find(op => op.machineName === machine.name);
             
             if (manualStatus === MACHINE_STATUS.FAULT) {
-                map[machine.name] = { status: 'FAULT', colorClass: 'bg-gradient-to-br from-orange-500 to-red-600 text-white animate-pulse', icon: <AlertOctagon className="w-5 h-5 animate-bounce" />, text: 'ARIZALI', detail: manualReason, time: statusTime, machineObj: machine };
+                map[machine.name] = { 
+                    status: 'FAULT', 
+                    colorClass: 'bg-gradient-to-br from-orange-500 to-red-600 text-white animate-pulse', 
+                    tvStyle: 'bg-red-900 border-4 border-red-600 animate-pulse',
+                    text: 'ARIZALI', 
+                    detail: manualReason, 
+                    time: statusTime, 
+                    machineObj: machine 
+                };
             } else if (manualStatus === MACHINE_STATUS.MAINTENANCE) {
-                map[machine.name] = { status: 'MAINTENANCE', colorClass: 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white', icon: <Wrench className="w-5 h-5" />, text: 'BAKIMDA', detail: manualReason, time: statusTime, machineObj: machine };
+                map[machine.name] = { 
+                    status: 'MAINTENANCE', 
+                    colorClass: 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white', 
+                    tvStyle: 'bg-yellow-800 border-4 border-yellow-600',
+                    text: 'BAKIMDA', 
+                    detail: manualReason, 
+                    time: statusTime, 
+                    machineObj: machine 
+                };
             } else if (runningTask) {
-                map[machine.name] = { status: 'WORKING', colorClass: 'bg-gradient-to-br from-green-500 to-green-600 text-white animate-pulse-slow', icon: <Activity className="w-5 h-5" />, text: 'ÇALIŞIYOR', task: runningTask, time: runningTask.startDate, machineObj: machine };
+                map[machine.name] = { 
+                    status: 'WORKING', 
+                    colorClass: 'bg-gradient-to-br from-green-500 to-green-600 text-white animate-pulse-slow', 
+                    tvStyle: 'bg-green-900 border-4 border-green-600 shadow-[0_0_30px_rgba(22,163,74,0.4)]',
+                    text: 'ÇALIŞIYOR', 
+                    task: runningTask, 
+                    time: runningTask.startDate, 
+                    machineObj: machine 
+                };
             } else {
-                map[machine.name] = { status: 'IDLE', colorClass: 'bg-gradient-to-br from-red-500 to-red-600 text-white', icon: <AlertTriangle className="w-4 h-4" />, text: 'BOŞTA', machineObj: machine };
+                map[machine.name] = { 
+                    status: 'IDLE', 
+                    colorClass: 'bg-gradient-to-br from-red-500 to-red-600 text-white', 
+                    tvStyle: 'bg-gray-800 border-4 border-gray-700 opacity-60', 
+                    text: 'BOŞTA', 
+                    machineObj: machine 
+                };
             }
         });
         return map;
@@ -99,6 +194,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         return Object.entries(machineStatusMap).map(([name, status]) => ({
             machineName: name,
             statusType: status.status,
+            TvColor: status.TvColor,
             task: status.task || null,
             detail: status.detail || '',
             startTime: status.time || null,
@@ -149,78 +245,180 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         }
     };
 
-    const totalActiveCount = machineStatusList.filter(m => m.statusType === 'WORKING').length + waitingReviewTasks.length;
+    const totalActiveCount = machineStatusList.filter(m => m.statusType === 'WORKING').length;
 
-    // --- HARİTA GÖRÜNÜMÜ (SABİT GENİŞLİK) ---
+    // --- TV MODU EKRANI ---
+    if (isTvMode) {
+        if (!isLayoutLoaded) return <div className="fixed inset-0 bg-black text-white flex items-center justify-center text-2xl">Yükleniyor...</div>;
+        
+        if (tvLayout.length === 0) return (
+            <div className="fixed inset-0 bg-gray-900 text-white flex flex-col items-center justify-center text-center p-8">
+                <LayoutTemplate className="w-24 h-24 text-gray-600 mb-4" />
+                <h2 className="text-3xl font-bold mb-2">TV Yerleşimi Bulunamadı</h2>
+                <p className="text-gray-400 mb-6 text-lg">
+                    Lütfen Admin Panelinden 'TV Modu Yerleşimi'ni düzenleyip kaydediniz.
+                </p>
+                <button onClick={() => setIsTvMode(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold text-lg transition">
+                    Panele Dön
+                </button>
+            </div>
+        );
+
+        const renderTvItem = (item) => {
+            const info = machineStatusMap[item.i] || { 
+                tvStyle: 'bg-gray-800 text-gray-500 border-4 border-gray-900', 
+                text: '???', 
+                status: 'UNKNOWN' 
+            };
+
+            return (
+                <div 
+                    key={item.i}
+                    className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 ${info.tvStyle}`}
+                >
+                    {/* 1. TEZGAH KODU (En Üstte, Ortada, Küçük/Orta) */}
+                    <div className="text-center border-b border-white/10 pb-1 mb-1 shrink-0">
+                        <span className="text-gray-300 font-mono text-lg md:text-xl font-bold tracking-widest opacity-80">{item.i}</span>
+                    </div>
+
+                    {/* 2. İÇERİK (Kalıp, Parça, Operatör) - Dikey Merkezli */}
+                    <div className="flex-1 flex flex-col justify-center items-center text-center min-h-0 overflow-hidden px-1 space-y-1 md:space-y-2">
+                        
+                        {info.status === 'WORKING' && info.task ? (
+                            <>
+                                {/* Kalıp Adı */}
+                                <div className="w-full">
+                                    <div className="text-[10px] md:text-xs text-gray-400 uppercase font-bold tracking-wide mb-0.5">KALIP</div>
+                                    <div className="text-lg md:text-2xl lg:text-3xl font-black text-white leading-tight line-clamp-2 break-words">
+                                        {info.task.moldName}
+                                    </div>
+                                </div>
+
+                                {/* Parça Adı */}
+                                <div className="w-full">
+                                     <div className="text-[10px] md:text-xs text-gray-400 uppercase font-bold tracking-wide mb-0.5">PARÇA</div>
+                                    <div className="text-base md:text-xl lg:text-2xl font-bold text-yellow-400 leading-tight line-clamp-2 break-words">
+                                        {info.task.taskName}
+                                    </div>
+                                </div>
+
+                                {/* Operatör (Opsiyonel ama yer varsa gösterelim) */}
+                                <div className="flex items-center justify-center text-blue-300 text-xs md:text-sm font-medium pt-1">
+                                    <User className="w-3 h-3 mr-1" /> {info.task.assignedOperator}
+                                </div>
+                            </>
+                        ) : (
+                             // BOŞTA / ARIZALI DURUMU
+                            <div className="flex flex-col items-center justify-center">
+                                <span className="text-2xl md:text-4xl font-black opacity-50 tracking-widest uppercase">
+                                    {info.status === 'IDLE' ? 'BOŞ' : info.text}
+                                </span>
+                                {info.detail && <span className="text-xs md:text-sm font-mono bg-black/20 px-2 py-1 rounded mt-2 max-w-full truncate">{info.detail}</span>}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 3. İLERLEME (En Altta, Geniş) */}
+                    {info.status === 'WORKING' && info.task && (
+                        <div className="mt-auto pt-2 border-t border-white/10 shrink-0">
+                            <div className="flex justify-between items-end mb-1">
+                                <span className="text-xs md:text-sm font-mono text-gray-300 flex items-center">
+                                    <Clock className="w-3 h-3 mr-1"/> {formatDuration(info.time)}
+                                </span>
+                                <span className="text-2xl md:text-4xl font-black text-white leading-none">
+                                    %{info.task.progressPercentage}
+                                </span>
+                            </div>
+                            <div className="w-full bg-gray-700 h-3 md:h-4 rounded-full overflow-hidden">
+                                <div 
+                                    className="bg-gradient-to-r from-green-400 to-emerald-600 h-full shadow-[0_0_10px_rgba(34,197,94,0.8)] transition-all duration-1000 ease-out" 
+                                    style={{ width: `${info.task.progressPercentage}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        return (
+            <div className="fixed inset-0 z-[200] bg-gray-900 text-white overflow-hidden flex flex-col">
+                {/* TV Header */}
+                <div className="h-16 bg-gray-800 border-b border-gray-700 px-6 flex justify-between items-center shrink-0 shadow-2xl z-20">
+                    <div className="flex items-center space-x-4">
+                        <Monitor className="w-8 h-8 text-blue-500 animate-pulse" />
+                        <div>
+                            <h1 className="text-2xl font-black tracking-tight leading-none">ATÖLYE CANLI İZLEME</h1>
+                            <div className="text-xs text-gray-400 font-mono">
+                                {new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR')}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="hidden md:flex space-x-6">
+                         <div className="flex flex-col items-center">
+                            <span className="text-xs text-gray-400 font-bold">ÇALIŞAN</span>
+                            <span className="text-xl font-black text-green-500">{totalActiveCount}</span>
+                         </div>
+                    </div>
+
+                    <button 
+                        onClick={() => setIsTvMode(false)} 
+                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-bold flex items-center transition-transform hover:scale-105 shadow-lg"
+                    >
+                        <X className="w-6 h-6 mr-2" /> KAPAT
+                    </button>
+                </div>
+
+                {/* Grid Alanı */}
+                <div className="flex-1 overflow-hidden relative bg-gray-900 p-4 flex items-center justify-center">
+                    <div style={{ width: '100%', height: '100%', maxHeight: '100vh' }}>
+                        <GridLayout
+                            className="layout"
+                            layout={tvLayout} 
+                            cols={24}
+                            rowHeight={calculateTvRowHeight}
+                            width={windowSize.width - 32}
+                            isDraggable={false}
+                            isResizable={false}
+                            margin={[10, 10]}
+                            useCSSTransforms={true}
+                            compactType={null}
+                        >
+                            {tvLayout.map(item => (
+                                <div key={item.i} className="h-full w-full">
+                                    {renderTvItem(item)}
+                                </div>
+                            ))}
+                        </GridLayout>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // --- NORMAL SAYFA GÖRÜNÜMÜ ---
     const WorkshopMap = () => {
         if (!isLayoutLoaded) return <div className="text-center p-10 text-gray-500">Harita yükleniyor...</div>;
         if (savedLayout.length === 0) return <div className="text-center p-10 text-red-500">Henüz yerleşim planı çizilmemiş. Admin panelinden düzenleyin.</div>;
-
         const MAP_WIDTH = 1200;
-
         return (
             <div className="bg-gray-200 dark:bg-gray-900/30 p-6 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 overflow-auto min-h-[600px] animate-fadeIn">
                 <div style={{ width: `${MAP_WIDTH}px`, minHeight: '600px' }}>
-                    <GridLayout
-                        className="layout"
-                        layout={savedLayout}
-                        width={MAP_WIDTH} 
-                        cols={24} 
-                        rowHeight={40}
-                        isDraggable={false}
-                        isResizable={false}
-                        compactType={null}
-                        margin={[10, 10]}
-                    >
+                    <GridLayout className="layout" layout={savedLayout} width={MAP_WIDTH} cols={24} rowHeight={40} isDraggable={false} isResizable={false} compactType={null} margin={[10, 10]}>
                         {savedLayout.map((item) => {
                             const info = machineStatusMap[item.i] || { colorClass: 'bg-gray-400', text: '??', status: 'UNKNOWN' };
-
                             return (
-                                <div 
-                                    key={item.i} 
-                                    onClick={() => openStatusModal(item.i)}
-                                    className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer
-                                        ${info.colorClass}`}
-                                >
-                                    <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">
-                                        {item.i}
-                                    </span>
-
-                                    {/* TOOLTIP (BİLGİ BALONCUĞU) */}
+                                <div key={item.i} onClick={() => openStatusModal(item.i)} className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer ${info.colorClass}`}>
+                                    <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">{item.i}</span>
                                     <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full mb-2 left-1/2 transform -translate-x-1/2 z-50 w-64 pointer-events-none">
                                         <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 border border-gray-700">
-                                            <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between">
-                                                <span>{item.i}</span>
-                                                {info.icon}
-                                            </div>
-                                            
+                                            <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between"><span>{item.i}</span>{info.icon}</div>
                                             {info.status === 'WORKING' ? (
-                                                <div className="space-y-1">
-                                                    <div className="font-semibold text-green-400">ÇALIŞIYOR</div>
-                                                    <div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div>
-                                                    <div><span className="text-gray-400">İş:</span> {info.task.taskName}</div>
-                                                    <div><span className="text-gray-400">Op:</span> {info.task.type} (%{info.task.progressPercentage})</div>
-                                                    
-                                                    {/* CAM OPERATÖRÜ EKLENDİ */}
-                                                    <div className="text-blue-300">
-                                                        <span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}
-                                                    </div>
-                                                    
-                                                    <div className="text-xs text-right text-gray-500 mt-1">
-                                                        <Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}
-                                                    </div>
-                                                </div>
+                                                <div className="space-y-1"><div className="font-semibold text-green-400">ÇALIŞIYOR</div><div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div><div><span className="text-gray-400">İş:</span> {info.task.taskName}</div><div><span className="text-gray-400">Op:</span> {info.task.type} (%{info.task.progressPercentage})</div><div className="text-blue-300"><span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
                                             ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' ? (
-                                                <div className="space-y-1">
-                                                    <div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : 'text-yellow-500'}`}>{info.text}</div>
-                                                    <div className="text-gray-300 italic">"{info.detail}"</div>
-                                                    <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>
-                                                </div>
-                                            ) : (
-                                                <div className="text-red-400 font-semibold flex items-center">
-                                                    <AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA
-                                                </div>
-                                            )}
+                                                <div className="space-y-1"><div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : 'text-yellow-500'}`}>{info.text}</div><div className="text-gray-300 italic">"{info.detail}"</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
+                                            ) : (<div className="text-red-400 font-semibold flex items-center"><AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA</div>)}
                                             <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
                                         </div>
                                     </div>
@@ -235,20 +433,18 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
 
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8 min-h-[85vh]">
-            {/* Başlık ve Kontroller */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 md:mb-0">
-                    Aktif İş Akışı ({totalActiveCount})
+                    Aktif İş Akışı ({machineStatusList.filter(m => m.statusType === 'WORKING').length + waitingReviewTasks.length})
                 </h2>
                 <div className="flex items-center space-x-3 w-full md:w-auto">
                     <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
                         <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}><ListIcon className="w-4 h-4 mr-2" /> Liste</button>
                         <button onClick={() => setViewMode('map')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${viewMode === 'map' ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}><MapIcon className="w-4 h-4 mr-2" /> Harita</button>
+                        <button onClick={() => setIsTvMode(true)} className="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center text-gray-500 dark:text-gray-400 hover:bg-white hover:text-indigo-600 dark:hover:bg-gray-600 dark:hover:text-indigo-300" title="TV Modu / Tam Ekran İzleme"><Monitor className="w-4 h-4 mr-2" /> TV Mod</button>
                     </div>
                     {viewMode === 'list' && (
-                        <div className="w-full md:w-64">
-                            <input type="text" placeholder="Ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-                        </div>
+                        <div className="w-full md:w-64"><input type="text" placeholder="Ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent" /></div>
                     )}
                 </div>
             </div>
@@ -317,12 +513,9 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                             </tbody>
                         </table>
                     </div>
-
                     {canViewWorkDistribution && (
                         <div className="mt-8">
-                            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                                CAM Operatörü İş Dağılımı
-                            </h3>
+                            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">CAM Operatörü İş Dağılımı</h3>
                             <div className="overflow-x-auto max-w-lg border border-gray-200 dark:border-gray-700 rounded-lg">
                                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                     <thead className="bg-gray-50 dark:bg-gray-700">
@@ -335,11 +528,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                         {workDistribution.map((item) => (
                                             <tr key={item.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                                 <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">{item.name}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`inline-flex px-3 py-1 text-sm font-bold rounded-full ${item.count === 0 ? 'bg-green-100 text-green-800' : (item.count <= 2 ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800')}`}>
-                                                        {item.count}
-                                                    </span>
-                                                </td>
+                                                <td className="px-4 py-3"><span className={`inline-flex px-3 py-1 text-sm font-bold rounded-full ${item.count === 0 ? 'bg-green-100 text-green-800' : (item.count <= 2 ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800')}`}>{item.count}</span></td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -349,7 +538,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     )}
                 </div>
             )}
-
             <MachineStatusModal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} machine={selectedMachine} onSubmit={handleUpdateMachineStatus} />
         </div>
     );
