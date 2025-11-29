@@ -13,7 +13,7 @@ import {
 // Sabitler
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
-    PERSONNEL_ROLES, OPERATION_TYPES, PROJECT_TYPES // <-- PROJECT_TYPES Eklendi
+    PERSONNEL_ROLES, OPERATION_TYPES, PROJECT_TYPES 
 } from '../config/constants.js';
 
 // Yardımcı Fonksiyonlar
@@ -21,7 +21,7 @@ import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.j
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 // Firebase
-import { db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc } from '../config/firebase.js'; // <-- PROJECT_COLLECTION ve updateDoc Eklendi
+import { db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc } from '../config/firebase.js';
 
 // Bileşenler
 import Modal from '../components/Modals/Modal.js';
@@ -29,13 +29,24 @@ import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
 import AddOperationModal from '../components/Modals/AddOperationModal.js';
 import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; 
-import View3DModal from '../components/Modals/View3DModal.js'; 
+import View3DModal from '../components/Modals/View3DModal.js';
+import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 
-// --- HESAPLAMA FONKSİYONU ---
+// --- HESAPLAMA FONKSİYONU (GÜNCELLENDİ) ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
     }
+    
+    // Toplam İlerlemeyi Hesapla
+    const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
+    const overallProgress = Math.round(totalProgress / operations.length);
+
+    // KURAL: Eğer ortalama ilerleme %100 ise, durum ne olursa olsun "TAMAMLANDI" kabul et.
+    if (overallProgress === 100) {
+         return { status: TASK_STATUS.TAMAMLANDI, progress: 100, operator: '---', type: 'TAMAMLANDI' };
+    }
+
     const statuses = operations.map(op => op.status);
     let overallStatus = TASK_STATUS.BEKLIYOR;
     let activeOperator = '---';
@@ -64,8 +75,7 @@ const getTaskSummary = (operations) => {
         overallStatus = TASK_STATUS.BEKLIYOR;
         activeType = 'BEKLİYOR';
     }
-    const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
-    const overallProgress = Math.round(totalProgress / operations.length);
+    
     return { status: overallStatus, progress: overallProgress, operator: activeOperator, type: activeType };
 };
 
@@ -108,6 +118,7 @@ const MoldDetailPage = ({
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
     
     const [is3DModalOpen, setIs3DModalOpen] = useState(false);
+    const [isEvalModalOpen, setIsEvalModalOpen] = useState(false); 
 
     const [noteText, setNoteText] = useState('');
     const [newNoteContent, setNewNoteContent] = useState('');
@@ -150,7 +161,6 @@ const MoldDetailPage = ({
 
     // --- HANDLER FONKSİYONLARI ---
     
-    // YENİ: Proje Tipi Güncelleme (Sadece Admin)
     const handleProjectTypeChange = async (e) => {
         const newType = e.target.value;
         if (!mold.id) return;
@@ -160,7 +170,6 @@ const MoldDetailPage = ({
             await updateDoc(moldRef, {
                 projectType: newType
             });
-            // State otomatik güncellenir çünkü 'projects' prop'u parent'tan geliyor
         } catch (error) {
             console.error("Proje tipi güncellenirken hata:", error);
             alert("Proje tipi güncellenemedi.");
@@ -228,7 +237,15 @@ const MoldDetailPage = ({
         }
     };
 
-    const onStatusChange = (e) => { handleUpdateMoldStatus(mold.id, e.target.value); };
+    const onStatusChange = (e) => { 
+        const newStatus = e.target.value;
+        if (newStatus === MOLD_STATUS.COMPLETED) {
+            setIsEvalModalOpen(true);
+        } else {
+            handleUpdateMoldStatus(mold.id, newStatus);
+        }
+    };
+
     const onDeadlineChange = (e) => {
         const newDeadline = e.target.value;
         setLocalDeadline(newDeadline);
@@ -302,9 +319,7 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
-            {/* Üst Sağ Aksiyon Butonları */}
             <div className="absolute top-4 right-4 flex gap-2">
-                {/* YENİ: 3D Butonu */}
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
                     className="flex items-center px-3 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-cyan-500 rounded-lg hover:from-blue-700 hover:to-cyan-600 transition z-10 shadow-md transform hover:scale-105" 
@@ -330,10 +345,7 @@ const MoldDetailPage = ({
             
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
             
-            {/* ... (ÜST BİLGİ ALANI) ... */}
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
-                
-                {/* --- YENİ EKLENEN: PROJE TİPİ DEĞİŞTİRME (SADECE ADMIN) --- */}
                 <div className="flex items-center">
                     <span className="mr-2">Tür:</span>
                     {isAdmin ? (
@@ -354,7 +366,6 @@ const MoldDetailPage = ({
                         </span>
                     )}
                 </div>
-                {/* ----------------------------------------------------------- */}
 
                 <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
 
@@ -598,7 +609,6 @@ const MoldDetailPage = ({
             
             {renderModal()}
             
-            {/* YENİ: Kritik Parça Bildirim Modalı */}
             {isCriticalModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[60] p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border-l-8 border-red-600 p-6">
@@ -650,6 +660,19 @@ const MoldDetailPage = ({
                 onClose={() => setIs3DModalOpen(false)}
                 mold={mold}
             />
+
+            {/* YENİ: Kalıp Değerlendirme Modalı (En Alta Eklendi) */}
+            {isEvalModalOpen && (
+                <MoldEvaluationModal 
+                    isOpen={isEvalModalOpen}
+                    onClose={() => setIsEvalModalOpen(false)}
+                    mold={mold}
+                    db={db}
+                    onComplete={() => {
+                        setIsEvalModalOpen(false);
+                    }}
+                />
+            )}
 
         </div>
     );

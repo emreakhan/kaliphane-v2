@@ -23,7 +23,7 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonlar
-import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, CheckCircle, PlayCircle, Map as MapIcon, Monitor } from 'lucide-react';
+import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, PlayCircle, Map as MapIcon, Monitor } from 'lucide-react';
 
 // Sayfalar
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
@@ -31,7 +31,7 @@ import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
 import ActiveTasksPage from './pages/ActiveTasksPage.js';
 import CamDashboard from './pages/CamDashboard.js';
-import SupervisorReviewPage from './pages/SupervisorReviewPage.js';
+// SupervisorReviewPage importu KALDIRILDI
 import AdminDashboard from './pages/AdminDashboard.js';
 import HistoryPage from './pages/HistoryPage.js';
 import AnalysisPage from './pages/AnalysisPage.js';
@@ -233,9 +233,7 @@ const App = () => {
         const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return;
         
-        // --- EKSİK OLAN TANIMLAMA BURASIYDI ---
         const currentTask = currentProject.tasks[taskIndex];
-        // ---------------------------------------
 
         const opIndex = currentTask.operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
@@ -272,7 +270,6 @@ const App = () => {
             console.error("Terminal işlemi hatası:", e);
         }
     }, [db, projects]);
-    // -------------------------------------------------------
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
         if (!db) return;
@@ -357,9 +354,7 @@ const App = () => {
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [db, location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, [db]);
 
-    const tasksWaitingSupervisorReviewCount = useMemo(() => {
-        return projects.flatMap(p => p.tasks.flatMap(t => t.operations)).filter(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW).length;
-    }, [projects]);
+    // BİLDİRİM SAYACI KALDIRILDI (Çünkü artık Değerlendirme sayfası yok)
     
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
@@ -368,12 +363,11 @@ const App = () => {
             { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
-            { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] },
+            // { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] }, // KALDIRILDI
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
             { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
-            // YENİ: Terminal Linki
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
@@ -382,7 +376,6 @@ const App = () => {
     if (!userId) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Kimlik doğrulanıyor...</p></div>;
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Personel verisi yükleniyor...</p></div>;
     
-    // Terminal Sayfası
     if (location.pathname === '/terminal') {
         return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />;
     }
@@ -416,20 +409,16 @@ const App = () => {
                  </div>
 
                 <nav className="mt-4 flex flex-wrap gap-2">
-                    {navItems.map(item => {
-                        let taskCount = 0;
-                        if (item.label === 'Değerlendirme') taskCount = tasksWaitingSupervisorReviewCount;
-                        return (
-                            <NavItem
-                                key={item.path}
-                                icon={item.icon}
-                                label={item.label}
-                                isActive={location.pathname === item.path}
-                                path={item.path}
-                                taskCount={taskCount}
-                             />
-                        );
-                    })}
+                    {navItems.map(item => (
+                        <NavItem
+                            key={item.path}
+                            icon={item.icon}
+                            label={item.label}
+                            isActive={location.pathname === item.path}
+                            path={item.path}
+                            // taskCount prop'u kaldırıldı çünkü artık bildirim yok
+                         />
+                    ))}
                 </nav>
             </header>
 
@@ -437,7 +426,7 @@ const App = () => {
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
-                <Route path="/review" element={<SupervisorReviewPage loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} />} />
+                {/* Değerlendirme Sayfası Rotası KALDIRILDI */}
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />

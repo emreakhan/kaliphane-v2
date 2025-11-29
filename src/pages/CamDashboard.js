@@ -53,7 +53,6 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
 
     const handleResumeClick = (mold, task, operation) => {
         // Resume işlemi için AssignOperationModal'ı açıyoruz
-        // Amaç: Operatörün tezgahı tekrar seçebilmesi veya değiştirebilmesi
         setModalState({ isOpen: true, type: 'resume', data: { mold, task, operation } });
     };
 
@@ -69,13 +68,29 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
         setModalState({ isOpen: false, type: null, data: null });
     };
     
-    // ProgressUpdateModal'dan gelen güncelleme isteğini karşılayan fonksiyon
-    // Bu fonksiyon, hem normal güncellemeyi hem de PAUSE işlemini yönetir
+    // --- GÜNCELLENEN FONKSİYON ---
     const handleProgressSubmit = async (moldId, taskId, updatedOperation) => {
-        console.log("İlerleme Güncelleniyor:", updatedOperation); // Debug için log
-        await handleUpdateOperation(moldId, taskId, updatedOperation);
+        
+        let finalOperation = { ...updatedOperation };
+
+        // YENİ MANTIK: %100 OLAN İŞLER ONAYA DÜŞMEDEN DİREKT TAMAMLANSIN
+        // Eğer ilerleme %100 ise VEYA durum 'Yetkili Onayı Bekliyor' olarak ayarlandıysa:
+        if (finalOperation.progressPercentage === 100 || finalOperation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) {
+            
+            // Durumu direkt TAMAMLANDI yap
+            finalOperation.status = OPERATION_STATUS.COMPLETED;
+            
+            // Eğer bitiş tarihi yoksa, şu anı bitiş tarihi olarak ekle
+            if (!finalOperation.finishDate) {
+                finalOperation.finishDate = new Date().toISOString();
+            }
+        }
+
+        console.log("İşlem Güncellendi (Otomatik Tamamlama):", finalOperation); 
+        await handleUpdateOperation(moldId, taskId, finalOperation);
         handleCloseModal();
     };
+    // ----------------------------
 
     const { isOpen, type, data } = modalState;
     const { mold, task, operation } = data || {};
@@ -87,7 +102,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
             </h2>
 
             {camOperations.length === 0 ? (
-                 <p className="text-gray-500 dark:text-gray-400">Şu anda size atanmış aktif veya değerlendirme bekleyen operasyon bulunmamaktadır.</p>
+                 <p className="text-gray-500 dark:text-gray-400">Şu anda size atanmış aktif operasyon bulunmamaktadır.</p>
             ) : (
                 <div className="space-y-4">
                     {camOperations.map(op => {
