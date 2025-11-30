@@ -1,6 +1,6 @@
 // src/pages/ActiveTasksPage.js
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import GridLayout from 'react-grid-layout';
 import { doc, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../config/firebase';
@@ -9,7 +9,7 @@ import { db } from '../config/firebase';
 import { 
     Activity, Clock, Wrench, AlertOctagon, 
     List as ListIcon, Map as MapIcon, AlertTriangle, 
-    Monitor, X, User, LayoutTemplate, Layers
+    Monitor, X, User, LayoutTemplate
 } from 'lucide-react'; 
 
 // Sabitler
@@ -152,6 +152,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'FAULT', 
                     colorClass: 'bg-gradient-to-br from-orange-500 to-red-600 text-white animate-pulse', 
                     tvStyle: 'bg-red-900 border-4 border-red-600 animate-pulse',
+                    icon: <AlertOctagon className="w-5 h-5 animate-bounce" />, 
                     text: 'ARIZALI', 
                     detail: manualReason, 
                     time: statusTime, 
@@ -247,6 +248,22 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
 
     const totalActiveCount = machineStatusList.filter(m => m.statusType === 'WORKING').length;
 
+    // --- KAYAN YAZI BİLEŞENİ (MARQUEE) ---
+    const ScrollingText = ({ text, className }) => {
+        // Basit karakter sayısı kontrolü ile kaydırma tetikleme
+        const shouldScroll = text.length > 15; 
+        
+        return (
+            <div className="w-full overflow-hidden relative group">
+                <div className={`whitespace-nowrap ${shouldScroll ? 'animate-marquee' : 'text-center'} ${className}`}>
+                    {text}
+                    {/* Kesintisiz döngü için metni tekrarla (Sadece uzunsa) */}
+                    {shouldScroll && <span className="pl-12">{text}</span>}
+                </div>
+            </div>
+        );
+    };
+
     // --- TV MODU EKRANI ---
     if (isTvMode) {
         if (!isLayoutLoaded) return <div className="fixed inset-0 bg-black text-white flex items-center justify-center text-2xl">Yükleniyor...</div>;
@@ -274,66 +291,64 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             return (
                 <div 
                     key={item.i}
-                    className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 ${info.tvStyle}`}
+                    className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 relative ${info.tvStyle}`}
                 >
-                    {/* 1. TEZGAH KODU (En Üstte, Ortada, Küçük/Orta) */}
-                    <div className="text-center border-b border-white/10 pb-1 mb-1 shrink-0">
-                        <span className="text-gray-300 font-mono text-lg md:text-xl font-bold tracking-widest opacity-80">{item.i}</span>
+                    {/* 1. TEZGAH KODU (Sol Üstte ÇOK KÜÇÜK Badge Olarak) */}
+                    <div className="absolute top-0 left-0 bg-black/40 px-1.5 py-0.5 rounded-br-lg backdrop-blur-sm border-b border-r border-white/10 z-10">
+                        <span className="text-white font-mono text-xs font-bold tracking-widest">{item.i}</span>
                     </div>
 
-                    {/* 2. İÇERİK (Kalıp, Parça, Operatör) - Dikey Merkezli */}
-                    <div className="flex-1 flex flex-col justify-center items-center text-center min-h-0 overflow-hidden px-1 space-y-1 md:space-y-2">
+                    {/* 2. İÇERİK (Kalıp, Parça, Operatör) - Ortalanmış, Kompakt ve Sıkı Boşluklu */}
+                    <div className="flex-1 flex flex-col justify-center items-center text-center min-h-0 overflow-hidden px-1 pt-4 pb-1 space-y-0.5">
                         
                         {info.status === 'WORKING' && info.task ? (
                             <>
                                 {/* Kalıp Adı */}
                                 <div className="w-full">
-                                    <div className="text-[10px] md:text-xs text-gray-400 uppercase font-bold tracking-wide mb-0.5">KALIP</div>
-                                    <div className="text-lg md:text-2xl lg:text-3xl font-black text-white leading-tight line-clamp-2 break-words">
-                                        {info.task.moldName}
+                                    <div className="text-base md:text-lg lg:text-xl font-black text-white leading-tight">
+                                        <ScrollingText text={info.task.moldName} />
                                     </div>
                                 </div>
 
                                 {/* Parça Adı */}
-                                <div className="w-full">
-                                     <div className="text-[10px] md:text-xs text-gray-400 uppercase font-bold tracking-wide mb-0.5">PARÇA</div>
-                                    <div className="text-base md:text-xl lg:text-2xl font-bold text-yellow-400 leading-tight line-clamp-2 break-words">
-                                        {info.task.taskName}
+                                <div className="w-full mt-0.5">
+                                    <div className="text-sm md:text-base lg:text-lg font-bold text-yellow-400 leading-tight">
+                                        <ScrollingText text={info.task.taskName} />
                                     </div>
                                 </div>
 
-                                {/* Operatör (Opsiyonel ama yer varsa gösterelim) */}
-                                <div className="flex items-center justify-center text-blue-300 text-xs md:text-sm font-medium pt-1">
-                                    <User className="w-3 h-3 mr-1" /> {info.task.assignedOperator}
+                                {/* Operatör (Daha makul boyut) */}
+                                <div className="flex items-center justify-center text-blue-300 text-[10px] md:text-xs font-bold w-full mt-0.5">
+                                    <User className="w-3 h-3 mr-1 shrink-0" /> 
+                                    <div className="w-full overflow-hidden">
+                                         <ScrollingText text={info.task.assignedOperator} className="text-center" />
+                                    </div>
                                 </div>
                             </>
                         ) : (
                              // BOŞTA / ARIZALI DURUMU
-                            <div className="flex flex-col items-center justify-center">
-                                <span className="text-2xl md:text-4xl font-black opacity-50 tracking-widest uppercase">
+                            <div className="flex flex-col items-center justify-center h-full">
+                                <span className="text-xl md:text-3xl font-black opacity-50 tracking-widest uppercase">
                                     {info.status === 'IDLE' ? 'BOŞ' : info.text}
                                 </span>
-                                {info.detail && <span className="text-xs md:text-sm font-mono bg-black/20 px-2 py-1 rounded mt-2 max-w-full truncate">{info.detail}</span>}
+                                {info.detail && <span className="text-[10px] font-mono bg-black/20 px-2 py-0.5 rounded mt-1 max-w-full truncate">{info.detail}</span>}
                             </div>
                         )}
                     </div>
 
-                    {/* 3. İLERLEME (En Altta, Geniş) */}
+                    {/* 3. İLERLEME (En Altta, Çok Kompakt) */}
                     {info.status === 'WORKING' && info.task && (
-                        <div className="mt-auto pt-2 border-t border-white/10 shrink-0">
-                            <div className="flex justify-between items-end mb-1">
-                                <span className="text-xs md:text-sm font-mono text-gray-300 flex items-center">
-                                    <Clock className="w-3 h-3 mr-1"/> {formatDuration(info.time)}
-                                </span>
-                                <span className="text-2xl md:text-4xl font-black text-white leading-none">
-                                    %{info.task.progressPercentage}
-                                </span>
-                            </div>
-                            <div className="w-full bg-gray-700 h-3 md:h-4 rounded-full overflow-hidden">
-                                <div 
-                                    className="bg-gradient-to-r from-green-400 to-emerald-600 h-full shadow-[0_0_10px_rgba(34,197,94,0.8)] transition-all duration-1000 ease-out" 
-                                    style={{ width: `${info.task.progressPercentage}%` }}
-                                ></div>
+                        <div className="mt-auto shrink-0 w-full relative h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-600">
+                            {/* Barın kendisi */}
+                            <div 
+                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-1000 ease-out" 
+                                style={{ width: `${info.task.progressPercentage}%` }}
+                            ></div>
+                            
+                            {/* Yüzde ve Süre Yazısı (Barın üzerine biniyor - Z-Index ile üstte) */}
+                            <div className="absolute inset-0 flex justify-between items-center px-2 z-10 text-[9px] font-bold text-white drop-shadow-md">
+                                <span className="flex items-center"><Clock className="w-2.5 h-2.5 mr-1"/> {formatDuration(info.time)}</span>
+                                <span>%{info.task.progressPercentage}</span>
                             </div>
                         </div>
                     )}
@@ -344,41 +359,44 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         return (
             <div className="fixed inset-0 z-[200] bg-gray-900 text-white overflow-hidden flex flex-col">
                 {/* TV Header */}
-                <div className="h-16 bg-gray-800 border-b border-gray-700 px-6 flex justify-between items-center shrink-0 shadow-2xl z-20">
+                <div className="h-14 bg-gray-800 border-b border-gray-700 px-6 flex justify-between items-center shrink-0 shadow-2xl z-20">
                     <div className="flex items-center space-x-4">
-                        <Monitor className="w-8 h-8 text-blue-500 animate-pulse" />
+                        <Monitor className="w-6 h-6 text-blue-500 animate-pulse" />
                         <div>
-                            <h1 className="text-2xl font-black tracking-tight leading-none">ATÖLYE CANLI İZLEME</h1>
-                            <div className="text-xs text-gray-400 font-mono">
-                                {new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR')}
-                            </div>
+                            <h1 className="text-xl font-black tracking-tight leading-none">ATÖLYE CANLI İZLEME</h1>
                         </div>
                     </div>
                     
                     <div className="hidden md:flex space-x-6">
                          <div className="flex flex-col items-center">
-                            <span className="text-xs text-gray-400 font-bold">ÇALIŞAN</span>
-                            <span className="text-xl font-black text-green-500">{totalActiveCount}</span>
+                            <span className="text-[10px] text-gray-400 font-bold uppercase">AKTİF İŞLER</span>
+                            <span className="text-lg font-black text-green-500 leading-none">{totalActiveCount}</span>
+                         </div>
+                         <div className="flex flex-col items-center">
+                            <span className="text-[10px] text-gray-400 font-bold uppercase">SAAT</span>
+                            <span className="text-lg font-mono text-gray-300 leading-none">
+                                {new Date().toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'})}
+                            </span>
                          </div>
                     </div>
 
                     <button 
                         onClick={() => setIsTvMode(false)} 
-                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-bold flex items-center transition-transform hover:scale-105 shadow-lg"
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded text-sm font-bold flex items-center transition-transform hover:scale-105 shadow-lg"
                     >
-                        <X className="w-6 h-6 mr-2" /> KAPAT
+                        <X className="w-4 h-4 mr-2" /> ÇIKIŞ
                     </button>
                 </div>
 
                 {/* Grid Alanı */}
-                <div className="flex-1 overflow-hidden relative bg-gray-900 p-4 flex items-center justify-center">
+                <div className="flex-1 overflow-hidden relative bg-gray-900 p-2 md:p-4 flex items-center justify-center">
                     <div style={{ width: '100%', height: '100%', maxHeight: '100vh' }}>
                         <GridLayout
                             className="layout"
                             layout={tvLayout} 
                             cols={24}
                             rowHeight={calculateTvRowHeight}
-                            width={windowSize.width - 32}
+                            width={windowSize.width - (windowSize.width < 768 ? 16 : 32)} // Mobil/Desktop padding farkı
                             isDraggable={false}
                             isResizable={false}
                             margin={[10, 10]}
@@ -393,6 +411,20 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                         </GridLayout>
                     </div>
                 </div>
+                
+                {/* CSS Animasyonu (Kayan Yazı İçin) - Inline Style olarak ekledim */}
+                <style>{`
+                    @keyframes marquee {
+                        0% { transform: translateX(0%); }
+                        20% { transform: translateX(0%); } /* Başta biraz bekle */
+                        80% { transform: translateX(-50%); } /* Sona git */
+                        100% { transform: translateX(-50%); } /* Sonda bekle */
+                    }
+                    .animate-marquee {
+                        display: inline-block;
+                        animation: marquee 12s linear infinite alternate;
+                    }
+                `}</style>
             </div>
         );
     }
