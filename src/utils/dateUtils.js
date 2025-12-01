@@ -1,109 +1,81 @@
 // src/utils/dateUtils.js
 
-// --- YENİ: SİMÜLASYON VERİSİ İÇİN TARİH OLUŞTURUCU ---
-export const getDateDaysAgo = (days) => {
-    const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    return date.toISOString();
+// Tarihi YYYY-MM-DD formatına çevirir (Input type="date" için)
+export const formatDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('tr-TR', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('.').reverse().join('-');
 };
 
-
-// Helper functions for date/time
-export const formatDateTime = (isoString) => isoString ?
-    new Date(isoString).toLocaleString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---';
-
-export const formatDate = (isoString) => isoString ? new Date(isoString).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : '---';
-
-export const getCurrentDateTimeString = () => new Date().toISOString();
-
-export const calculateRemainingWorkDays = (deadlineString) => {
-    if (!deadlineString) return null;
-    try {
-        const deadlineDate = new Date(deadlineString);
-        const today = new Date();
-        deadlineDate.setHours(23, 59, 59, 999);
-        today.setHours(0, 0, 0, 0); 
-
-        if (isNaN(deadlineDate.getTime())) {
-            return null;
-        }
-
-        let workDays = 0;
-        if (deadlineDate < today) {
-            let currentDate = new Date(deadlineDate);
-            currentDate.setDate(currentDate.getDate() + 1); 
-            
-            while(currentDate <= today) {
-                if (currentDate.getDay() !== 0) {
-                    workDays++;
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-            return -workDays;
-        } else {
-            let currentDate = new Date(today);
-            if (currentDate.getTime() === deadlineDate.getTime() && currentDate.getDay() !== 0) {
-                 return 0;
-            }
-            
-            currentDate.setDate(currentDate.getDate() + 1);
-            while(currentDate <= deadlineDate) {
-                if (currentDate.getDay() !== 0) {
-                    workDays++;
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-            return workDays;
-        }
-        
-    } catch (e) {
-        console.error("İş günü hesaplama hatası:", e);
-        return null;
-    }
+// Tarih ve Saati okunaklı gösterir (DD.MM.YYYY HH:mm)
+export const formatDateTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 };
 
-export const calculateWorkDayDifference = (completionDateString, deadlineString) => {
-    if (!completionDateString || !deadlineString) return null;
-    try {
-        const completionDate = new Date(completionDateString);
-        const deadlineDate = new Date(deadlineString);
-        completionDate.setHours(0, 0, 0, 0);
-        deadlineDate.setHours(0, 0, 0, 0); 
+// Şu anki zamanı ISO formatında verir
+export const getCurrentDateTimeString = () => {
+    return new Date().toISOString();
+};
 
-        if (isNaN(completionDate.getTime()) || isNaN(deadlineDate.getTime())) {
-            return null;
+// Hedef tarih ile bugün arasındaki gün sayısını verir (Basit Fark)
+export const getDaysDifference = (targetDateStr) => {
+    if (!targetDateStr) return 0;
+    
+    const today = new Date();
+    const target = new Date(targetDateStr);
+
+    // Saatleri sıfırla
+    today.setHours(0, 0, 0, 0);
+    target.setHours(0, 0, 0, 0);
+
+    const diffTime = target - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    return diffDays; 
+};
+
+// İki tarih arasındaki İŞ GÜNÜ sayısını hesaplar (Cumartesi-Pazar hariç)
+// (EnhancedMoldList.js sayfasının ihtiyaç duyduğu fonksiyon)
+export const calculateWorkDayDifference = (startDateStr, endDateStr) => {
+    if (!startDateStr || !endDateStr) return 0;
+
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    
+    // Tarihler geçersizse 0 dön
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+
+    // Bitiş tarihi başlangıçtan önceyse 0 dön
+    if (end < start) return 0;
+
+    let count = 0;
+    const curDate = new Date(start);
+
+    while (curDate <= end) {
+        const dayOfWeek = curDate.getDay();
+        // 0 = Pazar, 6 = Cumartesi (Bunları sayma)
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            count++;
         }
-
-        if (completionDate.getTime() === deadlineDate.getTime()) {
-            return 0;
-        }
-
-        let workDays = 0;
-        if (completionDate < deadlineDate) {
-            let currentDate = new Date(completionDate);
-            currentDate.setDate(currentDate.getDate() + 1);
-
-            while(currentDate <= deadlineDate) {
-                if (currentDate.getDay() !== 0) {
-                    workDays++;
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-            return workDays;
-        } else {
-            let currentDate = new Date(deadlineDate);
-            currentDate.setDate(currentDate.getDate() + 1);
-            
-            while(currentDate <= completionDate) {
-                if (currentDate.getDay() !== 0) {
-                    workDays++;
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-            return -workDays;
-        }
-        
-    } catch (e) {
-        console.error("İş günü farkı hesaplama hatası:", e);
-        return null;
+        curDate.setDate(curDate.getDate() + 1);
     }
+    
+    return count;
+};
+
+// Kalan iş gününü hesaplayan yardımcı fonksiyon
+export const calculateRemainingWorkDays = (dueDate) => {
+    if (!dueDate) return 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+    return calculateWorkDayDifference(todayStr, dueDate);
 };

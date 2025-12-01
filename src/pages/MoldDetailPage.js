@@ -7,13 +7,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, Tool, AlertTriangle, ShieldAlert, Box, Filter, Search, ListFilter, Clock
+    User, AlertTriangle, ShieldAlert, Box, Eye 
 } from 'lucide-react'; 
 
 // Sabitler
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
-    PERSONNEL_ROLES, OPERATION_TYPES, PROJECT_TYPES 
+    PERSONNEL_ROLES, PROJECT_TYPES 
 } from '../config/constants.js';
 
 // Yardımcı Fonksiyonlar
@@ -31,8 +31,9 @@ import AddOperationModal from '../components/Modals/AddOperationModal.js';
 import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; 
 import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
+import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; // <-- YENİ IMPORT
 
-// --- HESAPLAMA FONKSİYONU (GÜNCELLENDİ) ---
+// --- HESAPLAMA FONKSİYONU ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
@@ -119,6 +120,9 @@ const MoldDetailPage = ({
     
     const [is3DModalOpen, setIs3DModalOpen] = useState(false);
     const [isEvalModalOpen, setIsEvalModalOpen] = useState(false); 
+    
+    // YENİ: Önizleme State'i
+    const [previewImage, setPreviewImage] = useState(null); 
 
     const [noteText, setNoteText] = useState('');
     const [newNoteContent, setNewNoteContent] = useState('');
@@ -128,10 +132,6 @@ const MoldDetailPage = ({
     const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
     const [criticalNote, setCriticalNote] = useState('');
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
-
-    // --- FİLTRELEME STATE'LERİ ---
-    const [filterStatus, setFilterStatus] = useState('ALL'); // ALL, PENDING, IN_PROGRESS, COMPLETED
-    const [searchTerm, setSearchTerm] = useState('');
 
     // --- EFFECT'LER ---
     useEffect(() => {
@@ -162,35 +162,6 @@ const MoldDetailPage = ({
     if (!mold) {
         return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
     }
-
-    // --- HESAPLANAN DEĞERLER (FİLTRELENMİŞ GÖREVLER) ---
-    const getFilteredTasks = () => {
-        if (!mold.tasks) return [];
-
-        return mold.tasks.filter(task => {
-            const summary = getTaskSummary(task.operations);
-            
-            // 1. Durum Filtresi
-            let statusMatch = true;
-            if (filterStatus === 'PENDING') {
-                statusMatch = summary.status === TASK_STATUS.BEKLIYOR;
-            } else if (filterStatus === 'IN_PROGRESS') {
-                statusMatch = summary.status === TASK_STATUS.CALISIYOR || summary.status === TASK_STATUS.DURAKLATILDI || summary.status === TASK_STATUS.ONAY_BEKLIYOR;
-            } else if (filterStatus === 'COMPLETED') {
-                statusMatch = summary.status === TASK_STATUS.TAMAMLANDI;
-            }
-
-            // 2. Arama Filtresi
-            const searchLower = searchTerm.toLowerCase();
-            const searchMatch = 
-                task.taskName.toLowerCase().includes(searchLower) || 
-                (task.taskNumber && task.taskNumber.toString().includes(searchLower));
-
-            return statusMatch && searchMatch;
-        });
-    };
-
-    const filteredTasks = getFilteredTasks();
 
     // --- HANDLER FONKSİYONLARI ---
     
@@ -352,6 +323,7 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
+            {/* Üst Sağ Aksiyon Butonları */}
             <div className="absolute top-4 right-4 flex gap-2">
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
@@ -361,11 +333,16 @@ const MoldDetailPage = ({
                     <Box className="w-4 h-4 mr-2" /> 3D
                 </button>
 
+                {/* YENİ: ÜRÜN GÖRSELİ BUTONU (ÖNİZLEME MODALINI AÇAR) */}
                 {mold.productImageUrl && (
-                    <a href={mold.productImageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-sm font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 transition z-10">
+                    <button 
+                        onClick={() => setPreviewImage(mold.productImageUrl)}
+                        className="flex items-center px-3 py-2 text-sm font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 transition z-10"
+                    >
                         <ImageIcon className="w-4 h-4 mr-2" /> ÜRÜN GÖRSELİ
-                    </a>
+                    </button>
                 )}
+
                 {mold.trialReportUrl && (
                     <a href={mold.trialReportUrl} target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-sm font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/40 rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition z-10">
                         <FileText className="w-4 h-4 mr-2" /> KALIP DENEME RAPORU
@@ -467,51 +444,8 @@ const MoldDetailPage = ({
                 )}
              </div>
 
-            {/* --- FİLTRELEME BÖLÜMÜ BAŞLANGIÇ --- */}
-            <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-                    <button 
-                        onClick={() => setFilterStatus('ALL')}
-                        className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filterStatus === 'ALL' ? 'bg-white dark:bg-gray-600 text-blue-600 shadow ring-2 ring-blue-500' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-                    >
-                        <ListFilter className="w-4 h-4 mr-2" /> Hepsi
-                    </button>
-                    <button 
-                        onClick={() => setFilterStatus('IN_PROGRESS')}
-                        className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filterStatus === 'IN_PROGRESS' ? 'bg-white dark:bg-gray-600 text-blue-600 shadow ring-2 ring-blue-500' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-                    >
-                        <PlayCircle className="w-4 h-4 mr-2" /> Devam Eden
-                    </button>
-                    <button 
-                        onClick={() => setFilterStatus('PENDING')}
-                        className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filterStatus === 'PENDING' ? 'bg-white dark:bg-gray-600 text-blue-600 shadow ring-2 ring-blue-500' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-                    >
-                        <Clock className="w-4 h-4 mr-2" /> Başlamayan
-                    </button>
-                    <button 
-                        onClick={() => setFilterStatus('COMPLETED')}
-                        className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filterStatus === 'COMPLETED' ? 'bg-white dark:bg-gray-600 text-green-600 shadow ring-2 ring-green-500' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-                    >
-                        <CheckCircle className="w-4 h-4 mr-2" /> Biten
-                    </button>
-                </div>
 
-                <div className="relative w-full md:w-64">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                        type="text"
-                        placeholder="Parça adı veya no ile ara..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"
-                    />
-                </div>
-            </div>
-            {/* --- FİLTRELEME BÖLÜMÜ BİTİŞ --- */}
-
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları ({filteredTasks.length})</h3>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları</h3>
             <div className="space-y-1">
                 <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase rounded-t-lg bg-gray-100 dark:bg-gray-700">
                     <div className="col-span-3">Parça Adı</div>
@@ -522,13 +456,10 @@ const MoldDetailPage = ({
                     <div className="col-span-1 text-right">Detay</div>
                 </div>
 
-                {filteredTasks.length === 0 ? (
-                    <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
-                        <Filter className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                        <p className="text-gray-500 dark:text-gray-400">Aradığınız kriterlere uygun parça bulunamadı.</p>
-                    </div>
+                {mold.tasks.length === 0 ? (
+                    <p className="text-gray-500 dark:text-gray-400 p-4">Bu kalıba atanmış alt parça bulunmamaktadır.</p>
                 ) : (
-                    filteredTasks.map(task => {
+                    mold.tasks.map(task => {
                         const summary = getTaskSummary(task.operations);
                         const isExpanded = !!expandedTasks[task.id];
                         const isCritical = task.isCritical;
@@ -740,7 +671,7 @@ const MoldDetailPage = ({
                 mold={mold}
             />
 
-            {/* YENİ: Kalıp Değerlendirme Modalı (En Alta Eklendi) */}
+            {/* YENİ: Kalıp Değerlendirme Modalı */}
             {isEvalModalOpen && (
                 <MoldEvaluationModal 
                     isOpen={isEvalModalOpen}
@@ -750,6 +681,16 @@ const MoldDetailPage = ({
                     onComplete={() => {
                         setIsEvalModalOpen(false);
                     }}
+                />
+            )}
+
+            {/* YENİ: Resim Önizleme Modalı */}
+            {previewImage && (
+                <ImagePreviewModal 
+                    isOpen={!!previewImage} 
+                    imageUrl={previewImage} 
+                    title={mold.moldName || 'Ürün Görseli'} 
+                    onClose={() => setPreviewImage(null)} 
                 />
             )}
 

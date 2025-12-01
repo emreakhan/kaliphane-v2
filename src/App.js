@@ -23,7 +23,10 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonlar
-import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, PlayCircle, Map as MapIcon, Monitor } from 'lucide-react';
+import { 
+    RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
+    LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase 
+} from 'lucide-react';
 
 // Sayfalar
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
@@ -31,12 +34,12 @@ import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
 import ActiveTasksPage from './pages/ActiveTasksPage.js';
 import CamDashboard from './pages/CamDashboard.js';
-// SupervisorReviewPage importu KALDIRILDI
 import AdminDashboard from './pages/AdminDashboard.js';
 import HistoryPage from './pages/HistoryPage.js';
 import AnalysisPage from './pages/AnalysisPage.js';
 import WorkshopEditorPage from './pages/WorkshopEditorPage.js'; 
 import TerminalPage from './pages/TerminalPage.js'; 
+import ProjectManagementPage from './pages/ProjectManagementPage.js'; // <-- YENİ SAYFA IMPORT EDİLDİ
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -353,17 +356,15 @@ const App = () => {
     const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, [db]);
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [db, location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, [db]);
-
-    // BİLDİRİM SAYACI KALDIRILDI (Çünkü artık Değerlendirme sayfası yok)
     
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
         const allLoginRoles = Object.values(ROLES);
         const finalBaseItems = [
             { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
+            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] }, // <-- YENİ MENÜ ÖĞESİ
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
-            // { path: '/review', label: 'Değerlendirme', icon: CheckCircle, roles: [ROLES.SUPERVISOR, ROLES.ADMIN] }, // KALDIRILDI
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
@@ -416,7 +417,6 @@ const App = () => {
                             label={item.label}
                             isActive={location.pathname === item.path}
                             path={item.path}
-                            // taskCount prop'u kaldırıldı çünkü artık bildirim yok
                          />
                     ))}
                 </nav>
@@ -426,7 +426,10 @@ const App = () => {
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
-                {/* Değerlendirme Sayfası Rotası KALDIRILDI */}
+                
+                {/* YENİ PROJE YÖNETİM SAYFASI */}
+                <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />

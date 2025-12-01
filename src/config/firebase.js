@@ -13,7 +13,8 @@ import {
     doc, 
     onSnapshot, 
     getDocs, 
-    setDoc, 
+    setDoc,
+    addDoc, // <-- EKLENDİ (Compile hatasını çözer)
     query, 
     updateDoc, 
     deleteDoc, 
@@ -27,8 +28,9 @@ import {
 } from 'firebase/storage';
 
 // --- FIREBASE AYARLARI ---
+// DİKKAT: Buradaki bilgileri kendi Firebase konsolundan alıp güncellemelisin!
 const firebaseConfig = {
-  apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I",
+  apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I", // <-- BU ANAHTAR GEÇERSİZ OLABİLİR, KENDİNKİNİ KONTROL ET
   authDomain: "kaliphane-v2.firebaseapp.com",
   projectId: "kaliphane-v2",
   storageBucket: "kaliphane-v2.firebasestorage.app",
@@ -53,20 +55,21 @@ const app = initializeApp(firebaseConfig);
 // Servisleri başlat
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); // <-- YENİ EKLENDİ
+const storage = getStorage(app); 
 
 // Diğer dosyaların kullanabilmesi için export et
 export { 
     db, 
     auth, 
-    storage, // <-- YENİ EKLENDİ
+    storage, 
     
     // Firestore fonksiyonları
     collection,
     doc, 
     onSnapshot, 
     getDocs, 
-    setDoc, 
+    setDoc,
+    addDoc, // <-- DIŞA AKTARILDI (Compile hatasını çözer)
     query, 
     updateDoc, 
     deleteDoc, 
