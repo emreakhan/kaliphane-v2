@@ -1,15 +1,17 @@
-// src/pages/ProjectManagementPage.js
-
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-    Plus, Calendar, Image, ArrowRight, AlertTriangle, 
-    Clock, Save, X, Eye 
+    Plus, Calendar, Image as ImageIcon, ArrowRight, AlertTriangle, 
+    Clock, Save, X, Eye, List as ListIcon, BarChart, ZoomIn, Briefcase, User, PenTool
 } from 'lucide-react';
+
+// Gantt Kütüphanesi
+import { Gantt, ViewMode } from 'gantt-task-react';
+import "gantt-task-react/dist/index.css";
 
 // Bileşenler
 import DetailedProjectModal from '../components/Modals/DetailedProjectModal.js';
-import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; // <-- YENİ IMPORT
+import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js';
 
 // Firebase ve Sabitler
 import { db, PROJECT_COLLECTION, collection, addDoc, updateDoc, doc } from '../config/firebase.js';
@@ -19,15 +21,22 @@ import { formatDate, getDaysDifference } from '../utils/dateUtils.js';
 const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
     const navigate = useNavigate();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    
-    // Önizleme State'i
-    const [previewImage, setPreviewImage] = useState(null); // URL veya null
+    const [previewImage, setPreviewImage] = useState(null);
     const [previewTitle, setPreviewTitle] = useState('');
-
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({});
 
-    // --- LİSTE 1: TASARIM & HAZIRLIK AŞAMASINDAKİLER ---
+    // GÖRÜNÜM MODU
+    const [viewType, setViewType] = useState('LIST');
+    const [ganttViewMode, setGanttViewMode] = useState(ViewMode.Month);
+
+    // --- ÖNİZLEME FONKSİYONU ---
+    const openPreview = (url, title) => {
+        setPreviewImage(url);
+        setPreviewTitle(title);
+    };
+
+    // --- VERİ HAZIRLIĞI (MEVCUT LİSTELER) ---
     const preparationProjects = useMemo(() => {
         return projects.filter(p => {
             const hasOperations = p.tasks && p.tasks.length > 0;
@@ -36,11 +45,60 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
         });
     }, [projects]);
 
-    // --- LİSTE 2: TERMİNİ YAKLAŞANLAR ---
     const upcomingDeadlineProjects = useMemo(() => {
         return projects
             .filter(p => p.status !== MOLD_STATUS.COMPLETED && p.moldDeadline)
             .sort((a, b) => new Date(a.moldDeadline) - new Date(b.moldDeadline));
+    }, [projects]);
+
+    // --- VERİ HAZIRLIĞI (GANTT İÇİN) ---
+    const ganttTasks = useMemo(() => {
+        if (!projects || projects.length === 0) return [];
+
+        return projects
+            .filter(p => p.moldDeadline)
+            .map(project => {
+                let start = project.createdAt ? new Date(project.createdAt) : new Date();
+                let end = new Date(project.moldDeadline);
+                
+                if (end <= start) {
+                    end = new Date(start.getTime() + (24 * 60 * 60 * 1000)); 
+                }
+
+                let progress = 0;
+                if (project.tasks && project.tasks.length > 0) {
+                    const allOps = project.tasks.flatMap(t => t.operations || []);
+                    if (allOps.length > 0) {
+                        const totalProgress = allOps.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
+                        progress = Math.round(totalProgress / allOps.length);
+                    }
+                }
+                if (project.status === MOLD_STATUS.COMPLETED) progress = 100;
+
+                const daysLeft = getDaysDifference(project.moldDeadline);
+                let barColor = '#3B82F6'; // Mavi
+                
+                if (progress === 100) {
+                    barColor = '#10B981'; // Yeşil
+                } else if (daysLeft <= 3) {
+                    barColor = '#EF4444'; // Kırmızı
+                }
+
+                return {
+                    start: start,
+                    end: end,
+                    name: project.moldName,
+                    id: project.id,
+                    type: 'project',
+                    progress: progress,
+                    isDisabled: false,
+                    styles: { progressColor: barColor, progressSelectedColor: barColor },
+                    productImageUrl: project.productImageUrl,
+                    customer: project.customer,
+                    onImageClick: () => project.productImageUrl ? openPreview(project.productImageUrl, project.moldName) : null
+                };
+            })
+            .sort((a, b) => a.start - b.start);
     }, [projects]);
 
     // --- İŞLEMLER ---
@@ -83,132 +141,337 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
         }
     };
 
-    // Önizlemeyi Aç
-    const openPreview = (url, title) => {
-        setPreviewImage(url);
-        setPreviewTitle(title);
+    const handleTaskClick = (task) => {
+        navigate(`/mold/${task.id}`);
+    };
+
+    // --- ÖZEL LİSTE GÖRÜNÜMÜ (DÜZELTİLDİ: Başlık Kaldırıldı) ---
+    // Sadece satırlar render ediliyor, başlık (Header) Gantt'ın kendi prop'uyla geliyor.
+    const CustomTaskList = ({ rowHeight, tasks, fontFamily, fontSize }) => {
+        return (
+            <div className="bg-white dark:bg-gray-800 border-r-2 border-gray-300 dark:border-gray-600 flex flex-col w-full h-full">
+                {/* BURADAKİ FAZLADAN HEADER SİLİNDİ, KAYMA DÜZELDİ */}
+                
+                {tasks.map(t => (
+                    <div 
+                        key={t.id} 
+                        className="flex items-center px-3 border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition cursor-pointer group bg-white dark:bg-gray-800 box-border"
+                        style={{ height: rowHeight, fontFamily, fontSize }}
+                        onClick={() => handleTaskClick(t)}
+                    >
+                        {/* 1. Görsel Kutusu */}
+                        <div 
+                            className="w-[45px] h-[40px] mr-3 flex-shrink-0 bg-gray-100 dark:bg-gray-600 rounded-md border-2 border-gray-300 dark:border-gray-500 overflow-hidden relative shadow-sm hover:border-blue-500 transition-colors"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (t.productImageUrl) t.onImageClick();
+                            }}
+                            title="Resmi Büyüt"
+                        >
+                            {t.productImageUrl ? (
+                                <>
+                                    <img src={t.productImageUrl} alt="Kalıp" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <ZoomIn className="w-4 h-4 text-white" />
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
+                                    <ImageIcon className="w-5 h-5" />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 2. Metin Alanı */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                            <div className="font-extrabold text-gray-900 dark:text-white truncate text-sm mb-0.5 leading-snug">
+                                {t.name}
+                            </div>
+                            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 truncate flex items-center">
+                                <Briefcase className="w-3 h-3 mr-1 text-blue-500" />
+                                {t.customer || 'Müşteri Yok'}
+                            </div>
+                        </div>
+                        
+                        {/* 3. Ok İkonu */}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500">
+                            <ArrowRight className="w-4 h-4" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
     };
 
     return (
-        <div className="p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
+        <div className="p-6 bg-gray-100 dark:bg-gray-900 min-h-screen font-sans">
             
-            <div className="flex justify-between items-center mb-8">
+            {/* ÜST MENÜ */}
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white">Proje Yönetim Merkezi</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">Yeni işleri planlayın, terminleri takip edin.</p>
+                    <h1 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+                        <Briefcase className="w-6 h-6 text-blue-600" />
+                        Proje Yönetim Merkezi
+                    </h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Yeni işleri planlayın, terminleri takip edin.</p>
                 </div>
-                <button 
-                    onClick={() => setIsAddModalOpen(true)}
-                    className="flex items-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition transform hover:scale-105"
-                >
-                    <Plus className="w-6 h-6 mr-2" />
-                    Yeni Proje Başlat
-                </button>
+
+                <div className="flex items-center gap-3">
+                    <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+                        <button onClick={() => setViewType('LIST')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'LIST' ? 'bg-white dark:bg-gray-600 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                            <ListIcon className="w-4 h-4 mr-2" /> Liste
+                        </button>
+                        <button onClick={() => setViewType('GANTT')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'GANTT' ? 'bg-white dark:bg-gray-600 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                            <BarChart className="w-4 h-4 mr-2" /> Çizelge
+                        </button>
+                    </div>
+
+                    <button onClick={() => setIsAddModalOpen(true)} className="flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition transform active:scale-95">
+                        <Plus className="w-5 h-5 mr-2" /> Yeni Proje
+                    </button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                
-                {/* SOL KOLON */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-                    <div className="p-5 border-b dark:border-gray-700 bg-orange-50 dark:bg-orange-900/20 flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-orange-800 dark:text-orange-300 flex items-center"><Clock className="w-5 h-5 mr-2" /> Tasarım & Hazırlık Aşaması</h2>
-                        <span className="bg-orange-200 text-orange-800 text-xs font-bold px-2 py-1 rounded-full">{preparationProjects.length} Proje</span>
-                    </div>
-                    <div className="p-4 space-y-3 max-h-[600px] overflow-y-auto">
-                        {preparationProjects.length === 0 ? <p className="text-gray-400 text-center py-4 italic">Hazırlık aşamasında bekleyen iş yok.</p> : preparationProjects.map(project => (
-                            <div key={project.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md transition bg-gray-50 dark:bg-gray-700/30 group">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-bold text-gray-900 dark:text-white text-lg">{project.moldName}</h3>
-                                        <p className="text-sm text-gray-600 dark:text-gray-400">{project.customer}</p>
-                                        <span className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded mt-2 inline-block">{project.projectType || PROJECT_TYPES.NEW_MOLD}</span>
-                                    </div>
-                                    <div className="flex flex-col gap-2 items-end">
-                                        <button onClick={() => navigate(`/mold/${project.id}`)} className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-semibold flex items-center">Detay <ArrowRight className="w-4 h-4 ml-1" /></button>
-                                        
-                                        {/* ÖNİZLEME BUTONU */}
-                                        {project.productImageUrl && (
-                                            <button 
-                                                onClick={() => openPreview(project.productImageUrl, project.moldName)}
-                                                className="text-purple-600 dark:text-purple-400 text-xs flex items-center hover:bg-purple-100 dark:hover:bg-purple-900/30 px-2 py-1 rounded"
+            {/* İÇERİK */}
+            {viewType === 'LIST' ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                    
+                    {/* SOL KOLON: HAZIRLIK AŞAMASI */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 h-full">
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-orange-50 dark:bg-orange-900/10 flex justify-between items-center rounded-t-xl">
+                            <h2 className="text-base font-bold text-orange-800 dark:text-orange-300 flex items-center"><Clock className="w-5 h-5 mr-2" /> Hazırlık Aşaması</h2>
+                            <span className="bg-orange-200 text-orange-800 text-xs font-bold px-2 py-1 rounded-full">{preparationProjects.length}</span>
+                        </div>
+                        <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
+                            {preparationProjects.length === 0 ? <p className="text-gray-400 text-center py-8 text-sm">Bekleyen iş yok.</p> : preparationProjects.map(project => (
+                                <div key={project.id} className="p-4 border-2 border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-lg transition bg-white dark:bg-gray-800/50 group">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-start gap-4 w-full">
+                                            {/* BÜYÜTÜLMÜŞ RESİM KUTUSU */}
+                                            <div 
+                                                className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 border-2 border-gray-300 dark:border-gray-600 shadow-sm relative group-image"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (project.productImageUrl) openPreview(project.productImageUrl, project.moldName);
+                                                }}
                                             >
-                                                <Eye className="w-3 h-3 mr-1" /> Görseli Aç
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                {(!project.tasks || project.tasks.length === 0) && (
-                                    <div className="mt-3 flex items-center text-xs text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-900">
-                                        <AlertTriangle className="w-4 h-4 mr-2" /> Henüz iş parçası (operasyon) eklenmemiş.
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                                                {project.productImageUrl ? (
+                                                    <>
+                                                        <img src={project.productImageUrl} alt="Kalıp" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition duration-300" />
+                                                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition">
+                                                            <ZoomIn className="w-6 h-6 text-white drop-shadow-md" />
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-1">
+                                                        <ImageIcon className="w-8 h-8" />
+                                                        <span className="text-[10px]">Resim Yok</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            <div className="flex-1">
+                                                {/* BÜYÜTÜLMÜŞ YAZILAR */}
+                                                <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
+                                                <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
+                                                
+                                                {/* PERSONEL BİLGİSİ */}
+                                                <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border border-gray-100 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 space-y-1 w-full max-w-[250px]">
+                                                    <div className="flex items-center">
+                                                        <User className="w-3 h-3 mr-2 text-blue-500" /> 
+                                                        <span className="font-semibold mr-1">Proje Sor:</span> {project.projectManager || 'Atanmadı'}
+                                                    </div>
+                                                    <div className="flex items-center">
+                                                        <PenTool className="w-3 h-3 mr-2 text-purple-500" /> 
+                                                        <span className="font-semibold mr-1">Tasarımcı:</span> {project.moldDesigner || 'Atanmadı'}
+                                                    </div>
+                                                </div>
 
-                {/* SAĞ KOLON */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-                    <div className="p-5 border-b dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20 flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-blue-800 dark:text-blue-300 flex items-center"><Calendar className="w-5 h-5 mr-2" /> Termini Yaklaşanlar</h2>
-                        <span className="bg-blue-200 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">{upcomingDeadlineProjects.length} Proje</span>
-                    </div>
-                    <div className="p-4 space-y-3 max-h-[600px] overflow-y-auto">
-                        {upcomingDeadlineProjects.map(project => {
-                            const daysLeft = getDaysDifference(project.moldDeadline);
-                            const isUrgent = daysLeft <= 3;
-                            const isEditing = editingId === project.id;
-
-                            return (
-                                <div key={project.id} className={`p-4 border rounded-xl transition ${isUrgent ? 'border-red-300 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'}`}>
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="flex-1">
-                                            <h3 className="font-bold text-gray-900 dark:text-white">{project.moldName}</h3>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">{project.customer} | Sor: {project.projectManager || 'Atanmadı'}</p>
+                                                <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 px-2 py-1 rounded mt-2 inline-block font-bold">{project.projectType || PROJECT_TYPES.NEW_MOLD}</span>
+                                            </div>
                                         </div>
-                                        {!isEditing ? (
-                                            <div className="text-right">
-                                                <p className={`text-sm font-bold ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-green-600'}`}>{formatDate(project.moldDeadline)}</p>
-                                                <p className="text-xs text-gray-500">{daysLeft < 0 ? `${Math.abs(daysLeft)} gün geçti` : `${daysLeft} gün kaldı`}</p>
-                                                <button onClick={() => startEditing(project)} className="text-xs text-blue-600 hover:underline mt-1">Hızlı Düzenle</button>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-2">
-                                                <button onClick={() => saveEditing(project.id)} className="p-1 bg-green-100 text-green-700 rounded hover:bg-green-200"><Save className="w-4 h-4"/></button>
-                                                <button onClick={() => setEditingId(null)} className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"><X className="w-4 h-4"/></button>
-                                            </div>
-                                        )}
+                                        <button onClick={() => navigate(`/mold/${project.id}`)} className="text-blue-600 dark:text-blue-400 hover:bg-blue-50 p-2 rounded-full transition shadow-sm border border-transparent hover:border-blue-100"><ArrowRight className="w-6 h-6" /></button>
                                     </div>
-
-                                    {/* GÖRSEL ALANI (GÜNCELLENDİ) */}
-                                    <div className="flex items-center justify-between mt-2">
-                                        {!isEditing && project.productImageUrl && (
-                                            <button 
-                                                onClick={() => openPreview(project.productImageUrl, project.moldName)}
-                                                className="flex items-center text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-2 py-1 rounded transition"
-                                            >
-                                                <Image className="w-3 h-3 mr-1" /> Görseli Önizle
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {isEditing && (
-                                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            <div><label className="text-xs font-bold text-gray-500 block mb-1">Yeni Termin</label><input type="date" value={editForm.moldDeadline} onChange={(e) => setEditForm({...editForm, moldDeadline: e.target.value})} className="w-full text-sm p-1 border rounded dark:bg-gray-700 dark:text-white"/></div>
-                                            <div><label className="text-xs font-bold text-gray-500 block mb-1">Resim Linki</label><input type="text" value={editForm.productImageUrl} onChange={(e) => setEditForm({...editForm, productImageUrl: e.target.value})} className="w-full text-sm p-1 border rounded dark:bg-gray-700 dark:text-white" placeholder="https://..."/></div>
+                                    {(!project.tasks || project.tasks.length === 0) && (
+                                        <div className="mt-3 flex items-center text-xs font-bold text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-900">
+                                            <AlertTriangle className="w-4 h-4 mr-2" /> Henüz iş parçası (operasyon) eklenmemiş.
                                         </div>
                                     )}
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* SAĞ KOLON: TERMİNİ YAKLAŞANLAR */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 h-full">
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/10 flex justify-between items-center rounded-t-xl">
+                            <h2 className="text-base font-bold text-blue-800 dark:text-blue-300 flex items-center"><Calendar className="w-5 h-5 mr-2" /> Termini Yaklaşanlar</h2>
+                            <span className="bg-blue-200 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">{upcomingDeadlineProjects.length}</span>
+                        </div>
+                        <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
+                            {upcomingDeadlineProjects.map(project => {
+                                const daysLeft = getDaysDifference(project.moldDeadline);
+                                const isUrgent = daysLeft <= 3;
+                                const isEditing = editingId === project.id;
+
+                                return (
+                                    <div key={project.id} className={`p-4 border-2 rounded-xl transition ${isUrgent ? 'border-red-300 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'}`}>
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex items-start gap-4 w-full">
+                                                 {/* BÜYÜTÜLMÜŞ RESİM KUTUSU */}
+                                                 <div 
+                                                    className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 border-2 border-gray-300 dark:border-gray-600 shadow-sm relative"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (project.productImageUrl) openPreview(project.productImageUrl, project.moldName);
+                                                    }}
+                                                >
+                                                    {project.productImageUrl ? (
+                                                        <>
+                                                            <img src={project.productImageUrl} alt="Kalıp" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition duration-300" />
+                                                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition">
+                                                                <ZoomIn className="w-6 h-6 text-white" />
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-1">
+                                                            <ImageIcon className="w-8 h-8" />
+                                                            <span className="text-[10px]">Resim Yok</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex-1">
+                                                    {/* BÜYÜTÜLMÜŞ YAZILAR */}
+                                                    <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
+                                                    <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
+                                                    
+                                                    {/* PERSONEL BİLGİSİ */}
+                                                    <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border border-gray-100 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 space-y-1 w-full max-w-[250px]">
+                                                        <div className="flex items-center">
+                                                            <User className="w-3 h-3 mr-2 text-blue-500" /> 
+                                                            <span className="font-semibold mr-1">Proje Sor:</span> {project.projectManager || 'Atanmadı'}
+                                                        </div>
+                                                        <div className="flex items-center">
+                                                            <PenTool className="w-3 h-3 mr-2 text-purple-500" /> 
+                                                            <span className="font-semibold mr-1">Tasarımcı:</span> {project.moldDesigner || 'Atanmadı'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {!isEditing ? (
+                                                <div className="text-right min-w-[100px]">
+                                                    <p className={`text-xl font-black ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-green-600'}`}>{formatDate(project.moldDeadline)}</p>
+                                                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">{daysLeft < 0 ? `${Math.abs(daysLeft)} GÜN GEÇTİ` : `${daysLeft} GÜN KALDI`}</p>
+                                                    <button onClick={() => startEditing(project)} className="text-xs text-blue-600 hover:underline mt-2 block w-full text-right font-semibold">Düzenle</button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col gap-2 min-w-[140px]">
+                                                    <input type="date" value={editForm.moldDeadline} onChange={(e) => setEditForm({...editForm, moldDeadline: e.target.value})} className="text-xs p-1 border rounded dark:bg-gray-700 dark:text-white w-full"/>
+                                                    <input type="text" value={editForm.productImageUrl} onChange={(e) => setEditForm({...editForm, productImageUrl: e.target.value})} className="text-xs p-1 border rounded dark:bg-gray-700 dark:text-white w-full" placeholder="Resim Linki"/>
+                                                    <div className="flex justify-end gap-2 mt-1">
+                                                        <button onClick={() => saveEditing(project.id)} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"><Save className="w-4 h-4"/></button>
+                                                        <button onClick={() => setEditingId(null)} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200"><X className="w-4 h-4"/></button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
-            </div>
+            ) : (
+                // --- GANTT GÖRÜNÜMÜ ---
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
+                    {ganttTasks.length > 0 ? (
+                        <div>
+                            {/* Gantt Kontrolleri */}
+                            <div className="flex flex-wrap justify-between items-center mb-4 border-b border-gray-200 dark:border-gray-700 pb-4">
+                                <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Zaman Planlaması</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setGanttViewMode(ViewMode.Day)} className={`px-3 py-1 text-xs font-semibold rounded border ${ganttViewMode === ViewMode.Day ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>Günlük</button>
+                                    <button onClick={() => setGanttViewMode(ViewMode.Week)} className={`px-3 py-1 text-xs font-semibold rounded border ${ganttViewMode === ViewMode.Week ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>Haftalık</button>
+                                    <button onClick={() => setGanttViewMode(ViewMode.Month)} className={`px-3 py-1 text-xs font-semibold rounded border ${ganttViewMode === ViewMode.Month ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>Aylık</button>
+                                </div>
+                            </div>
+                            
+                            {/* Gantt Şeması */}
+                            <div className="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                                {/* Dark Mode ve Yazı Okunabilirliği için CSS Override */}
+                                <style>{`
+                                    /* Tablo Başlık Alanı */
+                                    ._3T42e { background-color: transparent !important; fill: transparent !important; stroke: transparent !important; }
+                                    
+                                    /* Izgara Arka Planı (Açık Tema) */
+                                    ._15_1e { fill: #ffffff !important; } 
+                                    
+                                    /* Izgara Arka Planı (Koyu Tema) */
+                                    .dark ._15_1e { fill: #1f2937 !important; } 
+                                    
+                                    /* Izgara Çizgileri */
+                                    .dark ._2k9Ys { stroke: #374151 !important; } 
+                                    
+                                    /* Tarih Yazıları (Üst Header) */
+                                    ._3T42e text { fill: #374151 !important; font-weight: 600 !important; }
+                                    .dark ._3T42e text { fill: #e5e7eb !important; font-weight: 600 !important; }
+
+                                    /* Takvimdeki Gün Arka Planları */
+                                    ._34SS0 { fill: #f3f4f6 !important; }
+                                    .dark ._34SS0 { fill: #374151 !important; }
+                                `}</style>
+                                
+                                <Gantt
+                                    tasks={ganttTasks}
+                                    viewMode={ganttViewMode}
+                                    locale="tr"
+                                    onDateChange={() => {}}
+                                    onTaskDelete={() => {}}
+                                    onProgressChange={() => {}}
+                                    onDoubleClick={handleTaskClick}
+                                    onClick={handleTaskClick}
+                                    listCellWidth="280px"
+                                    columnWidth={ganttViewMode === ViewMode.Month ? 300 : 65}
+                                    barBackgroundColor="#3B82F6"
+                                    barProgressColor="#2563EB"
+                                    barProgressSelectedColor="#1E40AF"
+                                    rowHeight={55}
+                                    fontSize={12}
+                                    headerHeight={50} // <-- BAŞLIK YÜKSEKLİĞİ SABİTLENDİ
+                                    TaskListHeader={({ headerHeight }) => (
+                                        <div 
+                                            className="flex items-center px-3 border-b-2 border-gray-300 dark:border-gray-600 font-bold text-gray-800 dark:text-white bg-gray-100 dark:bg-gray-800 h-full text-xs uppercase tracking-wide box-border"
+                                            style={{ height: headerHeight }}
+                                        >
+                                            <div className="w-[45px] mr-3 text-center">Görsel</div>
+                                            <div className="flex-1">Proje Bilgisi</div>
+                                        </div>
+                                    )}
+                                    TaskListTable={CustomTaskList} 
+                                />
+                            </div>
+                            
+                            {/* Lejant */}
+                            <div className="mt-4 flex gap-6 text-xs font-semibold text-gray-600 dark:text-gray-400 justify-center bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center"><div className="w-3 h-3 bg-blue-500 rounded-sm mr-2"></div> Devam Ediyor</div>
+                                <div className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-sm mr-2"></div> Kritik / Gecikmiş</div>
+                                <div className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-sm mr-2"></div> Tamamlandı</div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="text-center py-20 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                            <BarChart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                            <p className="text-gray-500 font-medium">Gantt şemasında gösterilecek termin tarihi girilmiş proje bulunamadı.</p>
+                            <p className="text-gray-400 text-sm mt-1">Lütfen projelerinize termin tarihi ekleyin.</p>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* MODALLAR */}
             <DetailedProjectModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSave={handleSaveNewProject} personnel={personnel} />
-            
-            {/* ÖNİZLEME MODALI */}
             <ImagePreviewModal isOpen={!!previewImage} imageUrl={previewImage} title={previewTitle} onClose={() => setPreviewImage(null)} />
 
         </div>
