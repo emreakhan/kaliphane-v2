@@ -145,62 +145,65 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
         navigate(`/mold/${task.id}`);
     };
 
-    // --- ÖZEL LİSTE GÖRÜNÜMÜ (DÜZELTİLDİ: Başlık Kaldırıldı) ---
-    // Sadece satırlar render ediliyor, başlık (Header) Gantt'ın kendi prop'uyla geliyor.
+    // --- ÖZEL LİSTE GÖRÜNÜMÜ (SOL TARAF) ---
+    // Header kaldırıldı, sadece satırlar var. Header Gantt componentinden geliyor.
     const CustomTaskList = ({ rowHeight, tasks, fontFamily, fontSize }) => {
         return (
             <div className="bg-white dark:bg-gray-800 border-r-2 border-gray-300 dark:border-gray-600 flex flex-col w-full h-full">
-                {/* BURADAKİ FAZLADAN HEADER SİLİNDİ, KAYMA DÜZELDİ */}
-                
-                {tasks.map(t => (
-                    <div 
-                        key={t.id} 
-                        className="flex items-center px-3 border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition cursor-pointer group bg-white dark:bg-gray-800 box-border"
-                        style={{ height: rowHeight, fontFamily, fontSize }}
-                        onClick={() => handleTaskClick(t)}
-                    >
-                        {/* 1. Görsel Kutusu */}
+                <div className="flex-1 overflow-hidden">
+                    {tasks.map(t => (
                         <div 
-                            className="w-[45px] h-[40px] mr-3 flex-shrink-0 bg-gray-100 dark:bg-gray-600 rounded-md border-2 border-gray-300 dark:border-gray-500 overflow-hidden relative shadow-sm hover:border-blue-500 transition-colors"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (t.productImageUrl) t.onImageClick();
-                            }}
-                            title="Resmi Büyüt"
+                            key={t.id} 
+                            className="flex items-center px-3 border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition cursor-pointer group bg-white dark:bg-gray-800"
+                            style={{ height: rowHeight, fontFamily, fontSize }}
+                            onClick={() => handleTaskClick(t)}
                         >
-                            {t.productImageUrl ? (
-                                <>
-                                    <img src={t.productImageUrl} alt="Kalıp" className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <ZoomIn className="w-4 h-4 text-white" />
+                            <div 
+                                className="w-[45px] h-[40px] mr-3 flex-shrink-0 bg-gray-100 dark:bg-gray-600 rounded-md border-2 border-gray-300 dark:border-gray-500 overflow-hidden relative shadow-sm hover:border-blue-500 transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (t.productImageUrl) t.onImageClick();
+                                }}
+                                title="Resmi Büyüt"
+                            >
+                                {t.productImageUrl ? (
+                                    <>
+                                        <img src={t.productImageUrl} alt="Kalıp" className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <ZoomIn className="w-4 h-4 text-white" />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
+                                        <ImageIcon className="w-5 h-5" />
                                     </div>
-                                </>
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
-                                    <ImageIcon className="w-5 h-5" />
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
 
-                        {/* 2. Metin Alanı */}
-                        <div className="flex-1 min-w-0 flex flex-col justify-center">
-                            <div className="font-extrabold text-gray-900 dark:text-white truncate text-sm mb-0.5 leading-snug">
-                                {t.name}
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                <div className="font-extrabold text-gray-900 dark:text-white truncate text-sm mb-0.5 leading-snug">
+                                    {t.name}
+                                </div>
+                                <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 truncate flex items-center">
+                                    <Briefcase className="w-3 h-3 mr-1 text-blue-500" />
+                                    {t.customer || 'Müşteri Yok'}
+                                </div>
                             </div>
-                            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 truncate flex items-center">
-                                <Briefcase className="w-3 h-3 mr-1 text-blue-500" />
-                                {t.customer || 'Müşteri Yok'}
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500">
+                                <ArrowRight className="w-4 h-4" />
                             </div>
                         </div>
-                        
-                        {/* 3. Ok İkonu */}
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500">
-                            <ArrowRight className="w-4 h-4" />
-                        </div>
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
         );
+    };
+
+    // Tarih formatlama fonksiyonu (gün-ay-yıl)
+    const formatDeadline = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     };
 
     return (
@@ -247,7 +250,6 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                                 <div key={project.id} className="p-4 border-2 border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-lg transition bg-white dark:bg-gray-800/50 group">
                                     <div className="flex justify-between items-start">
                                         <div className="flex items-start gap-4 w-full">
-                                            {/* BÜYÜTÜLMÜŞ RESİM KUTUSU */}
                                             <div 
                                                 className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 border-2 border-gray-300 dark:border-gray-600 shadow-sm relative group-image"
                                                 onClick={(e) => {
@@ -271,11 +273,9 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                                             </div>
                                             
                                             <div className="flex-1">
-                                                {/* BÜYÜTÜLMÜŞ YAZILAR */}
                                                 <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
                                                 <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
                                                 
-                                                {/* PERSONEL BİLGİSİ */}
                                                 <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border border-gray-100 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 space-y-1 w-full max-w-[250px]">
                                                     <div className="flex items-center">
                                                         <User className="w-3 h-3 mr-2 text-blue-500" /> 
@@ -314,11 +314,21 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                                 const isUrgent = daysLeft <= 3;
                                 const isEditing = editingId === project.id;
 
+                                // --- İLERLEME HESABI ---
+                                let progressPercentage = 0;
+                                if (project.tasks && project.tasks.length > 0) {
+                                    const allOps = project.tasks.flatMap(t => t.operations || []);
+                                    if (allOps.length > 0) {
+                                        const total = allOps.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
+                                        progressPercentage = Math.round(total / allOps.length);
+                                    }
+                                }
+                                if (project.status === MOLD_STATUS.COMPLETED) progressPercentage = 100;
+
                                 return (
                                     <div key={project.id} className={`p-4 border-2 rounded-xl transition ${isUrgent ? 'border-red-300 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'}`}>
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-start gap-4 w-full">
-                                                 {/* BÜYÜTÜLMÜŞ RESİM KUTUSU */}
                                                  <div 
                                                     className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 border-2 border-gray-300 dark:border-gray-600 shadow-sm relative"
                                                     onClick={(e) => {
@@ -342,11 +352,9 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                                                 </div>
 
                                                 <div className="flex-1">
-                                                    {/* BÜYÜTÜLMÜŞ YAZILAR */}
                                                     <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
                                                     <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
                                                     
-                                                    {/* PERSONEL BİLGİSİ */}
                                                     <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border border-gray-100 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 space-y-1 w-full max-w-[250px]">
                                                         <div className="flex items-center">
                                                             <User className="w-3 h-3 mr-2 text-blue-500" /> 
@@ -362,8 +370,16 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
 
                                             {!isEditing ? (
                                                 <div className="text-right min-w-[100px]">
-                                                    <p className={`text-xl font-black ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-green-600'}`}>{formatDate(project.moldDeadline)}</p>
+                                                    <p className={`text-xl font-black ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-green-600'}`}>{formatDeadline(project.moldDeadline)}</p>
                                                     <p className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">{daysLeft < 0 ? `${Math.abs(daysLeft)} GÜN GEÇTİ` : `${daysLeft} GÜN KALDI`}</p>
+                                                    <div className="mt-2">
+                                                        <div className="flex justify-end text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">
+                                                            %{progressPercentage}
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                                                            <div className={`h-1.5 rounded-full ${progressPercentage === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${progressPercentage}%` }}></div>
+                                                        </div>
+                                                    </div>
                                                     <button onClick={() => startEditing(project)} className="text-xs text-blue-600 hover:underline mt-2 block w-full text-right font-semibold">Düzenle</button>
                                                 </div>
                                             ) : (
