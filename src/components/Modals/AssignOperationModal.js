@@ -146,7 +146,7 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                                 className="w-5 h-5 text-red-600 rounded focus:ring-red-500 border-gray-300"
                             />
                             <span className="font-bold text-sm text-red-800 dark:text-red-300">
-                                Kritik uyarıyı okudum, anladım ve dikkat edeceğimi taahhüt ediyorum.
+                                Kritik uyarıyı okudum, anladım.
                             </span>
                         </label>
                     </div>

@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, AlertTriangle, ShieldAlert, Box, Eye 
+    User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
 } from 'lucide-react'; 
 
 // Sabitler
@@ -21,7 +21,10 @@ import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.j
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 // Firebase
-import { db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc } from '../config/firebase.js';
+import { 
+    db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc, 
+    storage, ref, uploadBytes, getDownloadURL // <-- STORAGE IMPORTLARI EKLENDİ
+} from '../config/firebase.js';
 
 // Bileşenler
 import Modal from '../components/Modals/Modal.js';
@@ -31,7 +34,7 @@ import AddOperationModal from '../components/Modals/AddOperationModal.js';
 import ReportIssueModal from '../components/Modals/ReportIssueModal.js'; 
 import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
-import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; // <-- YENİ IMPORT
+import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
 // --- HESAPLAMA FONKSİYONU ---
 const getTaskSummary = (operations) => {
@@ -43,7 +46,6 @@ const getTaskSummary = (operations) => {
     const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
     const overallProgress = Math.round(totalProgress / operations.length);
 
-    // KURAL: Eğer ortalama ilerleme %100 ise, durum ne olursa olsun "TAMAMLANDI" kabul et.
     if (overallProgress === 100) {
          return { status: TASK_STATUS.TAMAMLANDI, progress: 100, operator: '---', type: 'TAMAMLANDI' };
     }
@@ -110,7 +112,7 @@ const MoldDetailPage = ({
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
-    const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
+    // localProductImageUrl artık upload işlemiyle güncelleneceği için manuel state'e pek gerek kalmadı ama yapıyı koruyalım
     const [localProjectManager, setLocalProjectManager] = useState('');
     const [localMoldDesigner, setLocalMoldDesigner] = useState('');
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
@@ -121,12 +123,12 @@ const MoldDetailPage = ({
     const [is3DModalOpen, setIs3DModalOpen] = useState(false);
     const [isEvalModalOpen, setIsEvalModalOpen] = useState(false); 
     
-    // YENİ: Önizleme State'i
     const [previewImage, setPreviewImage] = useState(null); 
 
     const [noteText, setNoteText] = useState('');
     const [newNoteContent, setNewNoteContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [isUploading, setIsUploading] = useState(false); // YENİ: Yükleme durumu
     const [expandedTasks, setExpandedTasks] = useState({});
     
     const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
@@ -137,7 +139,6 @@ const MoldDetailPage = ({
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
-            setLocalProductImageUrl(mold.productImageUrl || '');
             setLocalProjectManager(mold.projectManager || '');
             setLocalMoldDesigner(mold.moldDesigner || '');
             setLocalDeadline(mold.moldDeadline || '');
@@ -165,6 +166,48 @@ const MoldDetailPage = ({
 
     // --- HANDLER FONKSİYONLARI ---
     
+    // YENİ: Dosya Yükleme Fonksiyonu
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file || !mold.id) return;
+
+        // Dosya boyutu kontrolü (Örn: 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            alert("Dosya boyutu 10MB'dan büyük olamaz.");
+            return;
+        }
+
+        setIsUploading(true);
+
+        try {
+            // 1. Dosya ismini benzersiz yap
+            const uniqueFileName = `mold_images/${mold.id}_${Date.now()}_${file.name}`;
+            const storageRef = ref(storage, uniqueFileName);
+
+            // 2. Yükle
+            await uploadBytes(storageRef, file);
+
+            // 3. Linki al
+            const downloadURL = await getDownloadURL(storageRef);
+
+            // 4. Veritabanını güncelle
+            await handleUpdateProductImageUrl(mold.id, downloadURL);
+            
+            alert("Görsel başarıyla yüklendi!");
+        } catch (error) {
+            console.error("Yükleme hatası:", error);
+            alert("Resim yüklenirken bir hata oluştu.");
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleRemoveImage = async () => {
+        if (window.confirm("Mevcut görseli kaldırmak istediğinize emin misiniz?")) {
+            await handleUpdateProductImageUrl(mold.id, '');
+        }
+    };
+
     const handleProjectTypeChange = async (e) => {
         const newType = e.target.value;
         if (!mold.id) return;
@@ -212,6 +255,7 @@ const MoldDetailPage = ({
     };
 
     const isAdmin = loggedInUser.role === ROLES.ADMIN;
+    // Yetkili Tanımı: Admin, Proje Sorumlusu veya Kalıp Tasarımcısı
     const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     
@@ -266,11 +310,6 @@ const MoldDetailPage = ({
     const handleReportUrlBlur = () => {
         if (localTrialReportUrl !== (mold.trialReportUrl || '')) {
             handleUpdateTrialReportUrl(mold.id, localTrialReportUrl);
-        }
-    };
-    const handleImageUrlBlur = () => {
-        if (localProductImageUrl !== (mold.productImageUrl || '')) {
-            handleUpdateProductImageUrl(mold.id, localProductImageUrl);
         }
     };
     const handleProjectManagerChange = (e) => {
@@ -333,7 +372,6 @@ const MoldDetailPage = ({
                     <Box className="w-4 h-4 mr-2" /> 3D
                 </button>
 
-                {/* YENİ: ÜRÜN GÖRSELİ BUTONU (ÖNİZLEME MODALINI AÇAR) */}
                 {mold.productImageUrl && (
                     <button 
                         onClick={() => setPreviewImage(mold.productImageUrl)}
@@ -430,18 +468,52 @@ const MoldDetailPage = ({
                 ) : (
                     mold.moldDesigner && <p className="text-sm dark:text-gray-300">Tasarım Sor.: <span className="font-semibold dark:text-white">{mold.moldDesigner}</span></p>
                 )}
+                
                 {isManager && (
                     <div className="flex items-center gap-2 w-full">
                         <label htmlFor="trialReportUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Deneme Raporu Linki:</label>
                         <input type="text" id="trialReportUrl" value={localTrialReportUrl} onChange={(e) => setLocalTrialReportUrl(e.target.value)} onBlur={handleReportUrlBlur} placeholder="E-Tablo linkini buraya yapıştırın..." className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
                     </div>
                 )}
+
+                {/* --- GÖRSEL YÜKLEME ALANI (DEĞİŞTİ) --- */}
                 {isManager && (
-                    <div className="flex items-center gap-2 w-full">
-                        <label htmlFor="productImageUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Ürün Görseli Linki:</label>
-                        <input type="text" id="productImageUrl" value={localProductImageUrl} onChange={(e) => setLocalProductImageUrl(e.target.value)} onBlur={handleImageUrlBlur} placeholder="Google Drive görsel linkini buraya yapıştırın..." className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
+                    <div className="w-full border-t md:border-t-0 md:border-l dark:border-gray-700 md:pl-4 mt-2 md:mt-0">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Ürün Görseli</label>
+                        
+                        <div className="flex items-center gap-2">
+                            {/* Dosya Seçme Butonu */}
+                            <label className={`flex items-center px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg cursor-pointer border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-800 transition ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                {isUploading ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
+                                <span className="text-xs font-bold">{isUploading ? 'Yükleniyor...' : 'Görsel Seç ve Yükle'}</span>
+                                <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    onChange={handleFileUpload}
+                                    disabled={isUploading}
+                                />
+                            </label>
+
+                            {/* Mevcut Görsel Varsa Silme Butonu */}
+                            {mold.productImageUrl && (
+                                <button 
+                                    onClick={handleRemoveImage}
+                                    className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
+                                    title="Görseli Kaldır"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
+                        
+                        {/* Bilgi Metni */}
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            {mold.productImageUrl ? "✅ Görsel yüklü. Değiştirmek için yeni dosya seçin." : "⚠️ Henüz görsel yüklenmemiş."}
+                        </p>
                     </div>
                 )}
+                {/* ------------------------------------- */}
              </div>
 
 
