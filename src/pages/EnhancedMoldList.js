@@ -10,14 +10,13 @@ import {
     Briefcase, Tool
 } from 'lucide-react';
 
-// Sabitler
+// Sabitler (DÜZELTİLDİ)
 import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
 // YENİ FONKSİYONLAR IMPORT EDİLDİ
 import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff, getDaysDifference } from '../utils/dateUtils.js';
-
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
 const EnhancedMoldList = ({ projects }) => {
@@ -176,7 +175,6 @@ const EnhancedMoldList = ({ projects }) => {
                         const totalProgress = calculateMoldProgress(project.tasks);
                         const moldStatus = project.status || MOLD_STATUS.WAITING;
                         
-                        // TİPE GÖRE STİL AYARINI ÇEKİYORUZ
                         const typeStyle = getProjectTypeStyle(project.projectType);
 
                         const assignedCamOperators = project.tasks
@@ -206,7 +204,7 @@ const EnhancedMoldList = ({ projects }) => {
                         // RENKLİ KENAR ÇİZGİSİ
                         const cardHighlightClasses = isCritical 
                             ? 'bg-red-100 dark:bg-red-900/30 border-red-600 dark:border-red-500 animate-pulse'
-                            : `bg-white dark:bg-gray-800 ${typeStyle.borderClass}`; // Tipe göre renk
+                            : `bg-white dark:bg-gray-800 ${typeStyle.borderClass}`; 
                             
                         const progressBarClass = moldStatus === MOLD_STATUS.COMPLETED 
                             ? 'bg-green-600'
@@ -247,7 +245,6 @@ const EnhancedMoldList = ({ projects }) => {
                                 )}
                         
                                 <div className="flex-grow">
-                                    {/* TİP ETİKETİ (BADGE) */}
                                     <div className="mb-2">
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${typeStyle.colorClass}`}>
                                             {typeStyle.label}
@@ -276,44 +273,35 @@ const EnhancedMoldList = ({ projects }) => {
                                         </p>
                                     )}
                                     
-                                    {/* --- TERMİN TARİHİ GÖSTERİMİ (YENİ FORMAT) --- */}
                                     <p className="text-gray-600 dark:text-gray-400 text-xs">
                                         Termin: <span className="font-semibold">{formatDateTR(project.moldDeadline) || '---'}</span>
                                     </p>
                                     
-                                    {/* --- SON GÜN VE TAMAMLANMA BİLGİSİ --- */}
                                     {moldStatus === MOLD_STATUS.COMPLETED ? (
                                         (() => {
-                                            // Tamamlanma durumunda Gecikme/Erken hesabı
                                             let completionText = 'Tamamlandı';
                                             let diffText = '';
                                             
-                                            // 1. Bitiş tarihini bul (completedAt yoksa operasyonlardan bul)
                                             let finishDateStr = project.completedAt;
                                             if (!finishDateStr && project.tasks) {
                                                 const allOps = project.tasks.flatMap(t => t.operations);
                                                 const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED && (op.finishDate || op.supervisorReviewDate));
                                                 if (completedOps.length > 0) {
-                                                    // En son biten operasyonun tarihini al
                                                     const maxTime = Math.max(...completedOps.map(op => new Date(op.finishDate || op.supervisorReviewDate).getTime()));
                                                     finishDateStr = new Date(maxTime).toISOString();
                                                 }
                                             }
 
-                                            // 2. Hesabı yap
                                             if (project.moldDeadline && finishDateStr) {
                                                 const deadline = new Date(project.moldDeadline);
                                                 const finish = new Date(finishDateStr);
-                                                // Saatleri sıfırla
                                                 deadline.setHours(0,0,0,0);
                                                 finish.setHours(0,0,0,0);
 
                                                 if (finish > deadline) {
-                                                    // GEÇ
                                                     const diff = calculate6DayDiff(deadline.toISOString(), finish.toISOString());
                                                     diffText = ` (${diff} gün geç)`;
                                                 } else if (finish < deadline) {
-                                                    // ERKEN
                                                     const diff = calculate6DayDiff(finish.toISOString(), deadline.toISOString());
                                                     diffText = ` (${diff} gün erken)`;
                                                 } else {
@@ -329,17 +317,15 @@ const EnhancedMoldList = ({ projects }) => {
                                         })()
                                     ) : (
                                         (() => {
-                                            if (!project.moldDeadline) return null; // Termin yoksa boş geç
+                                            if (!project.moldDeadline) return null;
 
                                             if (isOverdue) {
-                                                // Termin geçtiyse (Takvim günü)
                                                 return (
                                                     <p className="text-xs mt-1 text-red-700 dark:text-red-500 font-bold">
                                                         TERMİN {overdueDays} GÜN GEÇTİ
                                                     </p>
                                                 );
                                             } else {
-                                                // Termin geçmediyse (6 gün kuralı ile kalan iş günü)
                                                 let remainingDaysText = `${remainingDays} iş günü kaldı`;
                                                 let remainingDaysColor = 'text-gray-500 dark:text-gray-400';
 
@@ -361,7 +347,6 @@ const EnhancedMoldList = ({ projects }) => {
                                             }
                                         })()
                                     )}
-                                    {/* ----------------------------------- */}
 
                                     <p className="text-gray-600 dark:text-gray-400 text-xs mt-2">
                                         Alt Parça Sayısı: <span className="font-semibold">{project.tasks.length}</span>

@@ -1,6 +1,16 @@
 // src/config/constants.js
 
-// Kullanıcı rolleri
+// --- VERİTABANI KOLEKSİYON ADRESLERİ (BURAYA EKLENDİ) ---
+const appId = 'default-app-id'; 
+export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
+export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
+export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
+export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
+
+// --- DİĞER SABİTLER ---
+export const initialAuthToken = null;
+
+// --- ROLLER ---
 export const ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
@@ -9,7 +19,6 @@ export const ROLES = {
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
 
-// Personel Rolleri
 export const PERSONNEL_ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
@@ -19,7 +28,6 @@ export const PERSONNEL_ROLES = {
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
 };
 
-// Operasyon Durumları
 export const OPERATION_STATUS = {
     NOT_STARTED: 'BAŞLAMADI',
     IN_PROGRESS: 'ÇALIŞIYOR',
@@ -31,7 +39,6 @@ export const OPERATION_STATUS = {
     SUPERVISOR_REJECTED: 'REDDEDİLDİ'
 };
 
-// Parçanın Genel Durumu
 export const TASK_STATUS = {
     BEKLIYOR: 'BEKLİYOR',
     CALISIYOR: 'ÇALIŞIYOR',
@@ -40,7 +47,6 @@ export const TASK_STATUS = {
     TAMAMLANDI: 'TAMAMLANDI',
 };
 
-// Operasyon Tipleri
 export const OPERATION_TYPES = {
     CNC: 'CNC',
     AYNA_POLISAJ: 'AYNA POLİSAJ',
@@ -50,7 +56,6 @@ export const OPERATION_TYPES = {
     TAKIM_IZI_POLISAJ: 'TAKIM İZİ POLİSAJ',
 };
 
-// Adminin ekleyebileceği operasyon tipleri
 export const ADDABLE_OPERATION_TYPES = {
     AYNA_POLISAJ: 'AYNA POLİSAJ',
     EROZYON_DESEN: 'EROZYON DESEN',
@@ -59,7 +64,6 @@ export const ADDABLE_OPERATION_TYPES = {
     TAKIM_IZI_POLISAJ: 'TAKIM İZİ POLİSAJ',
 };
 
-// Kalıp Ana Durumları
 export const MOLD_STATUS = {
     WAITING: 'BEKLEMEDE',
     CNC: 'CNC',
@@ -72,7 +76,6 @@ export const MOLD_STATUS = {
     COMPLETED: 'TAMAMLANDI',
 };
 
-// "Aktif" sayılan durumların listesi
 export const MOLD_STATUS_ACTIVE_LIST = [
     MOLD_STATUS.CNC,
     MOLD_STATUS.EREZYON,
@@ -83,7 +86,6 @@ export const MOLD_STATUS_ACTIVE_LIST = [
     MOLD_STATUS.REVISION,
 ];
 
-// Haritalama fonksiyonu
 export const mapTaskStatusToMoldStatus = (taskStatus) => {
     switch(taskStatus) {
         case OPERATION_STATUS.COMPLETED:
@@ -105,45 +107,19 @@ export const MACHINE_STATUS = {
     MAINTENANCE: 'BAKIMDA'
 };
 
-// --- YENİ EKLENEN KISIMLAR: PROJE TİPLERİ ---
+// --- PROJE TİPLERİ ---
 export const PROJECT_TYPES = {
     NEW_MOLD: 'YENİ KALIP',
     REVISION: 'REVİZYON KALIBI',
     MACHINING: 'FASON / PROJE İMALAT',
-    IMPROVEMENT: 'İYİLEŞTİRME',          // <-- YENİ
-    T0_IMPROVEMENT: 'T0-İYİLEŞTİRME'     // <-- YENİ
+    IMPROVEMENT: 'İYİLEŞTİRME',
+    T0_IMPROVEMENT: 'T0-İYİLEŞTİRME'
 };
 
-// Proje Tipi Tasarım Ayarları
 export const PROJECT_TYPE_CONFIG = {
-    'YENİ KALIP': { 
-        label: 'YENİ KALIP', 
-        colorClass: 'bg-blue-100 text-blue-800 border-blue-500', 
-        borderClass: 'border-l-8 border-l-blue-600',
-        icon: '🟦'
-    },
-    'REVİZYON KALIBI': { 
-        label: '🛠️ REVİZYON', 
-        colorClass: 'bg-orange-100 text-orange-800 border-orange-500', 
-        borderClass: 'border-l-8 border-l-orange-500',
-        icon: 'Rg'
-    },
-    'FASON / PROJE İMALAT': { 
-        label: '⚙️ PROJE İMALAT', 
-        colorClass: 'bg-purple-100 text-purple-800 border-purple-500', 
-        borderClass: 'border-l-8 border-l-purple-500',
-        icon: 'Pr' 
-    },
-    'İYİLEŞTİRME': { 
-        label: '✨ İYİLEŞTİRME', 
-        colorClass: 'bg-teal-100 text-teal-800 border-teal-500', 
-        borderClass: 'border-l-8 border-l-teal-500',
-        icon: 'Iy' 
-    },
-    'T0-İYİLEŞTİRME': { 
-        label: '🚀 T0-İYİLEŞTİRME', 
-        colorClass: 'bg-indigo-100 text-indigo-800 border-indigo-500', 
-        borderClass: 'border-l-8 border-l-indigo-500',
-        icon: 'T0' 
-    }
+    'YENİ KALIP': { label: 'YENİ KALIP', colorClass: 'bg-blue-100 text-blue-800 border-blue-500', borderClass: 'border-l-8 border-l-blue-600', icon: '🟦' },
+    'REVİZYON KALIBI': { label: '🛠️ REVİZYON', colorClass: 'bg-orange-100 text-orange-800 border-orange-500', borderClass: 'border-l-8 border-l-orange-500', icon: 'Rg' },
+    'FASON / PROJE İMALAT': { label: '⚙️ PROJE İMALAT', colorClass: 'bg-purple-100 text-purple-800 border-purple-500', borderClass: 'border-l-8 border-l-purple-500', icon: 'Pr' },
+    'İYİLEŞTİRME': { label: '✨ İYİLEŞTİRME', colorClass: 'bg-teal-100 text-teal-800 border-teal-500', borderClass: 'border-l-8 border-l-teal-500', icon: 'Iy' },
+    'T0-İYİLEŞTİRME': { label: '🚀 T0-İYİLEŞTİRME', colorClass: 'bg-indigo-100 text-indigo-800 border-indigo-500', borderClass: 'border-l-8 border-l-indigo-500', icon: 'T0' }
 };

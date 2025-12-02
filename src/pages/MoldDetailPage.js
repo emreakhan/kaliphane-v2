@@ -3,30 +3,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
-// İkonlar
+// Icons
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
 } from 'lucide-react'; 
 
-// Sabitler
+// Constants and Collection Addresses (CORRECTED: Collections imported from here)
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
-    PERSONNEL_ROLES, PROJECT_TYPES 
+    PERSONNEL_ROLES, PROJECT_TYPES,
+    PROJECT_COLLECTION, MOLD_NOTES_COLLECTION 
 } from '../config/constants.js';
 
-// Yardımcı Fonksiyonlar
+// Helper Functions
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// Firebase
+// Firebase (CORRECTED: Only functions imported from here)
 import { 
-    db, MOLD_NOTES_COLLECTION, PROJECT_COLLECTION, doc, onSnapshot, setDoc, updateDoc, 
-    storage, ref, uploadBytes, getDownloadURL // <-- STORAGE IMPORTLARI EKLENDİ
+    db, doc, onSnapshot, setDoc, updateDoc, 
+    storage, ref, uploadBytes, getDownloadURL 
 } from '../config/firebase.js';
 
-// Bileşenler
+// Components
 import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
@@ -36,13 +37,13 @@ import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
-// --- HESAPLAMA FONKSİYONU ---
+// --- CALCULATION FUNCTION ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
     }
     
-    // Toplam İlerlemeyi Hesapla
+    // Calculate Total Progress
     const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
     const overallProgress = Math.round(totalProgress / operations.length);
 
@@ -105,14 +106,13 @@ const MoldDetailPage = ({
     const { moldId } = useParams();
     const navigate = useNavigate();
     
-    // --- HOOK'LAR EN ÜSTTE ---
+    // --- HOOKS AT THE TOP ---
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
-    // localProductImageUrl artık upload işlemiyle güncelleneceği için manuel state'e pek gerek kalmadı ama yapıyı koruyalım
     const [localProjectManager, setLocalProjectManager] = useState('');
     const [localMoldDesigner, setLocalMoldDesigner] = useState('');
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
@@ -128,14 +128,14 @@ const MoldDetailPage = ({
     const [noteText, setNoteText] = useState('');
     const [newNoteContent, setNewNoteContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [isUploading, setIsUploading] = useState(false); // YENİ: Yükleme durumu
+    const [isUploading, setIsUploading] = useState(false);
     const [expandedTasks, setExpandedTasks] = useState({});
     
     const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
     const [criticalNote, setCriticalNote] = useState('');
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
 
-    // --- EFFECT'LER ---
+    // --- EFFECTS ---
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
@@ -159,19 +159,17 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
-    // --- ERKEN RETURN ---
+    // --- EARLY RETURN ---
     if (!mold) {
         return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
     }
 
-    // --- HANDLER FONKSİYONLARI ---
+    // --- HANDLER FUNCTIONS ---
     
-    // YENİ: Dosya Yükleme Fonksiyonu
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file || !mold.id) return;
 
-        // Dosya boyutu kontrolü (Örn: 10MB)
         if (file.size > 10 * 1024 * 1024) {
             alert("Dosya boyutu 10MB'dan büyük olamaz.");
             return;
@@ -180,17 +178,10 @@ const MoldDetailPage = ({
         setIsUploading(true);
 
         try {
-            // 1. Dosya ismini benzersiz yap
             const uniqueFileName = `mold_images/${mold.id}_${Date.now()}_${file.name}`;
             const storageRef = ref(storage, uniqueFileName);
-
-            // 2. Yükle
             await uploadBytes(storageRef, file);
-
-            // 3. Linki al
             const downloadURL = await getDownloadURL(storageRef);
-
-            // 4. Veritabanını güncelle
             await handleUpdateProductImageUrl(mold.id, downloadURL);
             
             alert("Görsel başarıyla yüklendi!");
@@ -255,10 +246,8 @@ const MoldDetailPage = ({
     };
 
     const isAdmin = loggedInUser.role === ROLES.ADMIN;
-    // Yetkili Tanımı: Admin, Proje Sorumlusu veya Kalıp Tasarımcısı
     const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
-    
     const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
     const openCriticalModal = (task) => {
@@ -362,7 +351,7 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
-            {/* Üst Sağ Aksiyon Butonları */}
+            {/* Top Right Action Buttons */}
             <div className="absolute top-4 right-4 flex gap-2">
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
@@ -476,13 +465,13 @@ const MoldDetailPage = ({
                     </div>
                 )}
 
-                {/* --- GÖRSEL YÜKLEME ALANI (DEĞİŞTİ) --- */}
+                {/* --- IMAGE UPLOAD AREA --- */}
                 {isManager && (
                     <div className="w-full border-t md:border-t-0 md:border-l dark:border-gray-700 md:pl-4 mt-2 md:mt-0">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Ürün Görseli</label>
                         
                         <div className="flex items-center gap-2">
-                            {/* Dosya Seçme Butonu */}
+                            {/* Upload Button */}
                             <label className={`flex items-center px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg cursor-pointer border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-800 transition ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 {isUploading ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
                                 <span className="text-xs font-bold">{isUploading ? 'Yükleniyor...' : 'Görsel Seç ve Yükle'}</span>
@@ -495,7 +484,7 @@ const MoldDetailPage = ({
                                 />
                             </label>
 
-                            {/* Mevcut Görsel Varsa Silme Butonu */}
+                            {/* Delete Button */}
                             {mold.productImageUrl && (
                                 <button 
                                     onClick={handleRemoveImage}
@@ -507,7 +496,7 @@ const MoldDetailPage = ({
                             )}
                         </div>
                         
-                        {/* Bilgi Metni */}
+                        {/* Info Text */}
                         <p className="text-[10px] text-gray-400 mt-1">
                             {mold.productImageUrl ? "✅ Görsel yüklü. Değiştirmek için yeni dosya seçin." : "⚠️ Henüz görsel yüklenmemiş."}
                         </p>
@@ -736,14 +725,12 @@ const MoldDetailPage = ({
                 </div>
             </Modal>
             
-            {/* YENİ: 3D Modal */}
             <View3DModal 
                 isOpen={is3DModalOpen}
                 onClose={() => setIs3DModalOpen(false)}
                 mold={mold}
             />
 
-            {/* YENİ: Kalıp Değerlendirme Modalı */}
             {isEvalModalOpen && (
                 <MoldEvaluationModal 
                     isOpen={isEvalModalOpen}
@@ -756,7 +743,6 @@ const MoldDetailPage = ({
                 />
             )}
 
-            {/* YENİ: Resim Önizleme Modalı */}
             {previewImage && (
                 <ImagePreviewModal 
                     isOpen={!!previewImage} 

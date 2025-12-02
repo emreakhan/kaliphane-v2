@@ -12,20 +12,16 @@ import {
     uploadBytes, 
     getDownloadURL, 
     doc, 
-    updateDoc, 
-    PROJECT_COLLECTION 
-} from '../../config/firebase.js';
+    updateDoc
+} from '../../config/firebase.js'; // SADECE FONKSİYONLAR
+
+import { PROJECT_COLLECTION } from '../../config/constants.js'; // ADRES BURADAN
 
 // 3D Model Bileşeni
 const Model = ({ url }) => {
   const geometry = useLoader(STLLoader, url);
   return (
     <mesh geometry={geometry}>
-      {/* AYAR 1: MALZEME GÖRÜNÜMÜ
-         color: Rengi belirler (Gri)
-         roughness: 1 yaparsak tam mat olur (parlamaz), 0 yaparsak ayna gibi olur. 0.5 idealdir.
-         metalness: Metalik görünüm. 0.1 yaptık ki çok parlamasın, plastik/mat metal gibi dursun.
-      */}
       <meshStandardMaterial color="#d1d5db" roughness={0.5} metalness={0.1} />
     </mesh>
   );
@@ -68,7 +64,6 @@ const View3DModal = ({ isOpen, onClose, mold }) => {
         <div className="fixed inset-0 bg-black bg-opacity-90 flex justify-center items-center z-[70] p-4 backdrop-blur-sm">
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700">
                 
-                {/* Üst Bar */}
                 <div className="flex justify-between items-center p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 z-10 shadow-sm">
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                         <Box className="w-6 h-6 mr-2 text-blue-600" />
@@ -86,29 +81,17 @@ const View3DModal = ({ isOpen, onClose, mold }) => {
                     </div>
                 </div>
 
-                {/* 3D Sahne Alanı */}
                 <div className="flex-1 bg-gray-100 dark:bg-gray-900 relative overflow-hidden">
                     {currentStlUrl ? (
                         <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 0, 150], fov: 45 }}>
                             <Suspense fallback={null}>
-                                {/* AYAR 2: IŞIK VE SAHNE
-                                    environment={null}: Şehir yansımasını kapattık.
-                                    intensity={0.5}: Sahne ışığını biraz kıstık.
-                                    contactShadow={false}: Zemindeki siyah gölgeyi kapattık (daha teknik görünsün diye).
-                                */}
                                 <Stage environment={null} intensity={1} contactShadow={false}>
                                     <Model url={currentStlUrl} />
                                 </Stage>
-
-                                {/* AYAR 3: MANUEL IŞIKLANDIRMA (CAD Tarzı) */}
-                                <ambientLight intensity={0.4} /> {/* Ortam ışığı */}
-                                <directionalLight position={[10, 10, 10]} intensity={1.5} /> {/* Sağ üstten ışık */}
-                                <directionalLight position={[-10, -10, -10]} intensity={0.5} /> {/* Sol alttan dolgu ışığı */}
+                                <ambientLight intensity={0.4} />
+                                <directionalLight position={[10, 10, 10]} intensity={1.5} />
+                                <directionalLight position={[-10, -10, -10]} intensity={0.5} />
                             </Suspense>
-
-                            {/* AYAR 4: KONTROLLER
-                                autoRotate silindi -> Artık kendi kendine dönmeyecek.
-                            */}
                             <OrbitControls makeDefault />
                         </Canvas>
                     ) : (

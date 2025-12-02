@@ -14,7 +14,7 @@ import {
     onSnapshot, 
     getDocs, 
     setDoc,
-    addDoc, // <-- EKLENDİ (Compile hatasını çözer)
+    addDoc, // <-- EKLENDİ
     query, 
     updateDoc, 
     deleteDoc, 
@@ -28,9 +28,8 @@ import {
 } from 'firebase/storage';
 
 // --- FIREBASE AYARLARI ---
-// DİKKAT: Buradaki bilgileri kendi Firebase konsolundan alıp güncellemelisin!
 const firebaseConfig = {
-  apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I", // <-- BU ANAHTAR GEÇERSİZ OLABİLİR, KENDİNKİNİ KONTROL ET
+  apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I",
   authDomain: "kaliphane-v2.firebaseapp.com",
   projectId: "kaliphane-v2",
   storageBucket: "kaliphane-v2.firebasestorage.app",
@@ -38,16 +37,6 @@ const firebaseConfig = {
   appId: "1:672464221781:web:2ff1d25f4490c4d56306dc",
   measurementId: "G-80GKBHFELZ"
 };
-
-// --- UYGULAMA SABİTLERİ ---
-const appId = 'default-app-id'; 
-export const initialAuthToken = null; 
-
-// Veritabanı Koleksiyon Yolları
-export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
-export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
-export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
-export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
 
 // --- FIREBASE BAŞLATMA ---
 const app = initializeApp(firebaseConfig);
@@ -69,7 +58,7 @@ export {
     onSnapshot, 
     getDocs, 
     setDoc,
-    addDoc, // <-- DIŞA AKTARILDI (Compile hatasını çözer)
+    addDoc,
     query, 
     updateDoc, 
     deleteDoc, 

@@ -3,17 +3,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
-// Firebase
+// Firebase (Sadece Fonksiyonlar)
 import { 
-    db, auth, onAuthStateChanged, initialAuthToken, 
+    db, auth, onAuthStateChanged, 
     signInWithCustomToken, signInAnonymously, 
     collection, query, getDocs, setDoc, 
-    updateDoc, deleteDoc, doc, onSnapshot, where,
-    PROJECT_COLLECTION, PERSONNEL_COLLECTION, MACHINES_COLLECTION,
-    MOLD_NOTES_COLLECTION
+    updateDoc, deleteDoc, doc, onSnapshot, where
 } from './config/firebase.js';
 
-// Sabitler
+// Sabitler (Roller vb.)
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
     PERSONNEL_ROLES
@@ -23,10 +21,7 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonlar
-import { 
-    RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
-    LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase 
-} from 'lucide-react';
+import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase } from 'lucide-react';
 
 // Sayfalar
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
@@ -39,12 +34,19 @@ import HistoryPage from './pages/HistoryPage.js';
 import AnalysisPage from './pages/AnalysisPage.js';
 import WorkshopEditorPage from './pages/WorkshopEditorPage.js'; 
 import TerminalPage from './pages/TerminalPage.js'; 
-import ProjectManagementPage from './pages/ProjectManagementPage.js'; // <-- YENİ SAYFA IMPORT EDİLDİ
+import ProjectManagementPage from './pages/ProjectManagementPage.js'; 
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
 import { initialProjects } from './config/initialData.js';
 
+// --- SABİTLER (Hata almamak için burada) ---
+const appId = 'default-app-id'; 
+const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
+const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
+const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
+const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
+const initialAuthToken = null;
 
 // --- MAIN APP COMPONENT ---
 
@@ -56,7 +58,6 @@ const App = () => {
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
     
-    // Kullanıcıyı localStorage'dan geri yükle
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
             const savedUser = localStorage.getItem('kaliphane_user');
@@ -70,17 +71,14 @@ const App = () => {
     const navigate = useNavigate(); 
     const location = useLocation();
 
-    // Güvenlik Sigortası
     useEffect(() => {
         if (loggedInUser && !loggedInUser.role) {
-            console.warn("Kullanıcı verisi bozuk, otomatik çıkış yapılıyor.");
             setLoggedInUser(null);
             localStorage.removeItem('kaliphane_user');
             navigate('/');
         }
     }, [loggedInUser, navigate]);
 
-    // ... (Seed Fonksiyonları - KORUNDU) ...
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -139,10 +137,13 @@ const App = () => {
                 if (project.projectManager === undefined) updates.projectManager = '';
                 if (project.moldDesigner === undefined) updates.moldDesigner = '';
 
-                if(Object.keys(updates).length > 0) await updateDoc(doc(db, PROJECT_COLLECTION, project.id), updates);
+                // --- KRİTİK DÜZELTME BURADA: project.id YERİNE docSnapshot.id KULLANILDI ---
+                // Veritabanından gelen veride 'id' alanı olmayabilir, bu yüzden dokümanın kendi ID'sini kullanıyoruz.
+                if(Object.keys(updates).length > 0) await updateDoc(doc(db, PROJECT_COLLECTION, docSnapshot.id), updates);
             }
         }
 
+        // ... (Geri kalan personel ve makine seed kodları aynı)
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
         if (adminUserSnapshot.empty) {
@@ -171,9 +172,8 @@ const App = () => {
                 await setDoc(doc(db, MACHINES_COLLECTION, machineId), { id: machineId, name: machine, createdAt: getCurrentDateTimeString() });
             }
         }
-    }, [db]); 
+    }, []); 
     
-    // ... (useEffect'ler - KORUNDU) ...
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -213,7 +213,7 @@ const App = () => {
             checkCoreLoadingDone();
         });
         return () => { unsubscribePersonnel(); unsubscribeMachines(); };
-    }, [db, userId, seedInitialData]); 
+    }, [userId, seedInitialData]); 
     
     useEffect(() => {
         if (!db || !userId || !loggedInUser) return;
@@ -223,56 +223,41 @@ const App = () => {
             setIsProjectsLoading(false);
         });
         return () => unsubscribe();
-    }, [db, userId, loggedInUser]);
+    }, [userId, loggedInUser]);
 
-
-    // --- DÜZELTİLEN TERMİNAL AKSİYONLARI ---
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
-        
         const currentProject = projects.find(p => p.id === moldId);
         if (!currentProject) return;
         const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return;
-        
         const currentTask = currentProject.tasks[taskIndex];
-
         const opIndex = currentTask.operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
-        
         const currentOp = currentTask.operations[opIndex];
         let updatedOp = { ...currentOp };
         const now = getCurrentDateTimeString();
-
         if (actionType === 'START_SETUP') {
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             updatedOp.setupStartTime = now;
             updatedOp.isSettingUp = true;
-        } 
-        else if (actionType === 'START_PRODUCTION') {
+        } else if (actionType === 'START_PRODUCTION') {
             updatedOp.isSettingUp = false;
             updatedOp.productionStartTime = now;
-        } 
-        else if (actionType === 'FINISH_JOB') {
+        } else if (actionType === 'FINISH_JOB') {
             updatedOp.status = OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW;
             updatedOp.finishTime = now;
             updatedOp.progressPercentage = 100;
             updatedOp.isSettingUp = false;
         }
-
         const newOps = [...currentTask.operations];
         newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
-
-        try {
-            await updateDoc(moldRef, { tasks: newTasks });
-            console.log(`Terminal işlemi (${actionType}) başarılı.`);
-        } catch (e) {
-            console.error("Terminal işlemi hatası:", e);
-        }
-    }, [db, projects]);
+        try { await updateDoc(moldRef, { tasks: newTasks }); } 
+        catch (e) { console.error("Terminal işlemi hatası:", e); }
+    }, [projects]);
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
         if (!db) return;
@@ -286,7 +271,7 @@ const App = () => {
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = updatedTask;
         try { await updateDoc(moldRef, { tasks: newTasks }); } catch (e) { console.error("Kritik durum güncelleme hatası:", e); }
-    }, [db, projects, loggedInUser]);
+    }, [projects, loggedInUser]);
 
     const handleUpdateMachineStatus = useCallback(async (machineId, newStatus, reason) => {
         if (!db) return;
@@ -294,7 +279,7 @@ const App = () => {
             const machineRef = doc(db, MACHINES_COLLECTION, machineId);
             await updateDoc(machineRef, { currentStatus: newStatus, statusReason: reason, statusStartTime: getCurrentDateTimeString() });
         } catch (e) { console.error("Tezgah durumu güncelleme hatası:", e); }
-    }, [db]);
+    }, []); 
     
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
@@ -314,7 +299,7 @@ const App = () => {
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
         await updateDoc(moldRef, { tasks: newTasks });
-    }, [db, projects, loggedInUser]);
+    }, [projects, loggedInUser]);
 
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
         if (!db) return;
@@ -331,7 +316,7 @@ const App = () => {
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
         try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } 
         catch (e) { console.error("Hata:", e); }
-    }, [db, projects]);
+    }, [projects]);
 
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
         if (!db) return;
@@ -345,24 +330,24 @@ const App = () => {
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
         try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } 
         catch (e) { console.error("Hata:", e); }
-    }, [db, projects]);
+    }, [projects]);
 
-    const handleUpdateMoldStatus = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { status: val }); }, [db]);
-    const handleUpdateMoldDeadline = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDeadline: val }); }, [db]);
-    const handleUpdateMoldPriority = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { priority: val }); }, [db]);
-    const handleUpdateTrialReportUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { trialReportUrl: val || '' }); }, [db]);
-    const handleUpdateProductImageUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { productImageUrl: val || '' }); }, [db]);
-    const handleUpdateProjectManager = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { projectManager: val || '' }); }, [db]);
-    const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, [db]);
-    const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [db, location.pathname, navigate]);
-    const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, [db]);
+    const handleUpdateMoldStatus = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { status: val }); }, []);
+    const handleUpdateMoldDeadline = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDeadline: val }); }, []);
+    const handleUpdateMoldPriority = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { priority: val }); }, []);
+    const handleUpdateTrialReportUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { trialReportUrl: val || '' }); }, []);
+    const handleUpdateProductImageUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { productImageUrl: val || '' }); }, []);
+    const handleUpdateProjectManager = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { projectManager: val || '' }); }, []);
+    const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, []);
+    const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
+    const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
     
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
         const allLoginRoles = Object.values(ROLES);
         const finalBaseItems = [
             { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
-            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] }, // <-- YENİ MENÜ ÖĞESİ
+            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] }, 
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
@@ -426,15 +411,11 @@ const App = () => {
                 <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
-                
-                {/* YENİ PROJE YÖNETİM SAYFASI */}
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                
                 <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
 
                 <Route path="/mold/:moldId" element={

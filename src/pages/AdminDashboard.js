@@ -1,21 +1,11 @@
 // src/pages/AdminDashboard.js
 
 import React, { useState, useMemo } from 'react';
-
-// İkonlar
-import { 
-    Users, Plus, List, AlertTriangle, 
-    Database, Edit, Trash2, Search, Save,
-    Briefcase, RefreshCw, Tool 
-} from 'lucide-react';
-
-// Sabitler
+import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool } from 'lucide-react';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES } from '../config/constants.js';
+import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; // SADECE FONKSİYONLAR
+import { PROJECT_COLLECTION } from '../config/constants.js'; // ADRES BURADAN
 
-// Firebase
-import { db, PROJECT_COLLECTION, setDoc, doc, updateDoc } from '../config/firebase.js';
-
-// Bileşenler
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
@@ -97,20 +87,8 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
                                     <p className="text-xs text-gray-400 dark:text-gray-500">ID: {mold.id}</p>
                                 </div>
                                 <div className="flex gap-2">
-                                    <button
-                                        onClick={() => openEditModal(mold)}
-                                        className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                                        title="Düzenle"
-                                    >
-                                        <Edit className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => openDeleteModal(mold)}
-                                        className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-                                        title="Sil"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <button onClick={() => openEditModal(mold)} className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition" title="Düzenle"><Edit className="w-4 h-4" /></button>
+                                    <button onClick={() => openDeleteModal(mold)} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition" title="Sil"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                             </div>
                         ))
@@ -118,75 +96,35 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
                 </div>
             </div>
 
-            {/* Düzenleme Modalı */}
             {editModalOpen && selectedMold && (
                 <Modal isOpen={editModalOpen} onClose={closeModals} title="Kalıp Bilgilerini Düzenle">
                     <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Kalıp Adı</label>
-                            <input
-                                type="text"
-                                value={editFormData.moldName}
-                                onChange={(e) => setEditFormData({ ...editFormData, moldName: e.target.value })}
-                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Müşteri</label>
-                            <input
-                                type="text"
-                                value={editFormData.customer}
-                                onChange={(e) => setEditFormData({ ...editFormData, customer: e.target.value })}
-                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                            />
-                        </div>
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Kalıp Adı</label><input type="text" value={editFormData.moldName} onChange={(e) => setEditFormData({ ...editFormData, moldName: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Müşteri</label><input type="text" value={editFormData.customer} onChange={(e) => setEditFormData({ ...editFormData, customer: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" /></div>
                     </div>
-                    <div className="mt-6 flex justify-end gap-3">
-                        <button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">
-                            İptal
-                        </button>
-                        <button onClick={handleEditSubmit} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition flex items-center">
-                            <Save className="w-4 h-4 mr-2" /> Kaydet
-                        </button>
-                    </div>
+                    <div className="mt-6 flex justify-end gap-3"><button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">İptal</button><button onClick={handleEditSubmit} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition flex items-center"><Save className="w-4 h-4 mr-2" /> Kaydet</button></div>
                 </Modal>
             )}
 
-            {/* Silme Onay Modalı */}
             {deleteModalOpen && selectedMold && (
                 <Modal isOpen={deleteModalOpen} onClose={closeModals} title="Kalıbı Sil">
                     <div className="text-gray-800 dark:text-gray-200">
-                        <div className="flex items-center gap-3 mb-4">
-                             <AlertTriangle className="w-12 h-12 text-red-500" />
-                            <p>
-                                **{selectedMold.moldName}** kalıbını silmek üzeresiniz. Bu işlem, kalıba ait tüm parçaları, operasyonları ve notları kalıcı olarak silecektir.
-                            </p>
-                        </div>
+                        <div className="flex items-center gap-3 mb-4"><AlertTriangle className="w-12 h-12 text-red-500" /><p>**{selectedMold.moldName}** kalıbını silmek üzeresiniz. Bu işlem, kalıba ait tüm parçaları, operasyonları ve notları kalıcı olarak silecektir.</p></div>
                          <p className="font-semibold text-center">Bu işlem geri alınamaz. Emin misiniz?</p>
                     </div>
-                    <div className="mt-6 flex justify-end gap-3">
-                        <button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">
-                            İptal
-                        </button>
-                        <button onClick={handleDeleteConfirm} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center">
-                            <Trash2 className="w-4 h-4 mr-2" /> Evet, Sil
-                        </button>
-                    </div>
+                    <div className="mt-6 flex justify-end gap-3"><button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">İptal</button><button onClick={handleDeleteConfirm} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center"><Trash2 className="w-4 h-4 mr-2" /> Evet, Sil</button></div>
                 </Modal>
             )}
         </div>
     );
 };
 
-// --- ADMIN DASHBOARD ANA BİLEŞENİ ---
 const AdminDashboard = ({ 
     db, projects, setProjects, personnel, setPersonnel, machines, setMachines,
     handleDeleteMold, handleUpdateMold
 }) => {
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
-    
-    // Proje Tipi State'i (Varsayılan: YENİ KALIP)
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
 
     const [newTaskName, setNewTaskName] = useState('');
@@ -196,18 +134,15 @@ const AdminDashboard = ({
     const [batchError, setBatchError] = useState('');
     const [activeTab, setActiveTab] = useState('projects');
 
-    // Aynı kalıp ismi kontrolü
     const checkDuplicateMold = (moldName) => {
         return projects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
         );
     };
 
-    // Aynı parça ismi kontrolü
     const checkDuplicateTask = (moldId, taskName) => {
         const mold = projects.find(p => p.id === moldId);
         if (!mold) return false;
-        
         return mold.tasks.some(task => 
             task.taskName.toLowerCase() === taskName.toLowerCase().trim()
         );
@@ -219,9 +154,7 @@ const AdminDashboard = ({
             setMoldError(`⚠️ "${newMoldName}" isminde bir kalıp zaten mevcut!`);
             return;
         }
-
         const newId = `mold-${Date.now()}`;
-        
         const newMold = {
             id: newId,
             moldName: newMoldName.trim(),
@@ -230,13 +163,13 @@ const AdminDashboard = ({
             status: MOLD_STATUS.WAITING,
             moldDeadline: '',
             priority: null,
-            projectType: newProjectType // Seçilen tip kaydediliyor
+            projectType: newProjectType
         };
         try {
             await setDoc(doc(db, PROJECT_COLLECTION, newId), newMold);
             setNewMoldName('');
             setNewCustomer('');
-            setNewProjectType(PROJECT_TYPES.NEW_MOLD); // Kayıttan sonra sıfırla
+            setNewProjectType(PROJECT_TYPES.NEW_MOLD);
             setMoldError('');
             console.log("Yeni Kalıp Eklendi:", newMold.moldName);
         } catch (e) {
@@ -252,12 +185,10 @@ const AdminDashboard = ({
             setBatchError("Hata: Kalıp bulunamadı.");
             return;
         }
-        
         if (checkDuplicateTask(selectedMoldId, newTaskName)) {
             setBatchError(`⚠️ "${newTaskName}" isminde bir parça zaten mevcut!`);
             return;
         }
-
         const newTaskNumber = moldToUpdate.tasks.length + 1;
         const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const defaultOperation = {
@@ -278,7 +209,6 @@ const AdminDashboard = ({
             operations: [defaultOperation] 
         };
         const updatedTasks = [...moldToUpdate.tasks, newTask];
-
         try {
             await updateDoc(doc(db, PROJECT_COLLECTION, selectedMoldId), {
                 tasks: updatedTasks,
@@ -300,10 +230,7 @@ const AdminDashboard = ({
             setBatchError("Hata: Kalıp bulunamadı.");
             return;
         }
-
-        const taskNames = batchTaskNames.split('\n')
-            .map(name => name.trim())
-            .filter(name => name.length > 0);
+        const taskNames = batchTaskNames.split('\n').map(name => name.trim()).filter(name => name.length > 0);
         if (taskNames.length === 0) return;
 
         let newTasksList = [...moldToUpdate.tasks];
@@ -312,9 +239,7 @@ const AdminDashboard = ({
         let currentTaskNumber = moldToUpdate.tasks.length;
 
         for (const taskName of taskNames) {
-            const isDuplicate = newTasksList.some(task => 
-                task.taskName.toLowerCase() === taskName.toLowerCase()
-            );
+            const isDuplicate = newTasksList.some(task => task.taskName.toLowerCase() === taskName.toLowerCase());
             if (isDuplicate) {
                 errorMessages.push(`"${taskName}" (zaten var)`);
             } else {
@@ -330,7 +255,6 @@ const AdminDashboard = ({
                     machineOperatorName: '', estimatedDueDate: '', startDate: '', finishDate: '', durationInHours: null, supervisorRating: null, supervisorReviewDate: null, supervisorComment: null,
                     camOperatorRatingForMachineOp: null, camOperatorCommentForMachineOp: null, camOperatorReviewDate: null
                 };
-
                 const newTask = {
                     id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                     taskName: taskName,
@@ -344,20 +268,16 @@ const AdminDashboard = ({
 
         if (addedCount > 0) {
             try {
-                await updateDoc(doc(db, PROJECT_COLLECTION, selectedMoldId), {
-                    tasks: newTasksList,
-                });
+                await updateDoc(doc(db, PROJECT_COLLECTION, selectedMoldId), { tasks: newTasksList });
                 setBatchTaskNames('');
                 setBatchError('');
                 console.log(`Toplu parça ekleme tamamlandı: ${addedCount} parça eklendi.`);
-                
                 if (errorMessages.length > 0) {
                     setBatchError(`ℹ️ ${addedCount} parça eklendi. ${errorMessages.join(', ')} eklenemedi (zaten mevcuttu).`);
                 }
-
             } catch (e) {
                 console.error("Toplu parça eklerken hata: ", e);
-                setBatchError("Hata: Parçalar güncellenemedi.");
+                setBatchError("Hata: Parça güncellenemedi.");
             }
         } else {
             setBatchTaskNames('');
@@ -372,16 +292,13 @@ const AdminDashboard = ({
     const handleDeleteTask = async (moldId, taskId) => {
         const moldToUpdate = projects.find(p => p.id === moldId);
         if (!moldToUpdate) return;
-
         const updatedTasks = moldToUpdate.tasks.filter(t => t.id !== taskId);
         const renumberedTasks = updatedTasks.map((task, index) => ({
             ...task,
             taskNumber: index + 1,
         }));
         try {
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), {
-                tasks: renumberedTasks,
-            });
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: renumberedTasks });
             console.log("Parça silindi:", taskId);
         } catch (e) {
             console.error("Parça silinirken hata: ", e);
@@ -397,128 +314,48 @@ const AdminDashboard = ({
                     <>
                         <div className="p-4 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/10">
                             <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni İş / Kalıp Ekle</h3>
-                             
                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                
-                                {/* --- YENİ: AÇILIR LİSTE (DROPDOWN) GÜNCELLENDİ --- */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
-                                    <select
-                                        value={newProjectType}
-                                        onChange={(e) => setNewProjectType(e.target.value)}
-                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
-                                    >
+                                    <select value={newProjectType} onChange={(e) => setNewProjectType(e.target.value)} className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]">
                                         <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
                                         <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
                                         <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
-                                        <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>       {/* YENİ */}
-                                        <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option> {/* YENİ */}
+                                        <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
+                                        <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
                                     </select>
                                 </div>
-                                {/* ------------------------------------- */}
-
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} 
-                                        value={newMoldName} 
-                                        onChange={(e) => {
-                                            setNewMoldName(e.target.value);
-                                            setMoldError('');
-                                        }} 
-                                        className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" 
-                                    />
-                                    {moldError && (
-                                        <div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg">
-                                            <AlertTriangle className="w-4 h-4 mr-2" />
-                                            {moldError}
-                                        </div>
-                                    )}
+                                    <input type="text" placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} value={newMoldName} onChange={(e) => { setNewMoldName(e.target.value); setMoldError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
+                                    {moldError && (<div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg"><AlertTriangle className="w-4 h-4 mr-2" />{moldError}</div>)}
                                 </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Müşteri</label>
-                                    <input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
-                                </div>
+                                <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Müşteri</label><input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
                             </div>
-                            
-                            <div className="mt-4 flex justify-end">
-                                <button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>
-                                    Kaydet ve Ekle
-                                </button>
-                            </div>
+                            <div className="mt-4 flex justify-end"><button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>Kaydet ve Ekle</button></div>
                          </div>
-
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-2 space-y-6">
                                 <div className="p-4 border border-green-200 dark:border-green-700 rounded-lg bg-green-50 dark:bg-green-900/10">
                                     <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Tek Parça Ekle</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                        <select value={selectedMoldId} onChange={(e) => setSelectedMoldId(e.target.value)} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 col-span-4 md:col-span-1">
-                                            <option value="">Kalıp Seçiniz</option>
-                                            {projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}
-                                        </select>
+                                        <select value={selectedMoldId} onChange={(e) => setSelectedMoldId(e.target.value)} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 col-span-4 md:col-span-1"><option value="">Kalıp Seçiniz</option>{projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}</select>
                                         <input type="text" placeholder="Yeni Alt Parça Adı (Örn: ANA GÖVDE)" value={newTaskName} onChange={(e) => { setNewTaskName(e.target.value); setBatchError(''); }} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 col-span-4 md:col-span-2" />
-                                        <button onClick={handleAddNewTask} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 col-span-4 md:col-span-1" disabled={!selectedMoldId || !newTaskName}>
-                                            Parça Ekle
-                                        </button>
+                                        <button onClick={handleAddNewTask} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 col-span-4 md:col-span-1" disabled={!selectedMoldId || !newTaskName}>Parça Ekle</button>
                                     </div>
                                 </div>
-
                                 <div className="p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/10">
                                     <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Toplu Parça Ekle</h3>
                                     <div className="space-y-4">
-                                        <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2">
-                                            <option value="">Kalıp Seçiniz</option>
-                                            {projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}
-                                        </select>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                Parça İsimleri (Her satıra bir parça)
-                                            </label>
-                                            <textarea
-                                                value={batchTaskNames}
-                                                onChange={(e) => { setBatchTaskNames(e.target.value); setBatchError(''); }}
-                                                rows={6}
-                                                placeholder={`Örnek:\nANA GÖVDE SOL\nANA GÖVDE SAĞ\nSICAK YOLLUK\n...`}
-                                                className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2"
-                                            />
-                                        </div>
-                                        {batchError && (
-                                            <div className={`flex items-center text-sm p-3 rounded-lg ${batchError.startsWith('ℹ️') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-                                                <AlertTriangle className="w-4 h-4 mr-2" />
-                                                {batchError}
-                                            </div>
-                                        )}
-                                        <button 
-                                            onClick={handleBatchAddTasks} 
-                                            className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50"
-                                            disabled={!selectedMoldId || !batchTaskNames.trim()}
-                                        >
-                                            Toplu Parça Ekle ({batchTaskNames.split('\n').filter(name => name.trim().length > 0).length} parça)
-                                        </button>
+                                        <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2"><option value="">Kalıp Seçiniz</option>{projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}</select>
+                                        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Parça İsimleri (Her satıra bir parça)</label><textarea value={batchTaskNames} onChange={(e) => { setBatchTaskNames(e.target.value); setBatchError(''); }} rows={6} placeholder={`Örnek:\nANA GÖVDE SOL\nANA GÖVDE SAĞ\nSICAK YOLLUK\n...`} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
+                                        {batchError && (<div className={`flex items-center text-sm p-3 rounded-lg ${batchError.startsWith('ℹ️') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}><AlertTriangle className="w-4 h-4 mr-2" />{batchError}</div>)}
+                                        <button onClick={handleBatchAddTasks} className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50" disabled={!selectedMoldId || !batchTaskNames.trim()}>Toplu Parça Ekle ({batchTaskNames.split('\n').filter(name => name.trim().length > 0).length} parça)</button>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Sağ Taraf - Mevcut Parça Listesi */}
                             <div className="lg:col-span-1">
-                                {selectedMold ?
-                                (
-                                    <TaskListSidebar 
-                                        tasks={selectedMold.tasks.sort((a,b) => a.taskNumber - b.taskNumber)}
-                                        onDeleteTask={handleDeleteTask}
-                                        selectedMoldId={selectedMoldId}
-                                    />
-                                 ) : (
-                                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
-                                        <List className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
-                                        <p className="text-gray-500 dark:text-gray-400">
-                                            Parça listesini görmek için bir kalıp seçin
-                                        </p>
-                                    </div>
-                                )}
+                                {selectedMold ? (<TaskListSidebar tasks={selectedMold.tasks.sort((a,b) => a.taskNumber - b.taskNumber)} onDeleteTask={handleDeleteTask} selectedMoldId={selectedMoldId} />) : (<div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6 text-center"><List className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" /><p className="text-gray-500 dark:text-gray-400">Parça listesini görmek için bir kalıp seçin</p></div>)}
                             </div>
                         </div>
                     </>
@@ -549,47 +386,14 @@ const AdminDashboard = ({
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Paneli</h2>
-
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="flex flex-wrap -mb-px gap-x-8">
-                    <button
-                         onClick={() => setActiveTab('projects')}
-                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                            activeTab === 'projects'
-                             ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        }`}
-                    >
-                        <Plus className="w-4 h-4 inline mr-2" />
-                        Proje ve İş Ekleme
-                    </button>
-                    <button
-                         onClick={() => setActiveTab('personnel')}
-                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                            activeTab === 'personnel'
-                                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        }`}
-                    >
-                        <Users className="w-4 h-4 inline mr-2" />
-                        Personel Yönetimi
-                    </button>
-                    <button
-                         onClick={() => setActiveTab('mold_management')}
-                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                            activeTab === 'mold_management'
-                                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        }`}
-                    >
-                        <Database className="w-4 h-4 inline mr-2" />
-                        Kalıp Yönetimi
-                    </button>
+                    <button onClick={() => setActiveTab('projects')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'projects' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Plus className="w-4 h-4 inline mr-2" /> Proje ve İş Ekleme</button>
+                    <button onClick={() => setActiveTab('personnel')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel Yönetimi</button>
+                    <button onClick={() => setActiveTab('mold_management')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_management' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Database className="w-4 h-4 inline mr-2" /> Kalıp Yönetimi</button>
                 </nav>
             </div>
-            
             {renderActiveTab()}
-
         </div>
     );
 };

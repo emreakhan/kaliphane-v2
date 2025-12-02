@@ -3,22 +3,20 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal.js';
 import { Users, Star, Save, UserCheck, MessageSquare } from 'lucide-react';
-import { updateDoc, doc, PROJECT_COLLECTION } from '../../config/firebase.js';
+import { updateDoc, doc } from '../../config/firebase.js'; // SADECE FONKSİYONLAR
+import { PROJECT_COLLECTION } from '../../config/constants.js'; // ADRES BURADAN
 
 const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
     const [personnelRatings, setPersonnelRatings] = useState({});
     const [personnelList, setPersonnelList] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Modal açıldığında kalıpta çalışanları bul
     useEffect(() => {
         if (isOpen && mold) {
             const workers = new Set();
             
             mold.tasks.forEach(task => {
                 task.operations.forEach(op => {
-                    // SADECE CAM Operatörlerini Listele (assignedOperator)
-                    // Tezgah operatörlerini (machineOperatorName) artık dahil etmiyoruz.
                     if (op.assignedOperator && op.assignedOperator !== 'SEÇ') {
                         workers.add(op.assignedOperator);
                     }
@@ -28,7 +26,6 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
             const list = Array.from(workers).sort();
             setPersonnelList(list);
 
-            // Başlangıç state'ini hazırla
             const initialRatings = {};
             list.forEach(p => {
                 initialRatings[p] = { score: '', comment: '' };
@@ -48,7 +45,6 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
     };
 
     const handleSave = async () => {
-        // Kontrol: Herkese puan verilmiş mi?
         const missingScores = personnelList.some(p => !personnelRatings[p].score);
         if (missingScores) {
             alert("Lütfen listedeki tüm personel için bir puan giriniz.");
@@ -58,24 +54,19 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
         setIsSaving(true);
 
         try {
-            // 1. Kalıp verilerini güncelle (Puanları dağıt)
             const updatedTasks = mold.tasks.map(task => {
                 const updatedOperations = task.operations.map(op => {
                     let newOp = { ...op };
-                    
-                    // CAM Operatörü Puanı (assignedOperator) -> supervisorRating alanına
                     if (op.assignedOperator && personnelRatings[op.assignedOperator]) {
                         newOp.supervisorRating = parseInt(personnelRatings[op.assignedOperator].score);
                         newOp.supervisorComment = personnelRatings[op.assignedOperator].comment;
                         newOp.supervisorReviewDate = new Date().toISOString(); 
                     }
-
                     return newOp;
                 });
                 return { ...task, operations: updatedOperations };
             });
 
-            // 2. Firebase'e Kaydet ve Durumu "TAMAMLANDI" Yap
             const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
             await updateDoc(moldRef, {
                 tasks: updatedTasks,
@@ -113,7 +104,6 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
                         personnelList.map(person => (
                             <div key={person} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm transition hover:shadow-md">
                                 <div className="flex flex-col md:flex-row gap-4 items-center">
-                                    {/* İsim Kısmı */}
                                     <div className="flex items-center w-full md:w-1/3">
                                         <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold mr-3 text-lg">
                                             {person.charAt(0)}
@@ -121,7 +111,6 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
                                         <span className="font-bold text-gray-800 dark:text-white text-lg">{person}</span>
                                     </div>
 
-                                    {/* Puanlama Kısmı */}
                                     <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1 uppercase">Performans Puanı (1-10)</label>
