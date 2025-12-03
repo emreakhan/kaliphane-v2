@@ -346,10 +346,10 @@ const App = () => {
         if (!loggedInUser || !loggedInUser.role) return [];
         const allLoginRoles = Object.values(ROLES);
         const finalBaseItems = [
-            { path: '/', label: 'Kalıp Listesi', icon: List, roles: allLoginRoles },
+            { path: '/', label: 'Kalıp İmalat', icon: List, roles: allLoginRoles },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] }, 
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
-            { path: '/cam', label: 'CAM İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
+            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
