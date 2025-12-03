@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
-// Firebase (Sadece Fonksiyonlar)
+// Firebase (Sadece Fonksiyonlar ve Servisler)
 import { 
     db, auth, onAuthStateChanged, 
     signInWithCustomToken, signInAnonymously, 
@@ -11,7 +11,7 @@ import {
     updateDoc, deleteDoc, doc, onSnapshot, where
 } from './config/firebase.js';
 
-// Sabitler (Roller vb.)
+// Sabitler
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
     PERSONNEL_ROLES
@@ -40,13 +40,14 @@ import ProjectManagementPage from './pages/ProjectManagementPage.js';
 import NavItem from './components/Shared/NavItem.js';
 import { initialProjects } from './config/initialData.js';
 
-// --- SABİTLER (Hata almamak için burada) ---
+// --- GARANTİLİ ÇÖZÜM: Veritabanı Adreslerini Buraya Sabitliyoruz ---
 const appId = 'default-app-id'; 
+const initialAuthToken = null;
 const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
 const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
 const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
-const initialAuthToken = null;
+
 
 // --- MAIN APP COMPONENT ---
 
@@ -73,6 +74,7 @@ const App = () => {
 
     useEffect(() => {
         if (loggedInUser && !loggedInUser.role) {
+            console.warn("Kullanıcı verisi bozuk, otomatik çıkış yapılıyor.");
             setLoggedInUser(null);
             localStorage.removeItem('kaliphane_user');
             navigate('/');
@@ -137,13 +139,10 @@ const App = () => {
                 if (project.projectManager === undefined) updates.projectManager = '';
                 if (project.moldDesigner === undefined) updates.moldDesigner = '';
 
-                // --- KRİTİK DÜZELTME BURADA: project.id YERİNE docSnapshot.id KULLANILDI ---
-                // Veritabanından gelen veride 'id' alanı olmayabilir, bu yüzden dokümanın kendi ID'sini kullanıyoruz.
                 if(Object.keys(updates).length > 0) await updateDoc(doc(db, PROJECT_COLLECTION, docSnapshot.id), updates);
             }
         }
 
-        // ... (Geri kalan personel ve makine seed kodları aynı)
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
         if (adminUserSnapshot.empty) {
@@ -228,35 +227,47 @@ const App = () => {
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        
         const currentProject = projects.find(p => p.id === moldId);
         if (!currentProject) return;
         const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return;
+        
         const currentTask = currentProject.tasks[taskIndex];
+
         const opIndex = currentTask.operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
+        
         const currentOp = currentTask.operations[opIndex];
         let updatedOp = { ...currentOp };
         const now = getCurrentDateTimeString();
+
         if (actionType === 'START_SETUP') {
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             updatedOp.setupStartTime = now;
             updatedOp.isSettingUp = true;
-        } else if (actionType === 'START_PRODUCTION') {
+        } 
+        else if (actionType === 'START_PRODUCTION') {
             updatedOp.isSettingUp = false;
             updatedOp.productionStartTime = now;
-        } else if (actionType === 'FINISH_JOB') {
+        } 
+        else if (actionType === 'FINISH_JOB') {
             updatedOp.status = OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW;
             updatedOp.finishTime = now;
             updatedOp.progressPercentage = 100;
             updatedOp.isSettingUp = false;
         }
+
         const newOps = [...currentTask.operations];
         newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
-        try { await updateDoc(moldRef, { tasks: newTasks }); } 
-        catch (e) { console.error("Terminal işlemi hatası:", e); }
+
+        try {
+            await updateDoc(moldRef, { tasks: newTasks });
+        } catch (e) {
+            console.error("Terminal işlemi hatası:", e);
+        }
     }, [projects]);
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
@@ -347,13 +358,20 @@ const App = () => {
         const allLoginRoles = Object.values(ROLES);
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: allLoginRoles },
-            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] }, 
+            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
-            { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: allLoginRoles },
+            // --- DEĞİŞİKLİK: ANALİZ SAYFASI YETKİLERİ GÜNCELLENDİ ---
+            { 
+                path: '/analysis', 
+                label: 'Analiz', 
+                icon: BarChart2, 
+                // CAM Operatörü haricindeki yetkili rolleri ekliyoruz
+                roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU] 
+            },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
