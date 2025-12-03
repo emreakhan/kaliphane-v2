@@ -3,31 +3,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
-// Icons
+// İkonlar
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
 } from 'lucide-react'; 
 
-// Constants and Collection Addresses (CORRECTED: Collections imported from here)
+// Sabitler ve Koleksiyon Adresleri
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
     PERSONNEL_ROLES, PROJECT_TYPES,
     PROJECT_COLLECTION, MOLD_NOTES_COLLECTION 
 } from '../config/constants.js';
 
-// Helper Functions
+// Yardımcı Fonksiyonlar
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// Firebase (CORRECTED: Only functions imported from here)
+// Firebase
 import { 
     db, doc, onSnapshot, setDoc, updateDoc, 
     storage, ref, uploadBytes, getDownloadURL 
 } from '../config/firebase.js';
 
-// Components
+// Bileşenler
 import Modal from '../components/Modals/Modal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js';
 import SupervisorReviewModal from '../components/Modals/SupervisorReviewModal.js';
@@ -37,47 +37,68 @@ import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
-// --- CALCULATION FUNCTION ---
+// --- HESAPLAMA FONKSİYONU (GÜNCELLENDİ) ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
     }
     
-    // Calculate Total Progress
+    // Toplam İlerlemeyi Hesapla
     const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
     const overallProgress = Math.round(totalProgress / operations.length);
 
+    // --- YENİ: TÜM OPERATÖRLERİ GÖSTERME ---
+    // Parçada çalışan, atanmış ('SEÇ' olmayan) tüm operatörleri bul
+    const allOperators = operations
+        .map(op => op.assignedOperator)
+        .filter(op => op && op !== 'SEÇ');
+    
+    // İsimleri tekilleştir (Aynı kişi 2 kere çalıştıysa 1 kere yazsın)
+    const uniqueOperators = [...new Set(allOperators)];
+    
+    // İsimleri virgülle birleştir (Örn: "Ahmet Yılmaz, Mehmet Demir")
+    // Eğer hiç kimse yoksa '---' göster
+    const activeOperator = uniqueOperators.length > 0 ? uniqueOperators.join(', ') : '---';
+
     if (overallProgress === 100) {
-         return { status: TASK_STATUS.TAMAMLANDI, progress: 100, operator: '---', type: 'TAMAMLANDI' };
+         // Tamamlandığında da artık operatör isimleri görünecek (activeOperator)
+         return { status: TASK_STATUS.TAMAMLANDI, progress: 100, operator: activeOperator, type: 'TAMAMLANDI' };
     }
 
     const statuses = operations.map(op => op.status);
     let overallStatus = TASK_STATUS.BEKLIYOR;
-    let activeOperator = '---';
     let activeType = '---';
     
     const inProgressOp = operations.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
     const pausedOp = operations.find(op => op.status === OPERATION_STATUS.PAUSED);
     const reviewOp = operations.find(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW);
     
+    // --- YENİ: SIRADAKİ İŞİ BULMA ---
+    // Henüz başlamamış ilk operasyonu buluyoruz
+    const nextWaitingOp = operations.find(op => op.status === OPERATION_STATUS.NOT_STARTED);
+
     if (inProgressOp) {
         overallStatus = TASK_STATUS.CALISIYOR;
-        activeOperator = inProgressOp.assignedOperator;
         activeType = inProgressOp.type;
     } else if (pausedOp) {
         overallStatus = TASK_STATUS.DURAKLATILDI;
-        activeOperator = pausedOp.assignedOperator;
         activeType = pausedOp.type;
     } else if (reviewOp) {
         overallStatus = TASK_STATUS.ONAY_BEKLIYOR;
-        activeOperator = reviewOp.assignedOperator;
         activeType = reviewOp.type;
     } else if (statuses.every(s => s === OPERATION_STATUS.COMPLETED)) {
         overallStatus = TASK_STATUS.TAMAMLANDI;
         activeType = 'TAMAMLANDI';
     } else {
+        // Hiçbiri çalışmıyor, duraklamamış ve onay beklemiyor -> O zaman BEKLİYOR
         overallStatus = TASK_STATUS.BEKLIYOR;
-        activeType = 'BEKLİYOR';
+        
+        if (nextWaitingOp) {
+            // Eğer sırada bir iş varsa, onun adını yaz (Örn: "EREZYON BEKLİYOR")
+            activeType = `${nextWaitingOp.type} BEKLİYOR`;
+        } else {
+            activeType = 'BEKLİYOR';
+        }
     }
     
     return { status: overallStatus, progress: overallProgress, operator: activeOperator, type: activeType };
@@ -106,7 +127,7 @@ const MoldDetailPage = ({
     const { moldId } = useParams();
     const navigate = useNavigate();
     
-    // --- HOOKS AT THE TOP ---
+    // --- HOOKS ---
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
@@ -351,7 +372,7 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
-            {/* Top Right Action Buttons */}
+            {/* Üst Sağ Aksiyon Butonları */}
             <div className="absolute top-4 right-4 flex gap-2">
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
@@ -725,12 +746,14 @@ const MoldDetailPage = ({
                 </div>
             </Modal>
             
+            {/* YENİ: 3D Modal */}
             <View3DModal 
                 isOpen={is3DModalOpen}
                 onClose={() => setIs3DModalOpen(false)}
                 mold={mold}
             />
 
+            {/* YENİ: Kalıp Değerlendirme Modalı */}
             {isEvalModalOpen && (
                 <MoldEvaluationModal 
                     isOpen={isEvalModalOpen}
@@ -743,6 +766,7 @@ const MoldDetailPage = ({
                 />
             )}
 
+            {/* YENİ: Resim Önizleme Modalı */}
             {previewImage && (
                 <ImagePreviewModal 
                     isOpen={!!previewImage} 
