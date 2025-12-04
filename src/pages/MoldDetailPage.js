@@ -10,7 +10,7 @@ import {
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
 } from 'lucide-react'; 
 
-// Sabitler ve Koleksiyon Adresleri
+// Sabitler ve Koleksiyon Adresleri (DÜZELTİLDİ: Buradan geliyor)
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
     PERSONNEL_ROLES, PROJECT_TYPES,
@@ -21,7 +21,7 @@ import {
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// Firebase
+// Firebase (DÜZELTİLDİ: Sadece fonksiyonlar)
 import { 
     db, doc, onSnapshot, setDoc, updateDoc, 
     storage, ref, uploadBytes, getDownloadURL 
@@ -37,7 +37,7 @@ import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
-// --- HESAPLAMA FONKSİYONU (GÜNCELLENDİ) ---
+// --- HESAPLAMA FONKSİYONU ---
 const getTaskSummary = (operations) => {
     if (!operations || operations.length === 0) {
         return { status: TASK_STATUS.BEKLIYOR, progress: 0, operator: '---', type: '---' };
@@ -47,21 +47,15 @@ const getTaskSummary = (operations) => {
     const totalProgress = operations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
     const overallProgress = Math.round(totalProgress / operations.length);
 
-    // --- YENİ: TÜM OPERATÖRLERİ GÖSTERME ---
-    // Parçada çalışan, atanmış ('SEÇ' olmayan) tüm operatörleri bul
+    // --- TÜM OPERATÖRLERİ GÖSTERME ---
     const allOperators = operations
         .map(op => op.assignedOperator)
         .filter(op => op && op !== 'SEÇ');
     
-    // İsimleri tekilleştir (Aynı kişi 2 kere çalıştıysa 1 kere yazsın)
     const uniqueOperators = [...new Set(allOperators)];
-    
-    // İsimleri virgülle birleştir (Örn: "Ahmet Yılmaz, Mehmet Demir")
-    // Eğer hiç kimse yoksa '---' göster
     const activeOperator = uniqueOperators.length > 0 ? uniqueOperators.join(', ') : '---';
 
     if (overallProgress === 100) {
-         // Tamamlandığında da artık operatör isimleri görünecek (activeOperator)
          return { status: TASK_STATUS.TAMAMLANDI, progress: 100, operator: activeOperator, type: 'TAMAMLANDI' };
     }
 
@@ -73,8 +67,7 @@ const getTaskSummary = (operations) => {
     const pausedOp = operations.find(op => op.status === OPERATION_STATUS.PAUSED);
     const reviewOp = operations.find(op => op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW);
     
-    // --- YENİ: SIRADAKİ İŞİ BULMA ---
-    // Henüz başlamamış ilk operasyonu buluyoruz
+    // Sırada bekleyen ilk operasyonu bul
     const nextWaitingOp = operations.find(op => op.status === OPERATION_STATUS.NOT_STARTED);
 
     if (inProgressOp) {
@@ -90,11 +83,8 @@ const getTaskSummary = (operations) => {
         overallStatus = TASK_STATUS.TAMAMLANDI;
         activeType = 'TAMAMLANDI';
     } else {
-        // Hiçbiri çalışmıyor, duraklamamış ve onay beklemiyor -> O zaman BEKLİYOR
         overallStatus = TASK_STATUS.BEKLIYOR;
-        
         if (nextWaitingOp) {
-            // Eğer sırada bir iş varsa, onun adını yaz (Örn: "EREZYON BEKLİYOR")
             activeType = `${nextWaitingOp.type} BEKLİYOR`;
         } else {
             activeType = 'BEKLİYOR';
@@ -127,7 +117,7 @@ const MoldDetailPage = ({
     const { moldId } = useParams();
     const navigate = useNavigate();
     
-    // --- HOOKS ---
+    // --- HOOK'LAR EN ÜSTTE ---
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
@@ -156,7 +146,7 @@ const MoldDetailPage = ({
     const [criticalNote, setCriticalNote] = useState('');
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
 
-    // --- EFFECTS ---
+    // --- EFFECT'LER ---
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
@@ -180,12 +170,39 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
-    // --- EARLY RETURN ---
+    // --- ERKEN RETURN ---
     if (!mold) {
         return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
     }
 
-    // --- HANDLER FUNCTIONS ---
+    // --- HANDLER FONKSİYONLARI ---
+
+    // YENİ: OPERASYON SİLME FONKSİYONU
+    const handleDeleteOperation = async (task, operationId) => {
+        if (!window.confirm("Bu operasyonu silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
+
+        try {
+            // Operasyonu listeden çıkar
+            const updatedOperations = task.operations.filter(op => op.id !== operationId);
+            
+            // Görev listesini güncelle
+            const updatedTasks = mold.tasks.map(t => {
+                if (t.id === task.id) {
+                    return { ...t, operations: updatedOperations };
+                }
+                return t;
+            });
+
+            // Veritabanına kaydet
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, { tasks: updatedTasks });
+
+            // alert("Operasyon başarıyla silindi."); // İstersen açabilirsin
+        } catch (error) {
+            console.error("Operasyon silme hatası:", error);
+            alert("Silme işlemi sırasında bir hata oluştu.");
+        }
+    };
     
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
@@ -372,7 +389,6 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
-            {/* Üst Sağ Aksiyon Butonları */}
             <div className="absolute top-4 right-4 flex gap-2">
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
@@ -642,6 +658,17 @@ const MoldDetailPage = ({
 
                                                         <div className="flex flex-col gap-2 mt-2 md:mt-0">
                                                             <div className="flex flex-col md:flex-row gap-2">
+                                                                {/* YENİ: SİLME BUTONU (SADECE YÖNETİCİ İÇİN) */}
+                                                                {isAdmin && (
+                                                                    <button 
+                                                                        onClick={() => handleDeleteOperation(task, operation.id)} 
+                                                                        className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition flex items-center justify-center"
+                                                                        title="Operasyonu Sil"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                )}
+                                                                
                                                                 {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
                                                                     <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
                                                                 )}
