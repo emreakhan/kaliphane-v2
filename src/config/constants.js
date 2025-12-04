@@ -1,6 +1,6 @@
 // src/config/constants.js
 
-// --- VERİTABANI KOLEKSİYON ADRESLERİ (BURAYA EKLENDİ) ---
+// --- VERİTABANI KOLEKSİYON ADRESLERİ ---
 const appId = 'default-app-id'; 
 export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
 export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
@@ -47,6 +47,7 @@ export const TASK_STATUS = {
     TAMAMLANDI: 'TAMAMLANDI',
 };
 
+// --- GÜNCELLENEN: OPERASYON TİPLERİ ---
 export const OPERATION_TYPES = {
     CNC: 'CNC',
     AYNA_POLISAJ: 'AYNA POLİSAJ',
@@ -54,14 +55,17 @@ export const OPERATION_TYPES = {
     ASIT_DESEN: 'ASİT DESEN',
     KUM_PARLATMA_600: '600 KUM PARLATMA',
     TAKIM_IZI_POLISAJ: 'TAKIM İZİ POLİSAJ',
+    DERIN_DELIK_DELME: 'DERİN DELİK DELME', // <-- YENİ EKLENDİ
 };
 
+// --- GÜNCELLENEN: EK OPERASYON LİSTESİ ---
 export const ADDABLE_OPERATION_TYPES = {
     AYNA_POLISAJ: 'AYNA POLİSAJ',
     EROZYON_DESEN: 'EROZYON DESEN',
     ASIT_DESEN: 'ASİT DESEN',
     KUM_PARLATMA_600: '600 KUM PARLATMA',
     TAKIM_IZI_POLISAJ: 'TAKIM İZİ POLİSAJ',
+    DERIN_DELIK_DELME: 'DERİN DELİK DELME', // <-- YENİ EKLENDİ
 };
 
 export const MOLD_STATUS = {
@@ -117,9 +121,34 @@ export const PROJECT_TYPES = {
 };
 
 export const PROJECT_TYPE_CONFIG = {
-    'YENİ KALIP': { label: 'YENİ KALIP', colorClass: 'bg-blue-100 text-blue-800 border-blue-500', borderClass: 'border-l-8 border-l-blue-600', icon: '🟦' },
-    'REVİZYON KALIBI': { label: '🛠️ REVİZYON', colorClass: 'bg-orange-100 text-orange-800 border-orange-500', borderClass: 'border-l-8 border-l-orange-500', icon: 'Rg' },
-    'FASON / PROJE İMALAT': { label: '⚙️ PROJE İMALAT', colorClass: 'bg-purple-100 text-purple-800 border-purple-500', borderClass: 'border-l-8 border-l-purple-500', icon: 'Pr' },
-    'İYİLEŞTİRME': { label: '✨ İYİLEŞTİRME', colorClass: 'bg-teal-100 text-teal-800 border-teal-500', borderClass: 'border-l-8 border-l-teal-500', icon: 'Iy' },
-    'T0-İYİLEŞTİRME': { label: '🚀 T0-İYİLEŞTİRME', colorClass: 'bg-indigo-100 text-indigo-800 border-indigo-500', borderClass: 'border-l-8 border-l-indigo-500', icon: 'T0' }
+    'YENİ KALIP': { 
+        label: 'YENİ KALIP', 
+        colorClass: 'bg-blue-100 text-blue-800 border-blue-500', 
+        borderClass: 'border-l-8 border-l-blue-600',
+        icon: '🟦'
+    },
+    'REVİZYON KALIBI': { 
+        label: '🛠️ REVİZYON', 
+        colorClass: 'bg-orange-100 text-orange-800 border-orange-500', 
+        borderClass: 'border-l-8 border-l-orange-500',
+        icon: 'Rg'
+    },
+    'FASON / PROJE İMALAT': { 
+        label: '⚙️ PROJE İMALAT', 
+        colorClass: 'bg-purple-100 text-purple-800 border-purple-500', 
+        borderClass: 'border-l-8 border-l-purple-500',
+        icon: 'Pr' 
+    },
+    'İYİLEŞTİRME': { 
+        label: '✨ İYİLEŞTİRME', 
+        colorClass: 'bg-teal-100 text-teal-800 border-teal-500', 
+        borderClass: 'border-l-8 border-l-teal-500',
+        icon: 'Iy' 
+    },
+    'T0-İYİLEŞTİRME': { 
+        label: '🚀 T0-İYİLEŞTİRME', 
+        colorClass: 'bg-indigo-100 text-indigo-800 border-indigo-500', 
+        borderClass: 'border-l-8 border-l-indigo-500',
+        icon: 'T0' 
+    }
 };
