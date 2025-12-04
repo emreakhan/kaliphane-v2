@@ -1,10 +1,83 @@
 // src/components/Modals/AssignOperationModal.js
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Send, AlertTriangle, ShieldAlert } from 'lucide-react'; // ShieldAlert eklendi
+import React, { useState, useEffect, useMemo } from 'react';
+import { Send, AlertTriangle, ShieldAlert, Search, ChevronDown } from 'lucide-react'; 
 import { PERSONNEL_ROLES, OPERATION_STATUS } from '../../config/constants.js'; 
-import { getCurrentDateTimeString, formatDate } from '../../utils/dateUtils.js';
+import { getCurrentDateTimeString } from '../../utils/dateUtils.js';
 import Modal from './Modal.js';
+
+// --- YENİ: ARAMALI VE SIRALI SEÇİM BİLEŞENİ ---
+const SearchableSelect = ({ label, options, value, onChange, placeholder, error }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [filter, setFilter] = useState('');
+
+    // Dışarıdan value değişirse (örn: modal açıldığında) inputu güncelle
+    useEffect(() => {
+        setFilter(value || '');
+    }, [value]);
+
+    // Listeyi filtrele
+    const filteredOptions = options.filter(opt => 
+        opt.toLowerCase().includes(filter.toLowerCase())
+    );
+
+    const handleSelect = (option) => {
+        setFilter(option);
+        onChange(option);
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {label}
+            </label>
+            <div className="relative">
+                <input
+                    type="text"
+                    className={`block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white pr-8 pl-3 py-2 ${error ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                    placeholder={placeholder}
+                    value={filter}
+                    onChange={(e) => {
+                        setFilter(e.target.value);
+                        setIsOpen(true);
+                        onChange(e.target.value); 
+                    }}
+                    onFocus={() => setIsOpen(true)}
+                />
+                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none">
+                    {isOpen ? <ChevronDown className="w-4 h-4 rotate-180" /> : <Search className="w-4 h-4" />}
+                </div>
+            </div>
+            
+            {isOpen && filteredOptions.length > 0 && (
+                <>
+                    {/* Dışarı tıklamayı yakalamak için görünmez katman */}
+                    <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}></div>
+                    
+                    {/* Açılır Liste */}
+                    <ul className="absolute z-20 w-full mt-1 max-h-48 overflow-y-auto bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl">
+                        {filteredOptions.map((opt, idx) => (
+                            <li 
+                                key={idx}
+                                onClick={() => handleSelect(opt)}
+                                className="px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer text-sm text-gray-700 dark:text-gray-200 border-b last:border-0 border-gray-100 dark:border-gray-600"
+                            >
+                                {opt}
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
+            
+            {error && (
+                <p className="mt-1 text-sm text-red-600 font-medium flex items-center">
+                    <AlertTriangle className="w-4 h-4 mr-1" /> {error}
+                </p>
+            )}
+        </div>
+    );
+};
 
 const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedInUser, onSubmit, projects, personnel, machines }) => {
     const [machine, setMachine] = useState('');
@@ -12,25 +85,31 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
     const [dueDate, setDueDate] = useState('');
     const [machineError, setMachineError] = useState('');
     
-    // YENİ: Kritik onay durumu
     const [isCriticalConfirmed, setIsCriticalConfirmed] = useState(false);
 
     const today = new Date().toISOString().split('T')[0];
 
+    // --- GÜNCELLENEN: SIRALAMA MANTIĞI ---
     const machineOperators = useMemo(() => 
-        personnel.filter(p => p.role === PERSONNEL_ROLES.MACHINE_OPERATOR).map(p => p.name),
+        personnel
+            .filter(p => p.role === PERSONNEL_ROLES.MACHINE_OPERATOR)
+            .map(p => p.name)
+            .sort((a, b) => a.localeCompare(b, 'tr')), // A-Z Sıralama
         [personnel]
     );
+
     const availableMachines = useMemo(() => 
-        machines.map(m => m.name),
+        machines
+            .map(m => m.name)
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })), // Doğal Sıralama (K-1, K-2, K-10)
         [machines]
     );
+    // --------------------------------------
 
     useEffect(() => {
         if (isOpen) {
             const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
 
-            // 1. Tarih Ayarı
             if (operation && operation.estimatedDueDate) {
                 const datePart = operation.estimatedDueDate.split('T')[0]; 
                 setDueDate(datePart);
@@ -38,7 +117,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                 setDueDate('');
             }
             
-            // 2. Makine ve Operatör Ayarı
             if (isResuming) {
                 setMachine(operation.machineName || '');
                 setOperator(operation.machineOperatorName || '');
@@ -47,18 +125,15 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                 setOperator('');
             }
             setMachineError('');
-            
-            // YENİ: Her açılışta kritik onayı sıfırla
             setIsCriticalConfirmed(false);
         }
     }, [isOpen, operation]);
 
-    const handleMachineChange = (e) => {
-        const selectedMachine = e.target.value;
+    // YENİ: Parametre artık direkt string alıyor
+    const handleMachineChange = (selectedMachine) => {
         setMachine(selectedMachine);
         
         if (selectedMachine) {
-            // Makine uygunluk kontrolü (Mevcut kodun aynısı)
             let isBusy = false;
             let busyInfo = '';
 
@@ -100,12 +175,9 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             machineOperatorName: operator,
             startDate: isResuming ? operation.startDate : getCurrentDateTimeString(), 
             estimatedDueDate: dueDate,
-            
-            // Eğer "Devam Et" deniliyorsa geçmişi koru, yoksa sıfırla
             reworkHistory: operation.reworkHistory || []
         };
         
-        // Log ekle (Opsiyonel, audit için)
         if (task.isCritical) {
             console.log(`Kritik parça onayı alındı. Operatör: ${loggedInUser.name}, Parça: ${task.taskName}`);
         }
@@ -114,7 +186,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
         onClose();
     };
 
-    // Kilit Mantığı: Makine, Operatör seçili olmalı VE (Eğer kritikse onaylanmış olmalı)
     const isFormValid = 
         !machineError && 
         machine && 
@@ -124,7 +195,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={operation && operation.status === OPERATION_STATUS.PAUSED ? "İşi Devam Ettir" : "Yeni İş Ata / Başlat"}>
             
-            {/* --- YENİ: KRİTİK PARÇA UYARISI --- */}
             {task?.isCritical && (
                 <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-600 rounded-r-lg animate-pulse-slow">
                     <div className="flex items-start">
@@ -152,45 +222,27 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                     </div>
                 </div>
             )}
-            {/* ---------------------------------- */}
 
             <div className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Atanacak Tezgah
-                    </label>
-                    <select
-                        value={machine}
-                        onChange={handleMachineChange}
-                        className={`block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${machineError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
-                    >
-                        <option value="">Seçiniz...</option>
-                        {availableMachines.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                        ))}
-                    </select>
-                    {machineError && (
-                        <p className="mt-1 text-sm text-red-600 font-medium flex items-center">
-                            <AlertTriangle className="w-4 h-4 mr-1" /> {machineError}
-                        </p>
-                    )}
-                </div>
+                
+                {/* --- YENİ: ARAMALI TEZGAH SEÇİMİ --- */}
+                <SearchableSelect 
+                    label="Atanacak Tezgah"
+                    options={availableMachines}
+                    value={machine}
+                    onChange={handleMachineChange}
+                    placeholder="Tezgah Ara (Örn: K-1)"
+                    error={machineError}
+                />
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Tezgah Operatörü
-                    </label>
-                    <select
-                        value={operator}
-                        onChange={(e) => setOperator(e.target.value)}
-                        className="block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    >
-                        <option value="">Seçiniz...</option>
-                        {machineOperators.map(op => (
-                            <option key={op} value={op}>{op}</option>
-                        ))}
-                    </select>
-                </div>
+                {/* --- YENİ: ARAMALI OPERATÖR SEÇİMİ --- */}
+                <SearchableSelect 
+                    label="Tezgah Operatörü"
+                    options={machineOperators}
+                    value={operator}
+                    onChange={setOperator}
+                    placeholder="Operatör Ara..."
+                />
 
                 <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -215,7 +267,7 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                 </button>
                 <button
                     onClick={handleSave}
-                    disabled={!isFormValid} // Kilit Kontrolü
+                    disabled={!isFormValid} 
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                     <Send className="w-4 h-4 mr-2"/> 
