@@ -10,7 +10,7 @@ import {
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
 } from 'lucide-react'; 
 
-// Sabitler ve Koleksiyon Adresleri (DÜZELTİLDİ: Buradan geliyor)
+// Sabitler ve Koleksiyon Adresleri
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
     PERSONNEL_ROLES, PROJECT_TYPES,
@@ -21,7 +21,7 @@ import {
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// Firebase (DÜZELTİLDİ: Sadece fonksiyonlar)
+// Firebase
 import { 
     db, doc, onSnapshot, setDoc, updateDoc, 
     storage, ref, uploadBytes, getDownloadURL 
@@ -124,6 +124,7 @@ const MoldDetailPage = ({
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
+    const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
     const [localProjectManager, setLocalProjectManager] = useState('');
     const [localMoldDesigner, setLocalMoldDesigner] = useState('');
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
@@ -146,10 +147,14 @@ const MoldDetailPage = ({
     const [criticalNote, setCriticalNote] = useState('');
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
 
+    // YENİ: PDF Yükleme Durumu (Hangi task için yüklendiğini tutar)
+    const [uploadingPdfTaskId, setUploadingPdfTaskId] = useState(null);
+
     // --- EFFECT'LER ---
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
+            setLocalProductImageUrl(mold.productImageUrl || '');
             setLocalProjectManager(mold.projectManager || '');
             setLocalMoldDesigner(mold.moldDesigner || '');
             setLocalDeadline(mold.moldDeadline || '');
@@ -201,6 +206,71 @@ const MoldDetailPage = ({
         } catch (error) {
             console.error("Operasyon silme hatası:", error);
             alert("Silme işlemi sırasında bir hata oluştu.");
+        }
+    };
+
+    // YENİ: Teknik Resim Yükleme
+    const handlePdfUpload = async (e, task) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.type !== 'application/pdf') {
+            alert("Lütfen sadece PDF dosyası yükleyiniz.");
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            alert("Dosya boyutu 10MB'dan büyük olamaz.");
+            return;
+        }
+
+        setUploadingPdfTaskId(task.id);
+
+        try {
+            const uniqueFileName = `mold_drawings/${mold.id}/${task.id}_${Date.now()}_${file.name}`;
+            const storageRef = ref(storage, uniqueFileName);
+            await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(storageRef);
+
+            // Task'i güncelle
+            const updatedTasks = mold.tasks.map(t => {
+                if (t.id === task.id) {
+                    return { ...t, technicalDrawingUrl: downloadURL };
+                }
+                return t;
+            });
+
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, { tasks: updatedTasks });
+
+            alert("Teknik resim başarıyla yüklendi!");
+        } catch (error) {
+            console.error("PDF yükleme hatası:", error);
+            alert("Dosya yüklenirken bir hata oluştu.");
+        } finally {
+            setUploadingPdfTaskId(null);
+        }
+    };
+
+    // YENİ: Teknik Resim Silme
+    const handleDeletePdf = async (task) => {
+        if (!window.confirm("Bu teknik resmi silmek istediğinize emin misiniz?")) return;
+
+        try {
+            const updatedTasks = mold.tasks.map(t => {
+                if (t.id === task.id) {
+                    const newTask = { ...t };
+                    delete newTask.technicalDrawingUrl; // Alanı sil
+                    return newTask;
+                }
+                return t;
+            });
+
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            alert("Teknik resim silindi.");
+        } catch (error) {
+            console.error("PDF silme hatası:", error);
+            alert("Silme işlemi başarısız.");
         }
     };
     
@@ -288,6 +358,9 @@ const MoldDetailPage = ({
     const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
+    // Teknik Resim Yetkisi (Admin, Proje Sorumlusu, Tasarımcı)
+    const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+
     const openCriticalModal = (task) => {
         setSelectedTaskForCritical(task);
         setCriticalNote(task.criticalNote || ''); 
@@ -337,6 +410,11 @@ const MoldDetailPage = ({
     const handleReportUrlBlur = () => {
         if (localTrialReportUrl !== (mold.trialReportUrl || '')) {
             handleUpdateTrialReportUrl(mold.id, localTrialReportUrl);
+        }
+    };
+    const handleImageUrlBlur = () => {
+        if (localProductImageUrl !== (mold.productImageUrl || '')) {
+            handleUpdateProductImageUrl(mold.id, localProductImageUrl);
         }
     };
     const handleProjectManagerChange = (e) => {
@@ -389,6 +467,7 @@ const MoldDetailPage = ({
                 &larr; Kalıp Listesine Geri Dön
             </button>
             
+            {/* Üst Sağ Aksiyon Butonları */}
             <div className="absolute top-4 right-4 flex gap-2">
                 <button 
                     onClick={() => setIs3DModalOpen(true)}
@@ -627,6 +706,54 @@ const MoldDetailPage = ({
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* --- TEKNİK RESİM ALANI (YENİ EKLENDİ) --- */}
+                                        <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
+                                            <div className="flex items-center">
+                                                <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
+                                                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Teknik Resim:</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {task.technicalDrawingUrl ? (
+                                                    <>
+                                                        <a 
+                                                            href={task.technicalDrawingUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            className="flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition"
+                                                        >
+                                                            <Eye className="w-3 h-3 mr-1" /> Görüntüle / İndir
+                                                        </a>
+                                                        {canManageDrawings && (
+                                                            <button 
+                                                                onClick={() => handleDeletePdf(task)}
+                                                                className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition"
+                                                                title="Resmi Sil"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500 italic">Yüklü değil</span>
+                                                )}
+
+                                                {canManageDrawings && !task.technicalDrawingUrl && (
+                                                    <label className={`cursor-pointer flex items-center px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 transition ${uploadingPdfTaskId === task.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                        {uploadingPdfTaskId === task.id ? <Loader className="w-3 h-3 mr-1 animate-spin" /> : <UploadCloud className="w-3 h-3 mr-1" />}
+                                                        {uploadingPdfTaskId === task.id ? 'Yükleniyor...' : 'Yükle'}
+                                                        <input 
+                                                            type="file" 
+                                                            className="hidden" 
+                                                            accept="application/pdf" 
+                                                            onChange={(e) => handlePdfUpload(e, task)}
+                                                            disabled={uploadingPdfTaskId === task.id}
+                                                        />
+                                                    </label>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {/* ----------------------------------------- */}
 
                                         <div className="space-y-3">
                                             {(task.operations || []).map(operation => (
