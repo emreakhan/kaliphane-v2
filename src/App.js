@@ -21,9 +21,13 @@ import {
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
 // İkonlar
-import { RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase } from 'lucide-react';
+import { 
+    RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
+    LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool 
+} from 'lucide-react';
 
 // Sayfalar
+import DesignOfficePage from './pages/DesignOfficePage'; 
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
 import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
@@ -40,7 +44,7 @@ import ProjectManagementPage from './pages/ProjectManagementPage.js';
 import NavItem from './components/Shared/NavItem.js';
 import { initialProjects } from './config/initialData.js';
 
-// --- GARANTİLİ ÇÖZÜM: Veritabanı Adreslerini Buraya Sabitliyoruz ---
+// --- Veritabanı Adresleri ---
 const appId = 'default-app-id'; 
 const initialAuthToken = null;
 const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
@@ -359,17 +363,23 @@ const App = () => {
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: allLoginRoles },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
+            // --- GÜNCELLENDİ: Sadece ADMIN ve KALIP_TASARIM_SORUMLUSU ---
+            { 
+                path: '/design-office', 
+                label: 'Tasarım Ofisi', 
+                icon: PenTool, 
+                roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
+            },
+            // -----------------------------------------------------------
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
-            // --- DEĞİŞİKLİK: ANALİZ SAYFASI YETKİLERİ GÜNCELLENDİ ---
             { 
                 path: '/analysis', 
                 label: 'Analiz', 
                 icon: BarChart2, 
-                // CAM Operatörü haricindeki yetkili rolleri ekliyoruz
                 roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
@@ -395,7 +405,7 @@ const App = () => {
             <header className="mb-8 border-b pb-4 dark:border-gray-700">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
                     <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white">Kalıphane İş Akışı Takibi</h1>
-                     <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+                      <div className="mt-4 sm:mt-0 flex items-center space-x-3">
                         <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
@@ -430,6 +440,10 @@ const App = () => {
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                
+                {/* YENİ ROTA: TASARIM OFİSİ */}
+                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
