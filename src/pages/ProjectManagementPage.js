@@ -1,10 +1,11 @@
 // src/pages/ProjectManagementPage.js
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
     Plus, Calendar, Image as ImageIcon, ArrowRight, AlertTriangle, 
-    Clock, Save, X, Eye, List as ListIcon, BarChart, ZoomIn, Briefcase, User, PenTool
+    Clock, Save, X, Eye, List as ListIcon, BarChart, ZoomIn, Briefcase, User, PenTool,
+    Activity, TrendingUp, AlertCircle, Settings // Settings icon added
 } from 'lucide-react';
 
 // Gantt Kütüphanesi
@@ -15,10 +16,10 @@ import "gantt-task-react/dist/index.css";
 import DetailedProjectModal from '../components/Modals/DetailedProjectModal.js';
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js';
 
-// Firebase (Sadece Fonksiyonlar - DÜZELTİLDİ)
+// Firebase (Sadece Fonksiyonlar)
 import { db, collection, addDoc, updateDoc, doc } from '../config/firebase.js';
 
-// Sabitler ve Adresler (Adresler Buradan Geliyor - DÜZELTİLDİ)
+// Sabitler ve Adresler
 import { 
     MOLD_STATUS, PROJECT_TYPES, 
     PROJECT_COLLECTION 
@@ -26,6 +27,192 @@ import {
 
 // Yardımcılar
 import { formatDate, getDaysDifference } from '../utils/dateUtils.js';
+
+// --- YENİ: PLANLAMA ANALİZ BİLEŞENİ (AYARLANABİLİR) ---
+const PlanningInsights = ({ tasks }) => {
+    // 1. Ayarları LocalStorage'dan al veya varsayılanı kullan
+    const [thresholds, setThresholds] = useState(() => {
+        const saved = localStorage.getItem('densityThresholds');
+        return saved ? JSON.parse(saved) : { medium: 3, high: 5 };
+    });
+
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [tempThresholds, setTempThresholds] = useState(thresholds);
+
+    const handleSaveSettings = () => {
+        setThresholds(tempThresholds);
+        localStorage.setItem('densityThresholds', JSON.stringify(tempThresholds));
+        setIsSettingsOpen(false);
+    };
+
+    const analysis = useMemo(() => {
+        if (!tasks || tasks.length === 0) return null;
+
+        const today = new Date();
+        const nextMonth = new Date();
+        nextMonth.setDate(today.getDate() + 30); // Önümüzdeki 30 güne bak
+
+        // 1. Günlük Yük Haritası (Hangi gün kaç iş var?)
+        const dayLoadMap = {};
+        let maxConcurrency = 0;
+        let busiestDate = null;
+        let upcomingDeadlinesCount = 0;
+
+        tasks.forEach(task => {
+            // Task tarihleri
+            let current = new Date(Math.max(task.start.getTime(), today.getTime())); // Bugünden öncesini sayma
+            const end = task.end;
+
+            // Eğer iş bitmişse veya gelecekteki 30 günün dışındaysa atla
+            if (current > end || task.progress === 100) return;
+
+            // Termin bu ay içindeyse say
+            if (end <= nextMonth && end >= today) {
+                upcomingDeadlinesCount++;
+            }
+
+            // Gün gün gez ve yükü hesapla
+            while (current <= end && current <= nextMonth) {
+                const dateStr = current.toISOString().split('T')[0];
+                dayLoadMap[dateStr] = (dayLoadMap[dateStr] || 0) + 1;
+
+                if (dayLoadMap[dateStr] > maxConcurrency) {
+                    maxConcurrency = dayLoadMap[dateStr];
+                    busiestDate = dateStr;
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        });
+
+        // Yoğunluk Seviyesi Belirleme (Dinamik Ayarlara Göre)
+        let status = "DÜŞÜK";
+        let colorClass = "bg-green-100 text-green-800 border-green-200";
+        
+        if (maxConcurrency >= thresholds.high) {
+            status = "YÜKSEK (KRİTİK)";
+            colorClass = "bg-red-100 text-red-800 border-red-200 animate-pulse";
+        } else if (maxConcurrency >= thresholds.medium) {
+            status = "ORTA";
+            colorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+        }
+
+        return {
+            maxConcurrency,
+            busiestDate: busiestDate ? formatDate(new Date(busiestDate).toISOString()) : 'Yok',
+            upcomingDeadlinesCount,
+            status,
+            colorClass
+        };
+    }, [tasks, thresholds]); // thresholds değişince yeniden hesapla
+
+    if (!analysis) return null;
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 relative">
+            {/* Kart 1: Maksimum Çakışma */}
+            <div className={`p-4 rounded-xl border ${analysis.colorClass} shadow-sm flex items-center transition-all duration-300`}>
+                <div className="p-3 bg-white/50 rounded-full mr-4">
+                    <Activity className="w-6 h-6" />
+                </div>
+                <div>
+                    <p className="text-xs font-bold uppercase opacity-70">Maksimum Eşzamanlı İş</p>
+                    <h4 className="text-2xl font-black">{analysis.maxConcurrency} Kalıp</h4>
+                    <p className="text-xs mt-1 font-medium">
+                        En yoğun tarih: <span className="underline">{analysis.busiestDate}</span>
+                    </p>
+                </div>
+            </div>
+
+            {/* Kart 2: Termin Baskısı */}
+            <div className="p-4 rounded-xl border bg-blue-50 border-blue-200 text-blue-900 shadow-sm flex items-center">
+                <div className="p-3 bg-white/50 rounded-full mr-4">
+                    <TrendingUp className="w-6 h-6" />
+                </div>
+                <div>
+                    <p className="text-xs font-bold uppercase opacity-70">30 Günlük Teslimat</p>
+                    <h4 className="text-2xl font-black">{analysis.upcomingDeadlinesCount} Adet</h4>
+                    <p className="text-xs mt-1 font-medium">Bu ay teslim edilecek proje sayısı</p>
+                </div>
+            </div>
+
+            {/* Kart 3: Genel Durum ve Ayarlar */}
+            <div className="p-4 rounded-xl border bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between group relative">
+                <div className="flex items-center">
+                    <div className="p-3 bg-white dark:bg-gray-700 rounded-full mr-4">
+                        <AlertCircle className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+                    </div>
+                    <div>
+                        <p className="text-xs font-bold uppercase opacity-70 text-gray-600 dark:text-gray-400">Atölye Yoğunluk Seviyesi</p>
+                        <h4 className="text-xl font-black text-gray-900 dark:text-white">{analysis.status}</h4>
+                        <p className="text-xs mt-1 text-gray-500">Kapasite planlaması önerilir.</p>
+                    </div>
+                </div>
+                
+                {/* Ayar Butonu */}
+                <button 
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                    title="Yoğunluk Sınırlarını Ayarla"
+                >
+                    <Settings className="w-5 h-5" />
+                </button>
+            </div>
+
+            {/* --- AYARLAR MODALI (BASİT OVERLAY) --- */}
+            {isSettingsOpen && (
+                <div className="absolute top-0 left-0 w-full h-full bg-white/95 dark:bg-gray-900/95 z-50 rounded-xl flex flex-col items-center justify-center p-6 border-2 border-blue-500 shadow-2xl backdrop-blur-sm">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+                        <Settings className="w-5 h-5 mr-2" />
+                        Yoğunluk Sınırlarını Ayarla
+                    </h3>
+                    
+                    <div className="w-full max-w-sm space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-yellow-700 dark:text-yellow-500 mb-1 uppercase">
+                                "Orta" Seviye Sınırı (Eşzamanlı İş)
+                            </label>
+                            <input 
+                                type="number" 
+                                min="1"
+                                value={tempThresholds.medium}
+                                onChange={(e) => setTempThresholds({...tempThresholds, medium: parseInt(e.target.value)})}
+                                className="w-full p-2 border border-yellow-300 rounded bg-yellow-50 dark:bg-gray-800 dark:text-white font-bold"
+                            />
+                        </div>
+                        
+                        <div>
+                            <label className="block text-xs font-bold text-red-700 dark:text-red-500 mb-1 uppercase">
+                                "Yüksek/Kritik" Seviye Sınırı
+                            </label>
+                            <input 
+                                type="number" 
+                                min={tempThresholds.medium + 1}
+                                value={tempThresholds.high}
+                                onChange={(e) => setTempThresholds({...tempThresholds, high: parseInt(e.target.value)})}
+                                className="w-full p-2 border border-red-300 rounded bg-red-50 dark:bg-gray-800 dark:text-white font-bold"
+                            />
+                        </div>
+
+                        <div className="flex gap-2 mt-4">
+                            <button 
+                                onClick={handleSaveSettings}
+                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded transition"
+                            >
+                                Kaydet
+                            </button>
+                            <button 
+                                onClick={() => setIsSettingsOpen(false)}
+                                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 rounded transition"
+                            >
+                                İptal
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
     const navigate = useNavigate();
@@ -67,7 +254,26 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
         return projects
             .filter(p => p.moldDeadline)
             .map(project => {
-                let start = project.createdAt ? new Date(project.createdAt) : new Date();
+                // --- TARİH DÜZELTMESİ ---
+                let start = project.createdAt ? new Date(project.createdAt) : null;
+
+                if (!start && project.tasks && project.tasks.length > 0) {
+                    const allOpDates = project.tasks
+                        .flatMap(t => t.operations || [])
+                        .map(op => op.startDate ? new Date(op.startDate).getTime() : null)
+                        .filter(d => d !== null);
+
+                    if (allOpDates.length > 0) {
+                        start = new Date(Math.min(...allOpDates));
+                    }
+                }
+
+                if (!start) {
+                    const deadline = new Date(project.moldDeadline);
+                    start = new Date(deadline);
+                    start.setDate(start.getDate() - 15);
+                }
+                
                 let end = new Date(project.moldDeadline);
                 
                 if (end <= start) {
@@ -85,12 +291,12 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 if (project.status === MOLD_STATUS.COMPLETED) progress = 100;
 
                 const daysLeft = getDaysDifference(project.moldDeadline);
-                let barColor = '#3B82F6'; // Mavi
+                let barColor = '#3B82F6'; 
                 
                 if (progress === 100) {
-                    barColor = '#10B981'; // Yeşil
+                    barColor = '#10B981'; 
                 } else if (daysLeft <= 3) {
-                    barColor = '#EF4444'; // Kırmızı
+                    barColor = '#EF4444'; 
                 }
 
                 return {
@@ -117,12 +323,11 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 ...formData,
                 status: MOLD_STATUS.WAITING,
                 tasks: [],
-                createdAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(), 
                 createdBy: loggedInUser.name
             });
             setIsAddModalOpen(false);
 
-            // --- OTOMATİK MAİL HAZIRLAMA ---
             let recipientEmail = "";
             if (formData.projectManager) {
                 const manager = personnel.find(p => p.name === formData.projectManager);
@@ -410,7 +615,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                                     </div>
                                                 </div>
                                             </div>
-
+                                            
                                             {!isEditing ? (
                                                 <div className="text-right min-w-[100px]">
                                                     <p className={`text-xl font-black ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-green-600'}`}>{formatDeadline(project.moldDeadline)}</p>
@@ -444,6 +649,9 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
+                    {/* YENİ: PLANLAMA ANALİZ RAPORU */}
+                    <PlanningInsights tasks={ganttTasks} />
+
                     {ganttTasks.length > 0 ? (
                         <div>
                             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-gray-200 dark:border-gray-700 pb-4">
@@ -482,6 +690,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                     tasks={ganttTasks}
                                     viewMode={ganttViewMode}
                                     locale="tr"
+                                    todayColor="rgba(239, 68, 68, 0.1)" // Bugün Çizgisi Vurgusu
                                     onDateChange={() => {}}
                                     onTaskDelete={() => {}}
                                     onProgressChange={() => {}}
@@ -495,6 +704,19 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                     rowHeight={55}
                                     fontSize={12}
                                     headerHeight={50}
+                                    // OKUNABİLİR TOOLTIP
+                                    TooltipContent={({ task, fontSize, fontFamily }) => {
+                                        return (
+                                            <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 max-w-xs z-50">
+                                                <h4 className="font-bold text-gray-900 dark:text-white text-sm mb-1">{task.name}</h4>
+                                                <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                    <p><span className="font-semibold">Başlangıç:</span> {formatDate(task.start.toISOString())}</p>
+                                                    <p><span className="font-semibold">Bitiş:</span> {formatDate(task.end.toISOString())}</p>
+                                                    <p><span className="font-semibold">İlerleme:</span> %{task.progress}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    }}
                                     TaskListHeader={({ headerHeight }) => (
                                         <div 
                                             className="flex items-center px-3 border-b-2 border-gray-300 dark:border-gray-600 font-bold text-gray-800 dark:text-white bg-gray-100 dark:bg-gray-800 h-full text-xs uppercase tracking-wide box-border"
@@ -512,6 +734,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                 <div className="flex items-center"><div className="w-3 h-3 bg-blue-500 rounded-sm mr-2"></div> Devam Ediyor</div>
                                 <div className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-sm mr-2"></div> Kritik / Gecikmiş</div>
                                 <div className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-sm mr-2"></div> Tamamlandı</div>
+                                <div className="flex items-center"><div className="w-3 h-3 bg-red-400/40 rounded-sm mr-2"></div> Bugün</div>
                             </div>
                         </div>
                     ) : (
