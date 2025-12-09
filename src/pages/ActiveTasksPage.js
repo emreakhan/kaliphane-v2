@@ -1,6 +1,6 @@
 // src/pages/ActiveTasksPage.js
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import GridLayout from 'react-grid-layout';
 import { doc, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../config/firebase';
@@ -152,7 +152,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'FAULT', 
                     colorClass: 'bg-gradient-to-br from-orange-500 to-red-600 text-white animate-pulse', 
                     tvStyle: 'bg-red-900 border-4 border-red-600 animate-pulse',
-                    icon: <AlertOctagon className="w-5 h-5 animate-bounce" />, 
+                    // İkon boyutları küçültüldü
+                    icon: <AlertOctagon className="w-4 h-4 md:w-6 md:h-6 mb-1 animate-bounce" />, 
                     text: 'ARIZALI', 
                     detail: manualReason, 
                     time: statusTime, 
@@ -163,7 +164,21 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'MAINTENANCE', 
                     colorClass: 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white', 
                     tvStyle: 'bg-yellow-800 border-4 border-yellow-600',
+                    // İkon boyutları küçültüldü
+                    icon: <Wrench className="w-4 h-4 md:w-6 md:h-6 mb-1" />,
                     text: 'BAKIMDA', 
+                    detail: manualReason, 
+                    time: statusTime, 
+                    machineObj: machine 
+                };
+            } else if (manualStatus === MACHINE_STATUS.BUSY) { 
+                map[machine.name] = { 
+                    status: 'BUSY', 
+                    colorClass: 'bg-gradient-to-br from-blue-500 to-blue-700 text-white', 
+                    tvStyle: 'bg-blue-900 border-4 border-blue-600',
+                    // İkon boyutları küçültüldü
+                    icon: <Activity className="w-4 h-4 md:w-6 md:h-6 mb-1" />,
+                    text: 'MEŞGUL', 
                     detail: manualReason, 
                     time: statusTime, 
                     machineObj: machine 
@@ -183,6 +198,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'IDLE', 
                     colorClass: 'bg-gradient-to-br from-red-500 to-red-600 text-white', 
                     tvStyle: 'bg-gray-800 border-4 border-gray-700 opacity-60', 
+                    // İkon boyutları küçültüldü
+                    icon: <AlertTriangle className="w-4 h-4 md:w-6 md:h-6 mb-1 text-gray-500" />,
                     text: 'BOŞTA', 
                     machineObj: machine 
                 };
@@ -250,14 +267,11 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
 
     // --- KAYAN YAZI BİLEŞENİ (MARQUEE) ---
     const ScrollingText = ({ text, className }) => {
-        // Basit karakter sayısı kontrolü ile kaydırma tetikleme
         const shouldScroll = text.length > 15; 
-        
         return (
             <div className="w-full overflow-hidden relative group">
                 <div className={`whitespace-nowrap ${shouldScroll ? 'animate-marquee' : 'text-center'} ${className}`}>
                     {text}
-                    {/* Kesintisiz döngü için metni tekrarla (Sadece uzunsa) */}
                     {shouldScroll && <span className="pl-12">{text}</span>}
                 </div>
             </div>
@@ -293,31 +307,26 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     key={item.i}
                     className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 relative ${info.tvStyle}`}
                 >
-                    {/* 1. TEZGAH KODU (Sol Üstte ÇOK KÜÇÜK Badge Olarak) */}
+                    {/* 1. TEZGAH KODU */}
                     <div className="absolute top-0 left-0 bg-black/40 px-1.5 py-0.5 rounded-br-lg backdrop-blur-sm border-b border-r border-white/10 z-10">
                         <span className="text-white font-mono text-xs font-bold tracking-widest">{item.i}</span>
                     </div>
 
-                    {/* 2. İÇERİK (Kalıp, Parça, Operatör) - Ortalanmış, Kompakt ve Sıkı Boşluklu */}
+                    {/* 2. İÇERİK */}
                     <div className="flex-1 flex flex-col justify-center items-center text-center min-h-0 overflow-hidden px-1 pt-4 pb-1 space-y-0.5">
                         
                         {info.status === 'WORKING' && info.task ? (
                             <>
-                                {/* Kalıp Adı */}
                                 <div className="w-full">
                                     <div className="text-base md:text-lg lg:text-xl font-black text-white leading-tight">
                                         <ScrollingText text={info.task.moldName} />
                                     </div>
                                 </div>
-
-                                {/* Parça Adı */}
                                 <div className="w-full mt-0.5">
                                     <div className="text-sm md:text-base lg:text-lg font-bold text-yellow-400 leading-tight">
                                         <ScrollingText text={info.task.taskName} />
                                     </div>
                                 </div>
-
-                                {/* Operatör (Daha makul boyut) */}
                                 <div className="flex items-center justify-center text-blue-300 text-[10px] md:text-xs font-bold w-full mt-0.5">
                                     <User className="w-3 h-3 mr-1 shrink-0" /> 
                                     <div className="w-full overflow-hidden">
@@ -326,26 +335,33 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                 </div>
                             </>
                         ) : (
-                             // BOŞTA / ARIZALI DURUMU
-                            <div className="flex flex-col items-center justify-center h-full">
-                                <span className="text-xl md:text-3xl font-black opacity-50 tracking-widest uppercase">
-                                    {info.status === 'IDLE' ? 'BOŞ' : info.text}
+                             // --- GÜNCELLENEN KISIM: YAZILAR CİDDİ ORANDA KÜÇÜLTÜLDÜ ---
+                            <div className="flex flex-col items-center justify-center h-full w-full overflow-hidden px-1">
+                                {/* Durum İkonu */}
+                                {info.icon && <div className="mb-1 opacity-90">{info.icon}</div>}
+                                
+                                {/* Durum Metni - Fontlar çok daha küçük ve nowrap */}
+                                <span className="font-black opacity-90 tracking-wider uppercase leading-none text-center whitespace-nowrap w-full px-1 text-[10px] sm:text-xs md:text-sm lg:text-base overflow-hidden text-ellipsis">
+                                    {info.status === 'IDLE' ? 'BOŞTA' : info.text}
                                 </span>
-                                {info.detail && <span className="text-[10px] font-mono bg-black/20 px-2 py-0.5 rounded mt-1 max-w-full truncate">{info.detail}</span>}
+
+                                {/* Detay Metni */}
+                                {info.detail && (
+                                    <span className="text-[8px] font-mono bg-black/30 px-1.5 py-0.5 rounded mt-1 max-w-full truncate text-gray-200">
+                                        {info.detail}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    {/* 3. İLERLEME (En Altta, Çok Kompakt) */}
+                    {/* 3. İLERLEME (Sadece Çalışıyorsa) */}
                     {info.status === 'WORKING' && info.task && (
                         <div className="mt-auto shrink-0 w-full relative h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-600">
-                            {/* Barın kendisi */}
                             <div 
                                 className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-1000 ease-out" 
                                 style={{ width: `${info.task.progressPercentage}%` }}
                             ></div>
-                            
-                            {/* Yüzde ve Süre Yazısı (Barın üzerine biniyor - Z-Index ile üstte) */}
                             <div className="absolute inset-0 flex justify-between items-center px-2 z-10 text-[9px] font-bold text-white drop-shadow-md">
                                 <span className="flex items-center"><Clock className="w-2.5 h-2.5 mr-1"/> {formatDuration(info.time)}</span>
                                 <span>%{info.task.progressPercentage}</span>
@@ -358,7 +374,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
 
         return (
             <div className="fixed inset-0 z-[200] bg-gray-900 text-white overflow-hidden flex flex-col">
-                {/* TV Header */}
                 <div className="h-14 bg-gray-800 border-b border-gray-700 px-6 flex justify-between items-center shrink-0 shadow-2xl z-20">
                     <div className="flex items-center space-x-4">
                         <Monitor className="w-6 h-6 text-blue-500 animate-pulse" />
@@ -388,7 +403,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     </button>
                 </div>
 
-                {/* Grid Alanı */}
                 <div className="flex-1 overflow-hidden relative bg-gray-900 p-2 md:p-4 flex items-center justify-center">
                     <div style={{ width: '100%', height: '100%', maxHeight: '100vh' }}>
                         <GridLayout
@@ -396,7 +410,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                             layout={tvLayout} 
                             cols={24}
                             rowHeight={calculateTvRowHeight}
-                            width={windowSize.width - (windowSize.width < 768 ? 16 : 32)} // Mobil/Desktop padding farkı
+                            width={windowSize.width - (windowSize.width < 768 ? 16 : 32)} 
                             isDraggable={false}
                             isResizable={false}
                             margin={[10, 10]}
@@ -412,13 +426,12 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     </div>
                 </div>
                 
-                {/* CSS Animasyonu (Kayan Yazı İçin) - Inline Style olarak ekledim */}
                 <style>{`
                     @keyframes marquee {
                         0% { transform: translateX(0%); }
-                        20% { transform: translateX(0%); } /* Başta biraz bekle */
-                        80% { transform: translateX(-50%); } /* Sona git */
-                        100% { transform: translateX(-50%); } /* Sonda bekle */
+                        20% { transform: translateX(0%); } 
+                        80% { transform: translateX(-50%); } 
+                        100% { transform: translateX(-50%); } 
                     }
                     .animate-marquee {
                         display: inline-block;
@@ -448,8 +461,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                             <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between"><span>{item.i}</span>{info.icon}</div>
                                             {info.status === 'WORKING' ? (
                                                 <div className="space-y-1"><div className="font-semibold text-green-400">ÇALIŞIYOR</div><div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div><div><span className="text-gray-400">İş:</span> {info.task.taskName}</div><div><span className="text-gray-400">Op:</span> {info.task.type} (%{info.task.progressPercentage})</div><div className="text-blue-300"><span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
-                                            ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' ? (
-                                                <div className="space-y-1"><div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : 'text-yellow-500'}`}>{info.text}</div><div className="text-gray-300 italic">"{info.detail}"</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
+                                            ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' || info.status === 'BUSY' ? (
+                                                <div className="space-y-1"><div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : info.status === 'BUSY' ? 'text-blue-400' : 'text-yellow-500'}`}>{info.text}</div><div className="text-gray-300 italic">"{info.detail}"</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
                                             ) : (<div className="text-red-400 font-semibold flex items-center"><AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA</div>)}
                                             <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
                                         </div>
@@ -513,6 +526,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                             {item.statusType === 'WORKING' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">ÇALIŞIYOR</span>}
                                             {item.statusType === 'FAULT' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 animate-pulse">ARIZALI</span>}
                                             {item.statusType === 'MAINTENANCE' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">BAKIMDA</span>}
+                                            {item.statusType === 'BUSY' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">MEŞGUL</span>}
                                         </td>
                                         <td className="px-4 py-4">
                                             {item.task ? (

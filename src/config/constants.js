@@ -108,7 +108,8 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
 export const MACHINE_STATUS = {
     AVAILABLE: 'MEVCUT',
     FAULT: 'ARIZALI',
-    MAINTENANCE: 'BAKIMDA'
+    MAINTENANCE: 'BAKIMDA',
+    BUSY: 'BUSY'
 };
 
 // --- PROJE TİPLERİ ---
