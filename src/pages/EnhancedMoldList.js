@@ -1,6 +1,6 @@
 // src/pages/EnhancedMoldList.js
 
-import React, { useState, useMemo, useEffect } from 'react'; // useEffect EKLENDİ
+import React, { useState, useMemo, useEffect } from 'react'; 
 import { useNavigate } from 'react-router-dom';
 
 // İkonlar
@@ -19,16 +19,27 @@ import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff, getDaysDif
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
 const EnhancedMoldList = ({ projects }) => {
-    const [activeFilter, setActiveFilter] = useState('all');
+    
+    // --- 1. DEĞİŞİKLİK: FİLTRE HAFIZASI ---
+    // Başlangıçta hafızaya bak, yoksa varsayılan olarak 'ACTIVE_OVERVIEW' (Aktif Çalışan) yap.
+    const [activeFilter, setActiveFilter] = useState(() => {
+        return localStorage.getItem('moldListActiveFilter') || 'ACTIVE_OVERVIEW';
+    });
+
     const [searchTerm, setSearchTerm] = useState('');
     
-    // GÜNCELLENDİ: Görünüm Modu (LocalStorage'dan hatırlar)
+    // Görünüm Modu (LocalStorage'dan hatırlar)
     const [viewMode, setViewMode] = useState(() => {
-        // Tarayıcı hafızasında kayıtlı bir mod var mı bak, yoksa varsayılan 'card' yap
         return localStorage.getItem('moldListViewMode') || 'card';
     });
 
-    // GÜNCELLENDİ: Görünüm modu her değiştiğinde hafızaya kaydet
+    // --- 2. DEĞİŞİKLİK: FİLTREYİ KAYDETME ---
+    // Filtre her değiştiğinde hafızaya yaz
+    useEffect(() => {
+        localStorage.setItem('moldListActiveFilter', activeFilter);
+    }, [activeFilter]);
+
+    // Görünüm modu her değiştiğinde hafızaya kaydet
     useEffect(() => {
         localStorage.setItem('moldListViewMode', viewMode);
     }, [viewMode]);
@@ -142,6 +153,9 @@ const EnhancedMoldList = ({ projects }) => {
                 <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
                 <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
                 <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
+                {/* TASARIM FİLTRESİ */}
+                <FilterCard filterKey={MOLD_STATUS.TASARIM} title="Tasarım" count={stats[MOLD_STATUS.TASARIM]} icon={Edit2} colorClass="border-purple-500 bg-purple-50 text-purple-500"/>
+                
                 <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.EREZYON} title="Erezyon" count={stats[MOLD_STATUS.EREZYON]} icon={Zap} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.POLISAJ} title="Polisaj" count={stats[MOLD_STATUS.POLISAJ]} icon={Sparkles} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
@@ -315,11 +329,11 @@ const EnhancedMoldList = ({ projects }) => {
                             const overdueDays = isOverdue ? Math.ceil((today - deadlineDate) / (1000 * 60 * 60 * 24)) : 0;
 
                             const isCritical = remainingDays !== 0 && 
-                                            remainingDays <= 6 &&
-                                            !isOverdue &&
-                                            totalProgress <= 80 &&
-                                            moldStatus !== MOLD_STATUS.COMPLETED;
-                                            
+                                                remainingDays <= 6 &&
+                                                !isOverdue &&
+                                                totalProgress <= 80 &&
+                                                moldStatus !== MOLD_STATUS.COMPLETED;
+                                                
                             // RENKLİ KENAR ÇİZGİSİ
                             const cardHighlightClasses = isCritical 
                                 ? 'bg-red-100 dark:bg-red-900/30 border-red-600 dark:border-red-500 animate-pulse'
