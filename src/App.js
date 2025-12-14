@@ -39,6 +39,7 @@ import AnalysisPage from './pages/AnalysisPage.js';
 import WorkshopEditorPage from './pages/WorkshopEditorPage.js'; 
 import TerminalPage from './pages/TerminalPage.js'; 
 import ProjectManagementPage from './pages/ProjectManagementPage.js'; 
+import CamJobEntryPage from './pages/CamJobEntryPage.js'; // <-- YENİ EKLENDİ
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -363,16 +364,17 @@ const App = () => {
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: allLoginRoles },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
-            // --- GÜNCELLENDİ: Sadece ADMIN ve KALIP_TASARIM_SORUMLUSU ---
             { 
                 path: '/design-office', 
                 label: 'Tasarım Ofisi', 
                 icon: PenTool, 
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
-            // -----------------------------------------------------------
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
+            // --- YENİ EKLENEN NAVIGASYON: SADECE CAM OPERATORLERİ GÖREBİLİR ---
+            { path: '/cam-job-entry', label: 'Proje ve İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR] },
+            // ------------------------------------------------------------------
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
@@ -441,7 +443,6 @@ const App = () => {
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
-                {/* YENİ ROTA: TASARIM OFİSİ */}
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
 
                 <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
@@ -449,6 +450,10 @@ const App = () => {
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
+                
+                {/* --- YENİ ROTA EKLENDİ --- */}
+                <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                {/* ------------------------- */}
 
                 <Route path="/mold/:moldId" element={
                     <MoldDetailPage 
