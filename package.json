@@ -1,6 +1,6 @@
 {
   "name": "kaliphane-v2",
-  "version": "2.19.0",
+  "version": "2.39.0",
   "private": true,
   "dependencies": {
     "@react-three/drei": "^10.7.7",

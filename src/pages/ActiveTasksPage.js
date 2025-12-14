@@ -9,7 +9,7 @@ import { db } from '../config/firebase';
 import { 
     Activity, Clock, Wrench, AlertOctagon, 
     List as ListIcon, Map as MapIcon, AlertTriangle, 
-    Monitor, X, User, LayoutTemplate
+    Monitor, X, User, LayoutTemplate, Hourglass 
 } from 'lucide-react'; 
 
 // Sabitler
@@ -152,7 +152,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'FAULT', 
                     colorClass: 'bg-gradient-to-br from-orange-500 to-red-600 text-white animate-pulse', 
                     tvStyle: 'bg-red-900 border-4 border-red-600 animate-pulse',
-                    // İkon boyutları küçültüldü
                     icon: <AlertOctagon className="w-4 h-4 md:w-6 md:h-6 mb-1 animate-bounce" />, 
                     text: 'ARIZALI', 
                     detail: manualReason, 
@@ -162,21 +161,32 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             } else if (manualStatus === MACHINE_STATUS.MAINTENANCE) {
                 map[machine.name] = { 
                     status: 'MAINTENANCE', 
-                    colorClass: 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white', 
-                    tvStyle: 'bg-yellow-800 border-4 border-yellow-600',
-                    // İkon boyutları küçültüldü
+                    colorClass: 'bg-gradient-to-br from-yellow-600 to-orange-600 text-white', // Bakım rengi biraz daha koyu turuncu yapıldı
+                    tvStyle: 'bg-orange-700 border-4 border-orange-500',
                     icon: <Wrench className="w-4 h-4 md:w-6 md:h-6 mb-1" />,
                     text: 'BAKIMDA', 
                     detail: manualReason, 
                     time: statusTime, 
                     machineObj: machine 
                 };
+            } else if (manualStatus === MACHINE_STATUS.WAITING) { 
+                // --- GÜNCELLEME: BEKLİYOR RENGİ SARI (YELLOW-400) VE SİYAH YAZI YAPILDI ---
+                map[machine.name] = { 
+                    status: 'WAITING', 
+                    colorClass: 'bg-yellow-400 text-black font-bold', // Listede parlak sarı, siyah yazı
+                    tvStyle: 'bg-yellow-500 border-4 border-yellow-300 text-black', // TV modunda parlak sarı
+                    icon: <Hourglass className="w-4 h-4 md:w-6 md:h-6 mb-1 text-black" />, // İkon siyah
+                    text: 'BEKLİYOR', 
+                    detail: manualReason, 
+                    time: statusTime, 
+                    machineObj: machine 
+                };
+            // --------------------------------------------------------------------------
             } else if (manualStatus === MACHINE_STATUS.BUSY) { 
                 map[machine.name] = { 
                     status: 'BUSY', 
                     colorClass: 'bg-gradient-to-br from-blue-500 to-blue-700 text-white', 
                     tvStyle: 'bg-blue-900 border-4 border-blue-600',
-                    // İkon boyutları küçültüldü
                     icon: <Activity className="w-4 h-4 md:w-6 md:h-6 mb-1" />,
                     text: 'MEŞGUL', 
                     detail: manualReason, 
@@ -198,7 +208,6 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     status: 'IDLE', 
                     colorClass: 'bg-gradient-to-br from-red-500 to-red-600 text-white', 
                     tvStyle: 'bg-gray-800 border-4 border-gray-700 opacity-60', 
-                    // İkon boyutları küçültüldü
                     icon: <AlertTriangle className="w-4 h-4 md:w-6 md:h-6 mb-1 text-gray-500" />,
                     text: 'BOŞTA', 
                     machineObj: machine 
@@ -335,17 +344,13 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                 </div>
                             </>
                         ) : (
-                             // --- GÜNCELLENEN KISIM: YAZILAR CİDDİ ORANDA KÜÇÜLTÜLDÜ ---
                             <div className="flex flex-col items-center justify-center h-full w-full overflow-hidden px-1">
-                                {/* Durum İkonu */}
                                 {info.icon && <div className="mb-1 opacity-90">{info.icon}</div>}
                                 
-                                {/* Durum Metni - Fontlar çok daha küçük ve nowrap */}
                                 <span className="font-black opacity-90 tracking-wider uppercase leading-none text-center whitespace-nowrap w-full px-1 text-[10px] sm:text-xs md:text-sm lg:text-base overflow-hidden text-ellipsis">
                                     {info.status === 'IDLE' ? 'BOŞTA' : info.text}
                                 </span>
 
-                                {/* Detay Metni */}
                                 {info.detail && (
                                     <span className="text-[8px] font-mono bg-black/30 px-1.5 py-0.5 rounded mt-1 max-w-full truncate text-gray-200">
                                         {info.detail}
@@ -456,13 +461,19 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                             return (
                                 <div key={item.i} onClick={() => openStatusModal(item.i)} className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer ${info.colorClass}`}>
                                     <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">{item.i}</span>
+                                    {/* Hover Bilgi Kartı */}
                                     <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full mb-2 left-1/2 transform -translate-x-1/2 z-50 w-64 pointer-events-none">
                                         <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 border border-gray-700">
                                             <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between"><span>{item.i}</span>{info.icon}</div>
                                             {info.status === 'WORKING' ? (
                                                 <div className="space-y-1"><div className="font-semibold text-green-400">ÇALIŞIYOR</div><div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div><div><span className="text-gray-400">İş:</span> {info.task.taskName}</div><div><span className="text-gray-400">Op:</span> {info.task.type} (%{info.task.progressPercentage})</div><div className="text-blue-300"><span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
-                                            ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' || info.status === 'BUSY' ? (
-                                                <div className="space-y-1"><div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : info.status === 'BUSY' ? 'text-blue-400' : 'text-yellow-500'}`}>{info.text}</div><div className="text-gray-300 italic">"{info.detail}"</div><div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div></div>
+                                            ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' || info.status === 'BUSY' || info.status === 'WAITING' ? (
+                                                <div className="space-y-1">
+                                                    {/* --- GÜNCELLEME: WAITING DURUMU İÇİN RENK KONTROLÜ --- */}
+                                                    <div className={`font-bold ${info.status === 'FAULT' ? 'text-red-500' : info.status === 'BUSY' ? 'text-blue-400' : info.status === 'WAITING' ? 'text-yellow-400' : 'text-orange-500'}`}>{info.text}</div>
+                                                    {info.detail && <div className="text-gray-300 italic">"{info.detail}"</div>}
+                                                    {info.time && <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>}
+                                                </div>
                                             ) : (<div className="text-red-400 font-semibold flex items-center"><AlertTriangle className="w-4 h-4 mr-1" /> BOŞTA</div>)}
                                             <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
                                         </div>
@@ -496,7 +507,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
 
             {viewMode === 'map' ? <WorkshopMap /> : (
                 <div>
-                    {/* Liste Görünümü */}
+                    {/* Liste Görünümü (Tablo Yapısı Korundu) */}
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Tezgah Durumları</h3>
                     <div className="overflow-x-auto border rounded-lg dark:border-gray-700 shadow-sm">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -527,6 +538,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                             {item.statusType === 'FAULT' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 animate-pulse">ARIZALI</span>}
                                             {item.statusType === 'MAINTENANCE' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">BAKIMDA</span>}
                                             {item.statusType === 'BUSY' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">MEŞGUL</span>}
+                                            {/* --- GÜNCELLEME: WAITING ETİKETİ EKLENDİ (SARI) --- */}
+                                            {item.statusType === 'WAITING' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-yellow-400 text-black">BEKLİYOR</span>}
                                         </td>
                                         <td className="px-4 py-4">
                                             {item.task ? (
@@ -584,6 +597,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     )}
                 </div>
             )}
+            
             <MachineStatusModal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} machine={selectedMachine} onSubmit={handleUpdateMachineStatus} />
         </div>
     );

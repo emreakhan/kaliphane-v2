@@ -1,7 +1,7 @@
 // src/components/Modals/MachineStatusModal.js
 
 import React, { useState, useEffect } from 'react';
-import { X, AlertTriangle, Wrench, CheckCircle, Activity } from 'lucide-react'; // Activity ikonu eklendi
+import { X, AlertTriangle, Wrench, CheckCircle, Activity, Hourglass } from 'lucide-react'; // Hourglass ikonu eklendi
 import { MACHINE_STATUS } from '../../config/constants';
 
 const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
@@ -24,7 +24,7 @@ const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
 
     return (
         <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100">
                 
                 {/* Header */}
                 <div className="bg-gray-100 dark:bg-gray-700 p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-600">
@@ -40,7 +40,8 @@ const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
                 {/* Body */}
                 <div className="p-6 space-y-6">
                     
-                    <div className="grid grid-cols-2 gap-3">
+                    {/* Butonlar Grid'i - Artık 3 sütunlu olabilir veya sığmazsa 2 sütun */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {/* BOŞTA BUTONU */}
                         <button 
                             type="button"
@@ -51,7 +52,7 @@ const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
                             <span className="font-bold text-sm">Sorun Yok / Boşta</span>
                         </button>
 
-                        {/* MEŞGUL BUTONU (YENİ) */}
+                        {/* MEŞGUL BUTONU */}
                         <button 
                             type="button"
                             onClick={() => setStatus(MACHINE_STATUS.BUSY)}
@@ -61,13 +62,23 @@ const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
                             <span className="font-bold text-sm">Meşgul / Ayar</span>
                         </button>
 
+                        {/* BEKLİYOR BUTONU (YENİ) */}
+                        <button 
+                            type="button"
+                            onClick={() => setStatus(MACHINE_STATUS.WAITING)}
+                            className={`p-3 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${status === MACHINE_STATUS.WAITING ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-gray-200 hover:border-yellow-300 text-gray-500'}`}
+                        >
+                            <Hourglass className={`w-8 h-8 mb-2 ${status === MACHINE_STATUS.WAITING ? 'text-yellow-600' : 'text-gray-400'}`} />
+                            <span className="font-bold text-sm">Bekliyor</span>
+                        </button>
+
                         {/* BAKIMDA BUTONU */}
                         <button 
                             type="button"
                             onClick={() => setStatus(MACHINE_STATUS.MAINTENANCE)}
-                            className={`p-3 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${status === MACHINE_STATUS.MAINTENANCE ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-gray-200 hover:border-yellow-300 text-gray-500'}`}
+                            className={`p-3 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${status === MACHINE_STATUS.MAINTENANCE ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-orange-300 text-gray-500'}`}
                         >
-                            <Wrench className={`w-8 h-8 mb-2 ${status === MACHINE_STATUS.MAINTENANCE ? 'text-yellow-600' : 'text-gray-400'}`} />
+                            <Wrench className={`w-8 h-8 mb-2 ${status === MACHINE_STATUS.MAINTENANCE ? 'text-orange-600' : 'text-gray-400'}`} />
                             <span className="font-bold text-sm">Bakımda</span>
                         </button>
 
@@ -82,18 +93,25 @@ const MachineStatusModal = ({ isOpen, onClose, machine, onSubmit }) => {
                         </button>
                     </div>
 
-                    {/* AÇIKLAMA ALANI (Sadece sorun varsa açılır) */}
+                    {/* AÇIKLAMA ALANI (Boşta değilse açılır) */}
                     {status !== MACHINE_STATUS.AVAILABLE && (
-                        <div className="animate-fadeIn">
+                        <div className="animate-fadeIn bg-gray-50 dark:bg-gray-700/30 p-4 rounded-xl border border-gray-100 dark:border-gray-600">
                             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                                Açıklama / Sebep:
+                                {status === MACHINE_STATUS.WAITING ? 'Bekleme Sebebi:' : 
+                                 status === MACHINE_STATUS.BUSY ? 'İşlem Detayı (Opsiyonel):' : 
+                                 status === MACHINE_STATUS.MAINTENANCE ? 'Bakım Türü:' : 
+                                 status === MACHINE_STATUS.FAULT ? 'Arıza Tanımı:' : 'Açıklama:'}
                             </label>
                             <textarea 
                                 value={reason}
                                 onChange={(e) => setReason(e.target.value)}
-                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+                                className="w-full p-3 border border-gray-300 dark:border-gray-500 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm shadow-sm"
                                 rows="3"
-                                placeholder="Örn: Sensör hatası, Yıllık bakım, Parça bağlanıyor..."
+                                placeholder={
+                                    status === MACHINE_STATUS.WAITING ? "Örn: Malzeme bekleniyor, Takım bekleniyor..." :
+                                    status === MACHINE_STATUS.BUSY ? "Örn: Uzun süren kaba işlem..." :
+                                    status === MACHINE_STATUS.FAULT ? "Örn: Sensör hatası, mil sıkışması..." : "Açıklama giriniz..."
+                                }
                             ></textarea>
                         </div>
                     )}

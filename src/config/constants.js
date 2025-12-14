@@ -47,7 +47,7 @@ export const TASK_STATUS = {
     TAMAMLANDI: 'TAMAMLANDI',
 };
 
-// --- GÜNCELLENEN: OPERASYON TİPLERİ ---
+// --- OPERASYON TİPLERİ ---
 export const OPERATION_TYPES = {
     CNC: 'CNC',
     AYNA_POLISAJ: 'AYNA POLİSAJ',
@@ -58,7 +58,7 @@ export const OPERATION_TYPES = {
     DERIN_DELIK_DELME: 'DERİN DELİK DELME',
 };
 
-// --- GÜNCELLENEN: EK OPERASYON LİSTESİ ---
+// --- EK OPERASYON LİSTESİ ---
 export const ADDABLE_OPERATION_TYPES = {
     AYNA_POLISAJ: 'AYNA POLİSAJ',
     EROZYON_DESEN: 'EROZYON DESEN',
@@ -70,7 +70,7 @@ export const ADDABLE_OPERATION_TYPES = {
 
 export const MOLD_STATUS = {
     WAITING: 'BEKLEMEDE',
-    TASARIM: 'TASARIM', // <-- YENİ EKLENDİ
+    TASARIM: 'TASARIM',
     CNC: 'CNC',
     EREZYON: 'EREZYON',
     POLISAJ: 'POLİSAJ',
@@ -82,7 +82,7 @@ export const MOLD_STATUS = {
 };
 
 export const MOLD_STATUS_ACTIVE_LIST = [
-    MOLD_STATUS.TASARIM, // <-- YENİ EKLENDİ (Listede görünsün diye)
+    MOLD_STATUS.TASARIM,
     MOLD_STATUS.CNC,
     MOLD_STATUS.EREZYON,
     MOLD_STATUS.POLISAJ,
@@ -107,11 +107,13 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
     }
 };
 
+// --- GÜNCELLENEN: TEZGAH DURUMLARI ---
 export const MACHINE_STATUS = {
     AVAILABLE: 'MEVCUT',
     FAULT: 'ARIZALI',
     MAINTENANCE: 'BAKIMDA',
-    BUSY: 'BUSY'
+    BUSY: 'BUSY',
+    WAITING: 'BEKLIYOR' // <--- YENİ EKLENDİ
 };
 
 // --- PROJE TİPLERİ ---
