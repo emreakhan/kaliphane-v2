@@ -127,7 +127,7 @@ const AdminDashboard = ({
     const [newCustomer, setNewCustomer] = useState('');
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
 
-    const [newTaskName, setNewTaskName] = useState('');
+    // Eski tek parça ekleme state'lerini kaldırdık, sadece toplu olanlar kaldı
     const [batchTaskNames, setBatchTaskNames] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState('');
     const [moldError, setMoldError] = useState('');
@@ -137,14 +137,6 @@ const AdminDashboard = ({
     const checkDuplicateMold = (moldName) => {
         return projects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
-        );
-    };
-
-    const checkDuplicateTask = (moldId, taskName) => {
-        const mold = projects.find(p => p.id === moldId);
-        if (!mold) return false;
-        return mold.tasks.some(task => 
-            task.taskName.toLowerCase() === taskName.toLowerCase().trim()
         );
     };
 
@@ -177,50 +169,7 @@ const AdminDashboard = ({
         }
     };
     
-    const handleAddNewTask = async () => {
-        if (!selectedMoldId || !newTaskName) return;
-        const moldToUpdate = projects.find(p => p.id === selectedMoldId);
-         if (!moldToUpdate) {
-            console.error("Kalıp bulunamadı:", selectedMoldId);
-            setBatchError("Hata: Kalıp bulunamadı.");
-            return;
-        }
-        if (checkDuplicateTask(selectedMoldId, newTaskName)) {
-            setBatchError(`⚠️ "${newTaskName}" isminde bir parça zaten mevcut!`);
-            return;
-        }
-        const newTaskNumber = moldToUpdate.tasks.length + 1;
-        const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const defaultOperation = {
-            id: newOperationId,
-            type: OPERATION_TYPES.CNC,
-            status: OPERATION_STATUS.NOT_STARTED,
-            progressPercentage: 0,
-            assignedOperator: 'SEÇ',
-            machineName: '',
-            machineOperatorName: '', estimatedDueDate: '', startDate: '', finishDate: 
-            '', durationInHours: null, supervisorRating: null, supervisorReviewDate: null, supervisorComment: null,
-            camOperatorRatingForMachineOp: null, camOperatorCommentForMachineOp: null, camOperatorReviewDate: null
-        };
-        const newTask = {
-            id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            taskName: newTaskName.trim(),
-            taskNumber: newTaskNumber,
-            operations: [defaultOperation] 
-        };
-        const updatedTasks = [...moldToUpdate.tasks, newTask];
-        try {
-            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMoldId), {
-                tasks: updatedTasks,
-            });
-            setNewTaskName('');
-            setBatchError('');
-            console.log("Yeni Alt Parça Eklendi (operasyonlu):", newTaskName);
-        } catch (e) {
-            console.error("Alt parça eklenirken hata: ", e);
-            setBatchError("Hata: Parça eklenemedi.");
-        }
-    };
+    // handleAddNewTask fonksiyonunu kaldırdık çünkü tekli ekleme iptal edildi
 
     const handleBatchAddTasks = async () => {
         if (!selectedMoldId || !batchTaskNames.trim()) return;
@@ -334,18 +283,14 @@ const AdminDashboard = ({
                             </div>
                             <div className="mt-4 flex justify-end"><button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>Kaydet ve Ekle</button></div>
                          </div>
+                        
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-2 space-y-6">
-                                <div className="p-4 border border-green-200 dark:border-green-700 rounded-lg bg-green-50 dark:bg-green-900/10">
-                                    <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Tek Parça Ekle</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                        <select value={selectedMoldId} onChange={(e) => setSelectedMoldId(e.target.value)} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 col-span-4 md:col-span-1"><option value="">Kalıp Seçiniz</option>{projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}</select>
-                                        <input type="text" placeholder="Yeni Alt Parça Adı (Örn: ANA GÖVDE)" value={newTaskName} onChange={(e) => { setNewTaskName(e.target.value); setBatchError(''); }} className="rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 col-span-4 md:col-span-2" />
-                                        <button onClick={handleAddNewTask} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 col-span-4 md:col-span-1" disabled={!selectedMoldId || !newTaskName}>Parça Ekle</button>
-                                    </div>
-                                </div>
+                                
+                                {/* Tek Parça Ekleme Bölümü KALDIRILDI */}
+
                                 <div className="p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/10">
-                                    <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Toplu Parça Ekle</h3>
+                                    <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> İŞ PARÇASI EKLEME</h3>
                                     <div className="space-y-4">
                                         <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2"><option value="">Kalıp Seçiniz</option>{projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}</select>
                                         <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Parça İsimleri (Her satıra bir parça)</label><textarea value={batchTaskNames} onChange={(e) => { setBatchTaskNames(e.target.value); setBatchError(''); }} rows={6} placeholder={`Örnek:\nANA GÖVDE SOL\nANA GÖVDE SAĞ\nSICAK YOLLUK\n...`} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
