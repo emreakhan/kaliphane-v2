@@ -2,9 +2,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool } from 'lucide-react';
-import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES } from '../config/constants.js';
-import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; // SADECE FONKSİYONLAR
-import { PROJECT_COLLECTION } from '../config/constants.js'; // ADRES BURADAN
+// ROLES eklendi
+import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES } from '../config/constants.js';
+import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
+import { PROJECT_COLLECTION } from '../config/constants.js'; 
 
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
@@ -121,13 +122,12 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
 
 const AdminDashboard = ({ 
     db, projects, setProjects, personnel, setPersonnel, machines, setMachines,
-    handleDeleteMold, handleUpdateMold
+    handleDeleteMold, handleUpdateMold, loggedInUser // loggedInUser eklendi
 }) => {
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
 
-    // Eski tek parça ekleme state'lerini kaldırdık, sadece toplu olanlar kaldı
     const [batchTaskNames, setBatchTaskNames] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState('');
     const [moldError, setMoldError] = useState('');
@@ -169,8 +169,6 @@ const AdminDashboard = ({
         }
     };
     
-    // handleAddNewTask fonksiyonunu kaldırdık çünkü tekli ekleme iptal edildi
-
     const handleBatchAddTasks = async () => {
         if (!selectedMoldId || !batchTaskNames.trim()) return;
         const moldToUpdate = projects.find(p => p.id === selectedMoldId);
@@ -256,6 +254,9 @@ const AdminDashboard = ({
 
     const selectedMold = projects.find(p => p.id === selectedMoldId);
 
+    // Personel Tabını Görebilecek Roller
+    const canViewPersonnelTab = loggedInUser && (loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU);
+
     const renderActiveTab = () => {
         switch (activeTab) {
             case 'projects':
@@ -286,9 +287,6 @@ const AdminDashboard = ({
                         
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             <div className="lg:col-span-2 space-y-6">
-                                
-                                {/* Tek Parça Ekleme Bölümü KALDIRILDI */}
-
                                 <div className="p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/10">
                                     <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> İŞ PARÇASI EKLEME</h3>
                                     <div className="space-y-4">
@@ -306,6 +304,8 @@ const AdminDashboard = ({
                     </>
                 );
             case 'personnel':
+                // Eğer yetkisiz biri URL manipülasyonu ile buraya gelirse engelle
+                if (!canViewPersonnelTab) return <div className="p-4 text-red-500">Yetkisiz erişim.</div>;
                 return (
                     <PersonnelManagement 
                         db={db}
@@ -334,7 +334,12 @@ const AdminDashboard = ({
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="flex flex-wrap -mb-px gap-x-8">
                     <button onClick={() => setActiveTab('projects')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'projects' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Plus className="w-4 h-4 inline mr-2" /> Proje ve İş Ekleme</button>
-                    <button onClick={() => setActiveTab('personnel')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel Yönetimi</button>
+                    
+                    {/* Personel Sekmesi: Sadece Admin ve Kalıp Tasarım Sorumlusu */}
+                    {canViewPersonnelTab && (
+                        <button onClick={() => setActiveTab('personnel')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel Yönetimi</button>
+                    )}
+
                     <button onClick={() => setActiveTab('mold_management')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_management' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Database className="w-4 h-4 inline mr-2" /> Kalıp Yönetimi</button>
                 </nav>
             </div>

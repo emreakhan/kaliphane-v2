@@ -39,7 +39,7 @@ import AnalysisPage from './pages/AnalysisPage.js';
 import WorkshopEditorPage from './pages/WorkshopEditorPage.js'; 
 import TerminalPage from './pages/TerminalPage.js'; 
 import ProjectManagementPage from './pages/ProjectManagementPage.js'; 
-import CamJobEntryPage from './pages/CamJobEntryPage.js'; // <-- YENİ EKLENDİ
+import CamJobEntryPage from './pages/CamJobEntryPage.js'; 
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -372,10 +372,23 @@ const App = () => {
             },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
-            // --- YENİ EKLENEN NAVIGASYON: SADECE CAM OPERATORLERİ GÖREBİLİR ---
-            { path: '/cam-job-entry', label: 'Proje ve İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR] },
-            // ------------------------------------------------------------------
-            { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
+            
+            { 
+                path: '/cam-job-entry', 
+                label: 'Proje ve İş Ekleme', 
+                icon: Briefcase, 
+                roles: [ROLES.CAM_OPERATOR] 
+            },
+
+            // --- GÜNCELLEME: PROJE SORUMLUSU ADMIN PANELINE ERISEBILIR ---
+            { 
+                path: '/admin', 
+                label: 'Admin Paneli', 
+                icon: LayoutDashboard, 
+                roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU] 
+            },
+            // -----------------------------------------------------------
+
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
             { 
@@ -445,15 +458,27 @@ const App = () => {
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
 
-                <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
+                {/* --- GÜNCELLEME: Admin Dashboard'a `loggedInUser` prop'u eklendi (yetki kontrolü için) --- */}
+                <Route path="/admin" element={<AdminDashboard 
+                    db={db} 
+                    projects={projects} 
+                    setProjects={setProjects} 
+                    personnel={personnel} 
+                    setPersonnel={setPersonnel} 
+                    machines={machines} 
+                    setMachines={setMachines} 
+                    handleDeleteMold={handleDeleteMold} 
+                    handleUpdateMold={handleUpdateMold} 
+                    loggedInUser={loggedInUser} // <-- YENİ EKLENDİ
+                />} />
+                {/* ------------------------------------------------------------------------------------- */}
+
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
                 
-                {/* --- YENİ ROTA EKLENDİ --- */}
                 <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                {/* ------------------------- */}
 
                 <Route path="/mold/:moldId" element={
                     <MoldDetailPage 
