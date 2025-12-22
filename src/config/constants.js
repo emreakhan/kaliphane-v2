@@ -68,6 +68,7 @@ export const ADDABLE_OPERATION_TYPES = {
     DERIN_DELIK_DELME: 'DERİN DELİK DELME',
 };
 
+// --- KALIP DURUMLARI ---
 export const MOLD_STATUS = {
     WAITING: 'BEKLEMEDE',
     TASARIM: 'TASARIM',
@@ -77,19 +78,19 @@ export const MOLD_STATUS = {
     DESEN: 'DESEN',
     MOLD_ASSEMBLY: 'KALIP MONTAJ',
     TRIAL: 'DENEME\'DE',
-    REVISION: 'REVİZYON',
+    // REVISION: 'REVİZYON' -> KALDIRILDI
     COMPLETED: 'TAMAMLANDI',
 };
 
+// --- GÜNCELLENMİŞ: AKTİF LİSTE (Sadece İstenilenler) ---
 export const MOLD_STATUS_ACTIVE_LIST = [
-    MOLD_STATUS.TASARIM,
+    // MOLD_STATUS.TASARIM, // Çıkarıldı
     MOLD_STATUS.CNC,
     MOLD_STATUS.EREZYON,
     MOLD_STATUS.POLISAJ,
     MOLD_STATUS.DESEN,
     MOLD_STATUS.MOLD_ASSEMBLY,
-    MOLD_STATUS.TRIAL,
-    MOLD_STATUS.REVISION,
+    // MOLD_STATUS.TRIAL,   // Çıkarıldı
 ];
 
 export const mapTaskStatusToMoldStatus = (taskStatus) => {
@@ -107,13 +108,13 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
     }
 };
 
-// --- GÜNCELLENEN: TEZGAH DURUMLARI ---
+// --- TEZGAH DURUMLARI ---
 export const MACHINE_STATUS = {
     AVAILABLE: 'MEVCUT',
     FAULT: 'ARIZALI',
     MAINTENANCE: 'BAKIMDA',
     BUSY: 'BUSY',
-    WAITING: 'BEKLIYOR' // <--- YENİ EKLENDİ
+    WAITING: 'BEKLIYOR'
 };
 
 // --- PROJE TİPLERİ ---

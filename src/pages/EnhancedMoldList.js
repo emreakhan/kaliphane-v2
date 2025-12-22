@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
     RefreshCw, Settings, List, CheckCircle, 
     PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search,
-    Briefcase, Tool, LayoutGrid, ArrowRight 
+    LayoutGrid, ArrowRight 
 } from 'lucide-react';
 
 // Sabitler
@@ -15,7 +15,7 @@ import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, 
 
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
-import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff, getDaysDifference } from '../utils/dateUtils.js';
+import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff } from '../utils/dateUtils.js';
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
 const EnhancedMoldList = ({ projects }) => {
@@ -162,7 +162,7 @@ const EnhancedMoldList = ({ projects }) => {
                 <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.REVISION} title="Revizyon" count={stats[MOLD_STATUS.REVISION]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                {/* REVİZYON BUTONU KALDIRILDI */}
                 <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
             </div>
 
