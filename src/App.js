@@ -86,6 +86,7 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
+    // ... (Seed fonksiyonları aynı kalıyor)
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -229,7 +230,9 @@ const App = () => {
         return () => unsubscribe();
     }, [userId, loggedInUser]);
 
-    const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType) => {
+    // --- GÜNCELLENEN: Handle Terminal Action ---
+    // operatorName parametresini kabul eder ve Duraklat/Devam Et/Operatör Bitirdi durumlarını yönetir.
+    const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         
@@ -239,7 +242,6 @@ const App = () => {
         if (taskIndex === -1) return;
         
         const currentTask = currentProject.tasks[taskIndex];
-
         const opIndex = currentTask.operations.findIndex(op => op.id === opId);
         if (opIndex === -1) return;
         
@@ -247,19 +249,37 @@ const App = () => {
         let updatedOp = { ...currentOp };
         const now = getCurrentDateTimeString();
 
+        // 1. İşlem Kim Yapıyorsa O Kişiyi Ata
+        if (operatorName) {
+            updatedOp.machineOperatorName = operatorName;
+        }
+
+        // 2. Aksiyon Tipleri
         if (actionType === 'START_SETUP') {
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             updatedOp.setupStartTime = now;
             updatedOp.isSettingUp = true;
+            // Eğer daha önce "Operatör Bitirdi" dendiyse, işleme tekrar başladığı için o bayrağı kaldır.
+            updatedOp.isOperatorFinished = false; 
         } 
         else if (actionType === 'START_PRODUCTION') {
             updatedOp.isSettingUp = false;
             updatedOp.productionStartTime = now;
+            updatedOp.isOperatorFinished = false;
         } 
-        else if (actionType === 'FINISH_JOB') {
-            updatedOp.status = OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW;
-            updatedOp.finishTime = now;
-            updatedOp.progressPercentage = 100;
+        else if (actionType === 'PAUSE_JOB') { // EKLENDİ
+            updatedOp.status = OPERATION_STATUS.PAUSED;
+            // Duruş kaydı tutmak isterseniz buraya log eklenebilir.
+        }
+        else if (actionType === 'RESUME_JOB') { // EKLENDİ
+            updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
+        }
+        else if (actionType === 'FINISH_JOB') { // GÜNCELLENDİ
+            // Durumu 'COMPLETED' yapmıyoruz. Sadece operatörün işinin bittiğini işaretliyoruz.
+            // Durumu PAUSED'a çekiyoruz ki süre dursun.
+            updatedOp.status = OPERATION_STATUS.PAUSED;
+            updatedOp.isOperatorFinished = true; // YENİ BAYRAK
+            updatedOp.progressPercentage = 99; // Sembolik olarak sona yaklaştığını gösterelim.
             updatedOp.isSettingUp = false;
         }
 
@@ -380,14 +400,12 @@ const App = () => {
                 roles: [ROLES.CAM_OPERATOR] 
             },
 
-            // --- GÜNCELLEME: PROJE SORUMLUSU ADMIN PANELINE ERISEBILIR ---
             { 
                 path: '/admin', 
                 label: 'Admin Paneli', 
                 icon: LayoutDashboard, 
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU] 
             },
-            // -----------------------------------------------------------
 
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
@@ -458,7 +476,6 @@ const App = () => {
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
 
-                {/* --- GÜNCELLEME: Admin Dashboard'a `loggedInUser` prop'u eklendi (yetki kontrolü için) --- */}
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 
                     projects={projects} 
@@ -469,9 +486,8 @@ const App = () => {
                     setMachines={setMachines} 
                     handleDeleteMold={handleDeleteMold} 
                     handleUpdateMold={handleUpdateMold} 
-                    loggedInUser={loggedInUser} // <-- YENİ EKLENDİ
+                    loggedInUser={loggedInUser} 
                 />} />
-                {/* ------------------------------------------------------------------------------------- */}
 
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />

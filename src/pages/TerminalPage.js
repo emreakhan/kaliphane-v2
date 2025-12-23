@@ -1,16 +1,16 @@
 // src/pages/TerminalPage.js
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle } from 'lucide-react'; 
+import React, { useState, useMemo } from 'react';
+import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward } from 'lucide-react'; 
 import { OPERATION_STATUS } from '../config/constants';
 
 const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) => {
-    const navigate = useNavigate();
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [activeOperator, setActiveOperator] = useState(null); 
+    const [selectedMachine, setSelectedMachine] = useState(null); 
 
+    // --- PIN GİRİŞ İŞLEMLERİ ---
     const handleNumPadClick = (num) => {
         if (pin.length < 4) {
             setPin(pin + num);
@@ -22,65 +22,248 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
 
     const handleLogin = () => {
         const operator = personnel.find(p => p.pinCode === pin);
-        if (operator) { setActiveOperator(operator); setPin(''); setError(''); } 
-        else { setError('Geçersiz PIN!'); setPin(''); }
+        if (operator) { 
+            setActiveOperator(operator); 
+            setPin(''); 
+            setError(''); 
+        } else { 
+            setError('Geçersiz PIN!'); 
+            setPin(''); 
+        }
     };
 
-    const handleLogout = () => { setActiveOperator(null); setPin(''); };
+    const handleLogout = () => { 
+        setActiveOperator(null); 
+        setSelectedMachine(null); 
+        setPin(''); 
+    };
 
-    const OperatorDashboard = () => {
-        const myTasks = projects.flatMap(p => 
-            p.tasks.flatMap(t => 
-                (t.operations || []).filter(op => 
-                    (op.assignedOperator === activeOperator.name || op.machineOperatorName === activeOperator.name) && 
-                    op.status !== OPERATION_STATUS.COMPLETED && 
-                    op.status !== OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW
-                ).map(op => ({ ...op, moldName: p.moldName, taskName: t.taskName, moldId: p.id, taskId: t.id }))
-            )
-        );
+    // --- TEZGAH SEÇİM EKRANI (GÜNCELLENDİ: DAHA SADE VE SIRALI) ---
+    const MachineSelectionScreen = () => {
+        // Tezgahları isme göre doğal sıralama ile (örn: CNC-1, CNC-2, CNC-10) sırala
+        const sortedMachines = useMemo(() => {
+            const list = machines || [];
+            return [...list].sort((a, b) => 
+                a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+            );
+        }, [machines]);
 
         return (
             <div className="flex flex-col h-screen bg-gray-900 text-white p-6">
-                <div className="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
                     <div className="flex items-center">
-                        <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-2xl font-bold mr-4">{activeOperator.name.charAt(0)}</div>
-                        <div><h2 className="text-3xl font-bold">{activeOperator.name}</h2><p className="text-gray-400">Terminal Girişi</p></div>
+                        <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-xl font-bold mr-4">
+                            {activeOperator.name.charAt(0)}
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold">Merhaba, {activeOperator.name}</h2>
+                            <p className="text-gray-400">Çalışacağınız tezgahı seçiniz.</p>
+                        </div>
                     </div>
-                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-8 py-4 rounded-xl text-xl font-bold flex items-center"><LogOut className="w-6 h-6 mr-2" /> ÇIKIŞ</button>
+                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center">
+                        <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
+                    </button>
                 </div>
 
+                <div className="flex-1 overflow-y-auto">
+                    {/* Daha yoğun grid yapısı: Tek sayfada çok tezgah */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        {sortedMachines.length === 0 ? (
+                            <p className="text-gray-500 col-span-full text-center py-10 text-lg">Sistemde kayıtlı tezgah bulunamadı.</p>
+                        ) : (
+                            sortedMachines.map(machine => (
+                                <button 
+                                    key={machine.id} 
+                                    onClick={() => setSelectedMachine(machine)}
+                                    className="bg-gray-800 hover:bg-blue-900 border border-gray-600 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center transition-all shadow-md group min-h-[100px]"
+                                >
+                                    {/* İkonu kaldırdık, ismi öne çıkardık */}
+                                    <span className="text-lg font-bold text-white group-hover:text-blue-200 text-center leading-tight">
+                                        {machine.name}
+                                    </span>
+                                    <span className="text-xs text-gray-500 mt-1 group-hover:text-blue-300">
+                                        {machine.type || 'Tezgah'}
+                                    </span>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // --- OPERASYON KONTROL PANELİ (DASHBOARD) ---
+    const OperatorDashboard = () => {
+        const tasksOnMachine = useMemo(() => {
+            return projects.flatMap(p => 
+                p.tasks.flatMap(t => 
+                    (t.operations || []).filter(op => 
+                        op.machineName === selectedMachine.name && 
+                        op.status !== OPERATION_STATUS.COMPLETED &&
+                        op.status !== OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW 
+                    ).map(op => ({ 
+                        ...op, 
+                        moldName: p.moldName, 
+                        taskName: t.taskName, 
+                        moldId: p.id, 
+                        taskId: t.id 
+                    }))
+                )
+            );
+        }, [projects, selectedMachine]);
+
+        const onAction = (moldId, taskId, opId, action) => {
+            if (handleTerminalAction) {
+                handleTerminalAction(moldId, taskId, opId, action, activeOperator.name);
+            }
+        };
+
+        return (
+            <div className="flex flex-col h-screen bg-gray-900 text-white p-6">
+                {/* ÜST BAR */}
+                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setSelectedMachine(null)} className="bg-gray-800 hover:bg-gray-700 p-3 rounded-lg border border-gray-600 transition">
+                            <ArrowLeft className="w-6 h-6 text-gray-300" />
+                        </button>
+                        <div>
+                            <h2 className="text-3xl font-bold text-white tracking-wide">{selectedMachine.name}</h2>
+                            <p className="text-gray-400 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                Operatör: <span className="text-blue-400 font-semibold">{activeOperator.name}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center transition">
+                        <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
+                    </button>
+                </div>
+
+                {/* İŞ LİSTESİ */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto pb-20">
-                    {myTasks.length === 0 ? (
-                        <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-96"><Hash className="w-16 h-16 mb-4 opacity-20" /><p className="text-2xl">Üzerinize atanmış aktif bir iş bulunmuyor.</p></div>
+                    {tasksOnMachine.length === 0 ? (
+                        <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-96">
+                            <Hash className="w-20 h-20 mb-6 opacity-20" />
+                            <p className="text-2xl font-medium">Bu tezgahta bekleyen veya çalışan iş yok.</p>
+                            <p className="text-sm mt-2 opacity-60">CAM operatörünün iş atamasını bekleyiniz.</p>
+                        </div>
                     ) : (
-                        myTasks.map(task => <TaskCard key={task.id} task={task} handleTerminalAction={handleTerminalAction} />)
+                        tasksOnMachine.map(task => (
+                            <TaskCard key={task.id} task={task} onAction={onAction} />
+                        ))
                     )}
                 </div>
             </div>
         );
     };
 
-    const TaskCard = ({ task, handleTerminalAction }) => {
+    // --- GÖREV KARTI BİLEŞENİ ---
+    const TaskCard = ({ task, onAction }) => {
         let mode = 'WAITING'; 
-        if (task.setupStartTime && !task.productionStartTime) mode = 'SETUP'; 
-        if (task.productionStartTime) mode = 'PRODUCTION'; 
+        
+        if (task.status === OPERATION_STATUS.PAUSED) {
+            mode = 'PAUSED';
+        } else if (task.status === OPERATION_STATUS.IN_PROGRESS) {
+            if (task.productionStartTime) mode = 'PRODUCTION';
+            else if (task.setupStartTime) mode = 'SETUP';
+        } else if (task.setupStartTime && !task.productionStartTime) {
+             mode = 'SETUP';
+        }
+
+        let cardStyle = 'bg-gray-800 border-gray-600';
+        let statusLabel = 'BEKLİYOR';
+        let statusColor = 'bg-gray-700 text-gray-400';
+
+        if (mode === 'PRODUCTION') {
+            cardStyle = 'bg-gray-800 border-green-500';
+            statusLabel = 'İMALAT SÜRÜYOR';
+            statusColor = 'bg-green-900 text-green-300 animate-pulse';
+        } else if (mode === 'SETUP') {
+            cardStyle = 'bg-gray-800 border-yellow-500';
+            statusLabel = 'AYAR YAPILIYOR';
+            statusColor = 'bg-yellow-900 text-yellow-300';
+        } else if (mode === 'PAUSED') {
+            cardStyle = 'bg-gray-800 border-orange-500';
+            statusLabel = 'DURAKLATILDI';
+            statusColor = 'bg-orange-900 text-orange-300';
+        }
 
         return (
-            <div className={`p-6 rounded-2xl border-l-8 shadow-lg transition-all ${mode === 'PRODUCTION' ? 'bg-gray-800 border-green-500' : mode === 'SETUP' ? 'bg-gray-800 border-yellow-500' : 'bg-gray-800 border-gray-600'}`}>
-                <div className="flex justify-between items-start mb-4">
-                    <div><h4 className="text-xl font-bold text-white">{task.moldName}</h4><p className="text-gray-400 text-lg">{task.taskName}</p><span className="text-sm bg-blue-900 text-blue-200 px-2 py-1 rounded mt-1 inline-block">{task.machineName}</span></div>
-                    <div className="text-right"><span className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${mode === 'PRODUCTION' ? 'bg-green-900 text-green-300' : mode === 'SETUP' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-400'}`}>{mode === 'PRODUCTION' ? 'İMALAT SÜRÜYOR' : mode === 'SETUP' ? 'AYAR YAPILIYOR' : 'BAŞLAMADI'}</span></div>
+            <div className={`p-6 rounded-2xl border-l-8 shadow-2xl transition-all relative overflow-hidden ${cardStyle}`}>
+                <div className="absolute top-4 right-4">
+                    <span className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-wider shadow-sm ${statusColor}`}>
+                        {statusLabel}
+                    </span>
                 </div>
-                <div className="mt-6">
-                    {mode === 'WAITING' && <button onClick={() => handleTerminalAction(task.moldId, task.taskId, task.id, 'START_SETUP')} className="w-full bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center"><Settings className="w-6 h-6 mr-2" /> AYARA BAŞLA</button>}
-                    {mode === 'SETUP' && <button onClick={() => handleTerminalAction(task.moldId, task.taskId, task.id, 'START_PRODUCTION')} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center animate-pulse"><PlayCircle className="w-6 h-6 mr-2" /> İMALATA GEÇ</button>}
-                    {mode === 'PRODUCTION' && <button onClick={() => { if(window.confirm("İşi bitirmek istediğinize emin misiniz?")) handleTerminalAction(task.moldId, task.taskId, task.id, 'FINISH_JOB'); }} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center"><CheckCircle className="w-6 h-6 mr-2" /> İŞİ BİTİR</button>}
+
+                <div className="mb-6 pr-20">
+                    <h4 className="text-xl font-bold text-white leading-tight mb-1">{task.moldName}</h4>
+                    <p className="text-gray-400 text-lg">{task.taskName}</p>
+                    <div className="mt-2 flex gap-2">
+                        <span className="text-xs bg-blue-900/50 text-blue-200 px-2 py-1 rounded border border-blue-800">
+                            {task.type}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="mt-auto space-y-3">
+                    
+                    {mode === 'WAITING' && (
+                        <button 
+                            onClick={() => onAction(task.moldId, task.taskId, task.id, 'START_SETUP')} 
+                            className="w-full bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                        >
+                            <Settings className="w-6 h-6 mr-2" /> AYARA BAŞLA
+                        </button>
+                    )}
+
+                    {mode === 'SETUP' && (
+                        <button 
+                            onClick={() => onAction(task.moldId, task.taskId, task.id, 'START_PRODUCTION')} 
+                            className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center animate-pulse hover:animate-none transition-transform active:scale-95"
+                        >
+                            <PlayCircle className="w-6 h-6 mr-2" /> SERİYE AL (BAŞLA)
+                        </button>
+                    )}
+
+                    {mode === 'PRODUCTION' && (
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => onAction(task.moldId, task.taskId, task.id, 'PAUSE_JOB')}
+                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                            >
+                                <PauseCircle className="w-6 h-6 mr-2" /> DURAKLAT
+                            </button> 
+                            
+                            <button 
+                                onClick={() => { 
+                                    if(window.confirm("Parça tamamlandı mı? İşlem yetkili onayına gönderilecek.")) 
+                                        onAction(task.moldId, task.taskId, task.id, 'FINISH_JOB'); 
+                                }} 
+                                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                            >
+                                <CheckCircle className="w-6 h-6 mr-2" /> TAMAMLA
+                            </button>
+                        </div>
+                    )}
+
+                    {mode === 'PAUSED' && (
+                        <button 
+                            onClick={() => onAction(task.moldId, task.taskId, task.id, 'RESUME_JOB')} 
+                            className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                        >
+                            <FastForward className="w-6 h-6 mr-2" /> DEVAM ET
+                        </button>
+                    )}
+
                 </div>
             </div>
         );
     };
 
-    if (activeOperator) return <OperatorDashboard />;
+    if (activeOperator && selectedMachine) return <OperatorDashboard />;
+    if (activeOperator) return <MachineSelectionScreen />;
 
     return (
         <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
