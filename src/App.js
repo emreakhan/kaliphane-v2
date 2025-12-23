@@ -14,7 +14,7 @@ import {
 // Sabitler
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
-    PERSONNEL_ROLES
+    PERSONNEL_ROLES, INVENTORY_COLLECTION 
 } from './config/constants.js';
 
 // Yardımcılar
@@ -23,7 +23,8 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 // İkonlar
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
-    LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool 
+    LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
+    Package, Wrench 
 } from 'lucide-react';
 
 // Sayfalar
@@ -40,6 +41,8 @@ import WorkshopEditorPage from './pages/WorkshopEditorPage.js';
 import TerminalPage from './pages/TerminalPage.js'; 
 import ProjectManagementPage from './pages/ProjectManagementPage.js'; 
 import CamJobEntryPage from './pages/CamJobEntryPage.js'; 
+import ToolInventoryPage from './pages/ToolInventoryPage.js';
+import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -60,9 +63,12 @@ const App = () => {
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isProjectsLoading, setIsProjectsLoading] = useState(true);
+    
+    // VERİ STATELERİ
     const [projects, setProjects] = useState([]);
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
+    const [tools, setTools] = useState([]); 
     
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
@@ -86,7 +92,7 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
-    // ... (Seed fonksiyonları aynı kalıyor)
+    // Seed Data
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -162,6 +168,7 @@ const App = () => {
                 { id: 'person-cam1', name: 'Emre Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'emre', password: '123' },
                 { id: 'person-cam2', name: 'Can Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'can', password: '123' },
                 { id: 'person-sup1', name: 'Fatma Hanım (Yetkili)', role: PERSONNEL_ROLES.SUPERVISOR, createdAt: getCurrentDateTimeString(), username: 'fatma', password: '123' },
+                { id: 'person-takim1', name: 'Ahmet Usta (Takımhane)', role: PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU, createdAt: getCurrentDateTimeString(), username: 'ahmet', password: '123' }, 
                 { id: 'person-machine1', name: 'Ali Yılmaz', role: PERSONNEL_ROLES.MACHINE_OPERATOR, createdAt: getCurrentDateTimeString(), username: null, password: null },
                 { id: 'person-machine2', name: 'Burak Demir', role: PERSONNEL_ROLES.MACHINE_OPERATOR, createdAt: getCurrentDateTimeString(), username: null, password: null },
                 { id: 'person-machine3', name: 'Deniz Kaya', role: PERSONNEL_ROLES.MACHINE_OPERATOR, createdAt: getCurrentDateTimeString(), username: null, password: null },
@@ -217,7 +224,15 @@ const App = () => {
             machinesListenerFired = true;
             checkCoreLoadingDone();
         });
-        return () => { unsubscribePersonnel(); unsubscribeMachines(); };
+        const unsubscribeInventory = onSnapshot(query(collection(db, INVENTORY_COLLECTION)), (snapshot) => {
+            setTools(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        return () => { 
+            unsubscribePersonnel(); 
+            unsubscribeMachines(); 
+            unsubscribeInventory(); 
+        };
     }, [userId, seedInitialData]); 
     
     useEffect(() => {
@@ -230,8 +245,6 @@ const App = () => {
         return () => unsubscribe();
     }, [userId, loggedInUser]);
 
-    // --- GÜNCELLENEN: Handle Terminal Action ---
-    // operatorName parametresini kabul eder ve Duraklat/Devam Et/Operatör Bitirdi durumlarını yönetir.
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -249,17 +262,14 @@ const App = () => {
         let updatedOp = { ...currentOp };
         const now = getCurrentDateTimeString();
 
-        // 1. İşlem Kim Yapıyorsa O Kişiyi Ata
         if (operatorName) {
             updatedOp.machineOperatorName = operatorName;
         }
 
-        // 2. Aksiyon Tipleri
         if (actionType === 'START_SETUP') {
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             updatedOp.setupStartTime = now;
             updatedOp.isSettingUp = true;
-            // Eğer daha önce "Operatör Bitirdi" dendiyse, işleme tekrar başladığı için o bayrağı kaldır.
             updatedOp.isOperatorFinished = false; 
         } 
         else if (actionType === 'START_PRODUCTION') {
@@ -267,19 +277,16 @@ const App = () => {
             updatedOp.productionStartTime = now;
             updatedOp.isOperatorFinished = false;
         } 
-        else if (actionType === 'PAUSE_JOB') { // EKLENDİ
+        else if (actionType === 'PAUSE_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
-            // Duruş kaydı tutmak isterseniz buraya log eklenebilir.
         }
-        else if (actionType === 'RESUME_JOB') { // EKLENDİ
+        else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
         }
-        else if (actionType === 'FINISH_JOB') { // GÜNCELLENDİ
-            // Durumu 'COMPLETED' yapmıyoruz. Sadece operatörün işinin bittiğini işaretliyoruz.
-            // Durumu PAUSED'a çekiyoruz ki süre dursun.
+        else if (actionType === 'FINISH_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
-            updatedOp.isOperatorFinished = true; // YENİ BAYRAK
-            updatedOp.progressPercentage = 99; // Sembolik olarak sona yaklaştığını gösterelim.
+            updatedOp.isOperatorFinished = true; 
+            updatedOp.progressPercentage = 99; 
             updatedOp.isSettingUp = false;
         }
 
@@ -378,11 +385,23 @@ const App = () => {
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
     
+    // --- NAVİGASYON ---
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
         const allLoginRoles = Object.values(ROLES);
+        
+        // Rol Grupları
+        const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU];
+        const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU];
+        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; // Sadece Takımhane Sorumlusu
+
+        // Takımhane Sorumlusunun GÖRMEMESİ gerekenler için liste
+        const rolesExceptToolRoom = allLoginRoles.filter(r => r !== ROLES.TAKIMHANE_SORUMLUSU);
+        
         const finalBaseItems = [
-            { path: '/', label: 'Kalıp İmalat', icon: List, roles: allLoginRoles },
+            // Kalıp İmalat: Takımhane görmeyecek
+            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoom },
+
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
             { 
                 path: '/design-office', 
@@ -390,9 +409,15 @@ const App = () => {
                 icon: PenTool, 
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
-            { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
-            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             
+            // Çalışan Parçalar: Herkes görecek (Takımhane dahil)
+            { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
+            
+            // Takımhane Menüleri
+            { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
+            { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
+
+            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { 
                 path: '/cam-job-entry', 
                 label: 'Proje ve İş Ekleme', 
@@ -404,16 +429,19 @@ const App = () => {
                 path: '/admin', 
                 label: 'Admin Paneli', 
                 icon: LayoutDashboard, 
-                roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU] 
+                roles: canSeeAdmin 
             },
 
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
-            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: allLoginRoles },
+            
+            // Geçmiş İşler: Takımhane görmeyecek
+            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoom },
+
             { 
                 path: '/analysis', 
                 label: 'Analiz', 
                 icon: BarChart2, 
-                roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU] 
+                roles: canSeeAnalysis 
             },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
         ];
@@ -475,6 +503,10 @@ const App = () => {
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                
+                {/* YENİ ROUTE'LAR */}
+                <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
+                <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} loggedInUser={loggedInUser} db={db} />} />
 
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 

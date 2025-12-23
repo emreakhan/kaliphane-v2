@@ -7,6 +7,10 @@ export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
 export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
 
+// YENİ: Takımhane Koleksiyonları
+export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventory`;
+export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
+
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
 
@@ -17,6 +21,7 @@ export const ROLES = {
     SUPERVISOR: 'Kalıphane Yetkilisi',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
+    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu', // YENİ ROL
 };
 
 export const PERSONNEL_ROLES = {
@@ -26,6 +31,7 @@ export const PERSONNEL_ROLES = {
     MACHINE_OPERATOR: 'Tezgah Operatörü',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
+    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu', // YENİ ROL
 };
 
 export const OPERATION_STATUS = {
@@ -78,19 +84,16 @@ export const MOLD_STATUS = {
     DESEN: 'DESEN',
     MOLD_ASSEMBLY: 'KALIP MONTAJ',
     TRIAL: 'DENEME\'DE',
-    // REVISION: 'REVİZYON' -> KALDIRILDI
     COMPLETED: 'TAMAMLANDI',
 };
 
-// --- GÜNCELLENMİŞ: AKTİF LİSTE (Sadece İstenilenler) ---
+// --- AKTİF LİSTE ---
 export const MOLD_STATUS_ACTIVE_LIST = [
-    // MOLD_STATUS.TASARIM, // Çıkarıldı
     MOLD_STATUS.CNC,
     MOLD_STATUS.EREZYON,
     MOLD_STATUS.POLISAJ,
     MOLD_STATUS.DESEN,
     MOLD_STATUS.MOLD_ASSEMBLY,
-    // MOLD_STATUS.TRIAL,   // Çıkarıldı
 ];
 
 export const mapTaskStatusToMoldStatus = (taskStatus) => {
@@ -157,4 +160,24 @@ export const PROJECT_TYPE_CONFIG = {
         borderClass: 'border-l-8 border-l-indigo-500',
         icon: 'T0' 
     }
+};
+
+// --- YENİ: TAKIMHANE SABİTLERİ ---
+export const TOOL_CATEGORIES = {
+    FREZE: 'FREZE',
+    MATKAP: 'MATKAP',
+    KILAVUZ: 'KILAVUZ',
+    KESICI_UC: 'KESİCİ UÇ (ELMAS)',
+    TUTUCU: 'TUTUCU/BAĞLAMA',
+    OLCU_ALETI: 'ÖLÇÜ ALETİ',
+    SARF: 'SARF MALZEME',
+    DIGER: 'DİĞER'
+};
+
+export const TOOL_TRANSACTION_TYPES = {
+    ADD_STOCK: 'STOK GİRİŞİ',     // Depoya yeni mal geldi
+    ISSUE: 'TEZGAHA VERİLDİ',     // Depodan çıktı, tezgaha gitti
+    RETURN_HEALTHY: 'SAĞLAM İADE', // Tezgahtan döndü, stoğa eklendi
+    RETURN_SCRAP: 'ISKARTA/HURDA', // Tezgahtan döndü ama çöp (Stoğa girmez)
+    ADJUSTMENT: 'SAYIM DÜZELTME'   // Manuel düzeltme
 };

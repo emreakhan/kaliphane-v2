@@ -1,33 +1,37 @@
 // src/config/firebase.js
 
-import { initializeApp } from 'firebase/app';
-import { 
-    getAuth, 
-    signInAnonymously, 
-    signInWithCustomToken, 
-    onAuthStateChanged 
-} from 'firebase/auth';
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
     getFirestore, 
     collection, 
-    doc, 
-    onSnapshot, 
     getDocs, 
-    setDoc,
-    addDoc, // <-- EKLENDİ
-    query, 
+    addDoc, 
     updateDoc, 
     deleteDoc, 
-    where 
-} from 'firebase/firestore';
+    doc, 
+    onSnapshot, 
+    query, 
+    where, 
+    setDoc,
+    arrayUnion, // Eklenen yeni fonksiyon
+    increment   // Eklenen yeni fonksiyon
+} from "firebase/firestore";
+import { 
+    getAuth, 
+    signInWithCustomToken, 
+    signInAnonymously, 
+    onAuthStateChanged 
+} from "firebase/auth";
 import { 
     getStorage, 
     ref, 
     uploadBytes, 
     getDownloadURL 
-} from 'firebase/storage';
+} from "firebase/storage";
+// import { getAnalytics } from "firebase/analytics"; // Analitik şimdilik kapalı
 
-// --- FIREBASE AYARLARI ---
+// --- FİREBASE KONFİGÜRASYONU ---
+// (Sağladığın görseldeki bilgiler kullanıldı)
 const firebaseConfig = {
   apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I",
   authDomain: "kaliphane-v2.firebaseapp.com",
@@ -38,39 +42,36 @@ const firebaseConfig = {
   measurementId: "G-80GKBHFELZ"
 };
 
-// --- FIREBASE BAŞLATMA ---
-const app = initializeApp(firebaseConfig);
+// Uygulamayı Başlat (Singleton Pattern - Çakışmayı Önler)
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Servisleri başlat
+// Servisleri Başlat
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); 
+const storage = getStorage(app);
+// const analytics = getAnalytics(app); // Analitik şimdilik kapalı
 
-// Diğer dosyaların kullanabilmesi için export et
+// Dışa Aktarmalar (Uygulamanın geri kalanında kullanılacaklar)
 export { 
     db, 
     auth, 
     storage, 
-    
-    // Firestore fonksiyonları
-    collection,
-    doc, 
-    onSnapshot, 
+    collection, 
     getDocs, 
-    setDoc,
-    addDoc,
-    query, 
+    addDoc, 
     updateDoc, 
     deleteDoc, 
-    where,
-    
-    // Storage fonksiyonları
+    doc, 
+    onSnapshot, 
+    query, 
+    where, 
+    setDoc, 
+    signInWithCustomToken, 
+    signInAnonymously, 
+    onAuthStateChanged,
     ref,
     uploadBytes,
     getDownloadURL,
-
-    // Auth fonksiyonları
-    signInAnonymously,
-    signInWithCustomToken,
-    onAuthStateChanged
+    arrayUnion, // YENİ
+    increment   // YENİ
 };
