@@ -7,9 +7,10 @@ export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
 export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
 
-// YENİ: Takımhane Koleksiyonları
+// TAKIMHANE KOLEKSİYONLARI
 export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventory`;
 export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
+export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`; // YENİ EKLENEN
 
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
@@ -21,7 +22,7 @@ export const ROLES = {
     SUPERVISOR: 'Kalıphane Yetkilisi',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
-    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu', // YENİ ROL
+    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
 };
 
 export const PERSONNEL_ROLES = {
@@ -31,7 +32,7 @@ export const PERSONNEL_ROLES = {
     MACHINE_OPERATOR: 'Tezgah Operatörü',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
-    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu', // YENİ ROL
+    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
 };
 
 export const OPERATION_STATUS = {
@@ -162,7 +163,7 @@ export const PROJECT_TYPE_CONFIG = {
     }
 };
 
-// --- YENİ: TAKIMHANE SABİTLERİ ---
+// --- TAKIMHANE KATEGORİLERİ (Varsayılanlar) ---
 export const TOOL_CATEGORIES = {
     FREZE: 'FREZE',
     MATKAP: 'MATKAP',
@@ -175,9 +176,9 @@ export const TOOL_CATEGORIES = {
 };
 
 export const TOOL_TRANSACTION_TYPES = {
-    ADD_STOCK: 'STOK GİRİŞİ',     // Depoya yeni mal geldi
-    ISSUE: 'TEZGAHA VERİLDİ',     // Depodan çıktı, tezgaha gitti
-    RETURN_HEALTHY: 'SAĞLAM İADE', // Tezgahtan döndü, stoğa eklendi
-    RETURN_SCRAP: 'ISKARTA/HURDA', // Tezgahtan döndü ama çöp (Stoğa girmez)
-    ADJUSTMENT: 'SAYIM DÜZELTME'   // Manuel düzeltme
+    ADD_STOCK: 'STOK GİRİŞİ',
+    ISSUE: 'TEZGAHA VERİLDİ',
+    RETURN_HEALTHY: 'SAĞLAM İADE',
+    RETURN_SCRAP: 'ISKARTA/HURDA',
+    ADJUSTMENT: 'SAYIM DÜZELTME'
 };

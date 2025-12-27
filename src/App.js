@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
-// Firebase (Sadece Fonksiyonlar ve Servisler)
+// Firebase
 import { 
     db, auth, onAuthStateChanged, 
     signInWithCustomToken, signInAnonymously, 
@@ -24,7 +24,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench 
+    Package, Wrench, FileText, TrendingUp // YENİ: TrendingUp ikonu eklendi
 } from 'lucide-react';
 
 // Sayfalar
@@ -43,6 +43,8 @@ import ProjectManagementPage from './pages/ProjectManagementPage.js';
 import CamJobEntryPage from './pages/CamJobEntryPage.js'; 
 import ToolInventoryPage from './pages/ToolInventoryPage.js';
 import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
+import ToolHistoryPage from './pages/ToolHistoryPage.js';
+import ToolAnalysisPage from './pages/ToolAnalysisPage.js'; // YENİ SAYFA IMPORT EDİLDİ
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -416,6 +418,9 @@ const App = () => {
             // Takımhane Menüleri
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
+            { path: '/tool-history', label: 'Geçmiş & Takip', icon: FileText, roles: canSeeTools },
+            // YENİ EKLENEN MENÜ: Analiz Raporu
+            { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
 
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { 
@@ -506,7 +511,11 @@ const App = () => {
                 
                 {/* YENİ ROUTE'LAR */}
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
-                <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} loggedInUser={loggedInUser} db={db} />} />
+                <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
+                <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
+                
+                {/* YENİ EKLENEN ROUTE: Analiz Raporu */}
+                <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
 
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 

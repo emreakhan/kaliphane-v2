@@ -13,8 +13,10 @@ import {
     query, 
     where, 
     setDoc,
-    arrayUnion, // Eklenen yeni fonksiyon
-    increment   // Eklenen yeni fonksiyon
+    arrayUnion,
+    increment,
+    orderBy,
+    limit // YENİ EKLENDİ
 } from "firebase/firestore";
 import { 
     getAuth, 
@@ -28,10 +30,8 @@ import {
     uploadBytes, 
     getDownloadURL 
 } from "firebase/storage";
-// import { getAnalytics } from "firebase/analytics"; // Analitik şimdilik kapalı
 
 // --- FİREBASE KONFİGÜRASYONU ---
-// (Sağladığın görseldeki bilgiler kullanıldı)
 const firebaseConfig = {
   apiKey: "AIzaSyA-xtCT_i8uf9yMRXgy6fA3YJuJ4uGbV-I",
   authDomain: "kaliphane-v2.firebaseapp.com",
@@ -42,16 +42,15 @@ const firebaseConfig = {
   measurementId: "G-80GKBHFELZ"
 };
 
-// Uygulamayı Başlat (Singleton Pattern - Çakışmayı Önler)
+// Uygulamayı Başlat
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Servisleri Başlat
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app);
-// const analytics = getAnalytics(app); // Analitik şimdilik kapalı
 
-// Dışa Aktarmalar (Uygulamanın geri kalanında kullanılacaklar)
+// Dışa Aktarmalar
 export { 
     db, 
     auth, 
@@ -72,6 +71,8 @@ export {
     ref,
     uploadBytes,
     getDownloadURL,
-    arrayUnion, // YENİ
-    increment   // YENİ
+    arrayUnion,
+    increment,
+    orderBy,
+    limit // YENİ EKLENDİ
 };
