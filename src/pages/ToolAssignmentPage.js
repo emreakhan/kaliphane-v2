@@ -4,44 +4,83 @@ import React, { useState, useMemo } from 'react';
 import { 
     Monitor, ArrowRight, RotateCcw, AlertOctagon, 
     CheckCircle, Plus, Search, Wrench, X, Trash2, List,
-    ShoppingCart, Minus, Package, User, ArrowRightLeft 
+    ShoppingCart, Minus, Package, User, ArrowRightLeft, Users, Briefcase
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
 } from '../config/firebase.js';
 import { 
-    MACHINES_COLLECTION, INVENTORY_COLLECTION, 
+    MACHINES_COLLECTION, INVENTORY_COLLECTION, PERSONNEL_COLLECTION,
     TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES, PERSONNEL_ROLES
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) => {
-    const [selectedMachineId, setSelectedMachineId] = useState(null);
-    const [machineSearchTerm, setMachineSearchTerm] = useState(''); 
+    // --- GÖRÜNÜM MODU: 'MACHINES' veya 'PERSONNEL' ---
+    const [viewMode, setViewMode] = useState('MACHINES'); 
+
+    const [selectedOwnerId, setSelectedOwnerId] = useState(null); // Seçilen Tezgah veya Personel ID
+    const [searchTerm, setSearchTerm] = useState(''); // DÜZELTİLDİ: Tekil arama terimi
     
     // --- MODAL: TAKIM VERME (SEPET) ---
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const [toolSearchTerm, setToolSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('TÜMÜ');
     const [pendingItems, setPendingItems] = useState([]); 
-    const [selectedOperatorId, setSelectedOperatorId] = useState(''); 
+    const [selectedOperatorId, setSelectedOperatorId] = useState(''); // Teslim Alan (İmza Atan)
 
     // --- MODAL: TRANSFER İŞLEMİ ---
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [toolToTransfer, setToolToTransfer] = useState(null); 
-    const [targetMachineId, setTargetMachineId] = useState(''); 
-    const [targetOperatorId, setTargetOperatorId] = useState(''); 
+    const [targetType, setTargetType] = useState('MACHINE'); // 'MACHINE' veya 'PERSONNEL'
+    const [targetId, setTargetId] = useState(''); // Hedef ID
+    const [targetReceiverId, setTargetReceiverId] = useState(''); // Hedefteki Sorumlu (Personelse kendisi)
 
-    // Seçilen Makineyi Bul
-    const selectedMachine = useMemo(() => {
-        return machines.find(m => m.id === selectedMachineId);
-    }, [machines, selectedMachineId]);
+    // --- 1. SEÇİLEN VARLIĞI BUL (TEZGAH VEYA PERSONEL) ---
+    const selectedOwner = useMemo(() => {
+        if (viewMode === 'MACHINES') {
+            return machines.find(m => m.id === selectedOwnerId);
+        } else {
+            return personnel.find(p => p.id === selectedOwnerId);
+        }
+    }, [machines, personnel, selectedOwnerId, viewMode]);
 
-    // Makineleri Filtrele (Arama)
+    // --- 2. LİSTELERİ FİLTRELE ---
+    
+    // Tezgah Listesi
     const filteredMachines = useMemo(() => {
-        if (!machineSearchTerm) return machines;
-        return machines.filter(m => m.name.toLowerCase().includes(machineSearchTerm.toLowerCase()));
-    }, [machines, machineSearchTerm]);
+        if (viewMode !== 'MACHINES') return [];
+        if (!searchTerm) return machines;
+        return machines.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [machines, searchTerm, viewMode]);
+
+    // Personel Listesi (Sadece Operatörler ve İlgili Kişiler)
+    const filteredPersonnelList = useMemo(() => {
+        if (viewMode !== 'PERSONNEL') return [];
+        
+        let list = personnel.filter(p => 
+            p.role === PERSONNEL_ROLES.MACHINE_OPERATOR || 
+            p.role === PERSONNEL_ROLES.CAM_OPERATOR ||
+            p.role === PERSONNEL_ROLES.SUPERVISOR ||
+            p.role === PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU
+        );
+
+        if (searchTerm) {
+            list = list.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+        return list.sort((a, b) => a.name.localeCompare(b.name));
+    }, [personnel, searchTerm, viewMode]);
+
+    // Operatör Listesi (Dropdownlar için - Her zaman tüm operatörler)
+    const allOperators = useMemo(() => {
+        if (!personnel) return [];
+        return personnel.filter(p => 
+            p.role === PERSONNEL_ROLES.MACHINE_OPERATOR || 
+            p.role === PERSONNEL_ROLES.CAM_OPERATOR ||
+            p.role === PERSONNEL_ROLES.SUPERVISOR ||
+            p.role === PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU
+        ).sort((a, b) => a.name.localeCompare(b.name));
+    }, [personnel]);
 
     // --- TOOL SEÇİM MANTIĞI ---
     const availableCategories = useMemo(() => {
@@ -66,20 +105,10 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         return result.sort((a, b) => a.name.localeCompare(b.name));
     }, [tools, toolSearchTerm, selectedCategory]);
 
-    // Operatörleri Filtrele
-    const operatorList = useMemo(() => {
-        if (!personnel) return [];
-        return personnel.filter(p => 
-            p.role === PERSONNEL_ROLES.MACHINE_OPERATOR || 
-            p.role === PERSONNEL_ROLES.CAM_OPERATOR ||
-            p.role === PERSONNEL_ROLES.SUPERVISOR
-        ).sort((a, b) => a.name.localeCompare(b.name));
-    }, [personnel]);
 
     // --- SEPET İŞLEMLERİ ---
     const handleAddItem = (tool) => {
         const existingItem = pendingItems.find(i => i.toolId === tool.id);
-        
         if (existingItem) {
             if (tool.totalStock > existingItem.quantity) {
                 setPendingItems(pendingItems.map(i => 
@@ -115,18 +144,31 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         setPendingItems(pendingItems.filter(item => item.tempId !== tempId));
     };
 
-    // --- ONAYLA VE VER ---
+    // --- ONAYLA VE VER (ORTAK FONKSİYON) ---
     const handleConfirmAssignment = async () => {
         if (pendingItems.length === 0) return;
-        if (!selectedOperatorId) return alert("Lütfen operatör seçiniz.");
+        
+        // Eğer Şahsi ise, operatör seçimi zorunlu değil (kendi kendine alıyor), ama yine de seçilebilir.
+        // Eğer Tezgah ise, operatör seçimi zorunlu.
+        let finalOperatorId = selectedOperatorId;
+        
+        if (viewMode === 'PERSONNEL' && !finalOperatorId) {
+            // Şahsi alımda operatör seçilmediyse, seçilen personelin kendisi varsayılır.
+            finalOperatorId = selectedOwnerId;
+        }
 
-        const operator = personnel.find(p => p.id === selectedOperatorId);
+        if (!finalOperatorId) return alert("Lütfen teslim alan kişiyi seçiniz.");
+
+        const operator = personnel.find(p => p.id === finalOperatorId);
         const operatorName = operator ? operator.name : 'Bilinmiyor';
 
         try {
-            const machineRef = doc(db, MACHINES_COLLECTION, selectedMachine.id);
-            const now = getCurrentDateTimeString();
+            // Hedef Koleksiyonu Belirle (Tezgah mı Personel mi?)
+            const targetCollectionRef = viewMode === 'MACHINES' 
+                ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
+                : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
 
+            const now = getCurrentDateTimeString();
             let toolsToAdd = [];
 
             for (const item of pendingItems) {
@@ -151,15 +193,16 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                     type: TOOL_TRANSACTION_TYPES.ISSUE,
                     toolName: item.toolName,
                     quantity: item.quantity,
-                    machineName: selectedMachine.name,
+                    machineName: viewMode === 'MACHINES' ? selectedOwner.name : 'ŞAHSİ ZİMMET',
                     user: loggedInUser.name,
-                    receiver: operatorName,
+                    receiver: operatorName, // Alan kişi
+                    targetType: viewMode, // MACHINE veya PERSONNEL
                     date: now
                 });
             }
 
             if (toolsToAdd.length > 0) {
-                await updateDoc(machineRef, {
+                await updateDoc(targetCollectionRef, {
                     currentTools: arrayUnion(...toolsToAdd)
                 });
             }
@@ -173,81 +216,102 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         }
     };
 
-    // --- TRANSFER İŞLEMLERİ (DÜZELTİLDİ) ---
+    // --- TRANSFER İŞLEMLERİ ---
     const openTransferModal = (toolEntry) => {
         setToolToTransfer(toolEntry);
-        setTargetMachineId('');
-        setTargetOperatorId('');
+        setTargetType('MACHINE');
+        setTargetId('');
+        setTargetReceiverId('');
         setIsTransferModalOpen(true);
     };
 
     const handleExecuteTransfer = async () => {
-        if (!targetMachineId) return alert("Lütfen hedef tezgahı seçiniz.");
-        if (!targetOperatorId) return alert("Lütfen hedef operatörü seçiniz.");
+        if (!targetId) return alert("Lütfen hedefi seçiniz.");
+        
+        // Eğer hedef personel ise, alıcı otomatik o personeldir. Değilse seçilmelidir.
+        let finalReceiverId = targetReceiverId;
+        if(targetType === 'PERSONNEL') {
+            finalReceiverId = targetId; 
+        }
+        
+        if (!finalReceiverId) return alert("Lütfen hedefteki sorumlu kişiyi seçiniz.");
 
-        const targetMachine = machines.find(m => m.id === targetMachineId);
-        const targetOperator = personnel.find(p => p.id === targetOperatorId);
-        const operatorName = targetOperator ? targetOperator.name : 'Bilinmiyor';
-
-        // UI'ı hemen kapat (Hız hissi için)
-        setIsTransferModalOpen(false);
+        const targetReceiver = personnel.find(p => p.id === finalReceiverId);
+        const receiverName = targetReceiver ? targetReceiver.name : 'Bilinmiyor';
+        
+        // Hedefin Adını Bul
+        let targetName = '';
+        if (targetType === 'MACHINE') {
+            targetName = machines.find(m => m.id === targetId)?.name;
+        } else {
+            targetName = personnel.find(p => p.id === targetId)?.name;
+        }
 
         try {
-            const sourceMachineRef = doc(db, MACHINES_COLLECTION, selectedMachine.id);
-            const targetMachineRef = doc(db, MACHINES_COLLECTION, targetMachineId);
+            // Kaynak Koleksiyon
+            const sourceCollectionRef = viewMode === 'MACHINES' 
+                ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
+                : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
+
+            // Hedef Koleksiyon
+            const targetCollectionRef = targetType === 'MACHINE'
+                ? doc(db, MACHINES_COLLECTION, targetId)
+                : doc(db, PERSONNEL_COLLECTION, targetId);
+
             const now = getCurrentDateTimeString();
 
-            // 1. Kaynak Makineden Sil
-            const updatedSourceTools = (selectedMachine.currentTools || []).filter(t => t.instanceId !== toolToTransfer.instanceId);
-            await updateDoc(sourceMachineRef, {
+            // 1. Kaynaktan Sil
+            const updatedSourceTools = (selectedOwner.currentTools || []).filter(t => t.instanceId !== toolToTransfer.instanceId);
+            await updateDoc(sourceCollectionRef, {
                 currentTools: updatedSourceTools
             });
 
-            // 2. Hedef Makineye Ekle (Veriyi Temizle)
-            // Firebase undefined değer sevmez, bu yüzden veriyi temizliyoruz
+            // 2. Hedefe Ekle
             const toolDataClean = JSON.parse(JSON.stringify(toolToTransfer));
             const toolToAdd = {
                 ...toolDataClean, 
                 givenDate: now, 
-                receivedBy: operatorName, 
-                transferredFrom: selectedMachine.name 
+                receivedBy: receiverName, 
+                transferredFrom: selectedOwner.name 
             };
 
-            await updateDoc(targetMachineRef, {
+            await updateDoc(targetCollectionRef, {
                 currentTools: arrayUnion(toolToAdd)
             });
 
-            // 3. Log Kaydı
+            // 3. Log
             await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
                 type: TOOL_TRANSACTION_TYPES.TRANSFER,
                 toolName: toolToTransfer.toolName,
-                fromMachine: selectedMachine.name,
-                toMachine: targetMachine.name,
+                fromMachine: selectedOwner.name, // İsim olarak personelin adı veya tezgahın adı
+                toMachine: targetName,
                 user: loggedInUser.name,
-                receiver: operatorName,
+                receiver: receiverName,
                 date: now
             });
 
-            // State temizliği
+            setIsTransferModalOpen(false);
             setToolToTransfer(null);
-            setTargetMachineId('');
-            setTargetOperatorId('');
+            setTargetId('');
+            setTargetReceiverId('');
 
         } catch (error) {
-            console.error("Transfer işlemi sırasında hata (ama işlem gerçekleşmiş olabilir):", error);
-            // Hata olsa bile alert vermiyoruz, sessizce geçiyoruz.
+            console.error("Transfer hatası:", error);
         }
     };
 
     // --- İADE ALMA ---
     const handleReturnTool = async (toolEntry, isScrap) => {
-        // Onay sorusu kaldırıldı, direkt işlem
         try {
-            const machineRef = doc(db, MACHINES_COLLECTION, selectedMachine.id);
+            // Hangi koleksiyondan silinecek?
+            const ownerRef = viewMode === 'MACHINES' 
+                ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
+                : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
+
             const toolRef = doc(db, INVENTORY_COLLECTION, toolEntry.toolId);
 
-            const updatedToolsList = (selectedMachine.currentTools || []).filter(t => t.instanceId !== toolEntry.instanceId);
-            await updateDoc(machineRef, { currentTools: updatedToolsList });
+            const updatedToolsList = (selectedOwner.currentTools || []).filter(t => t.instanceId !== toolEntry.instanceId);
+            await updateDoc(ownerRef, { currentTools: updatedToolsList });
 
             if (!isScrap) {
                 await updateDoc(toolRef, { totalStock: increment(1) });
@@ -256,7 +320,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
             await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
                 type: isScrap ? TOOL_TRANSACTION_TYPES.RETURN_SCRAP : TOOL_TRANSACTION_TYPES.RETURN_HEALTHY,
                 toolName: toolEntry.toolName,
-                machineName: selectedMachine.name,
+                machineName: selectedOwner.name,
                 user: loggedInUser.name,
                 date: getCurrentDateTimeString(),
                 notes: isScrap ? 'Iskartaya ayrıldı' : 'Depoya geri alındı'
@@ -273,85 +337,139 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         } catch { return dateStr; }
     };
 
+    // --- RENDER ---
     return (
         <div className="flex h-[calc(100vh-80px)] overflow-hidden bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
             
-            {/* 1. SOL PANEL: TEZGAH LİSTESİ */}
+            {/* 1. SOL PANEL: LİSTE VE ARAMA */}
             <div className="w-1/3 md:w-1/4 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                    <h2 className="font-bold text-gray-700 dark:text-gray-200 flex items-center mb-3">
-                        <Monitor className="w-5 h-5 mr-2" /> Tezgahlar
-                    </h2>
-                    <div className="relative">
-                        <Search className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
+                
+                {/* Header ve Sekmeler */}
+                <div className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex">
+                        <button 
+                            onClick={() => { setViewMode('MACHINES'); setSelectedOwnerId(null); }}
+                            className={`flex-1 py-3 text-sm font-bold text-center transition ${
+                                viewMode === 'MACHINES' 
+                                ? 'bg-white dark:bg-gray-800 text-blue-600 border-b-2 border-blue-600' 
+                                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            }`}
+                        >
+                            <Monitor className="w-4 h-4 inline-block mr-1 mb-0.5" /> Tezgahlar
+                        </button>
+                        <button 
+                            onClick={() => { setViewMode('PERSONNEL'); setSelectedOwnerId(null); }}
+                            className={`flex-1 py-3 text-sm font-bold text-center transition ${
+                                viewMode === 'PERSONNEL' 
+                                ? 'bg-white dark:bg-gray-800 text-purple-600 border-b-2 border-purple-600' 
+                                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            }`}
+                        >
+                            <Users className="w-4 h-4 inline-block mr-1 mb-0.5" /> Personel
+                        </button>
+                    </div>
+                    
+                    <div className="p-3 relative">
+                        <Search className="absolute left-5 top-5.5 w-4 h-4 text-gray-400" />
                         <input 
                             type="text" 
-                            placeholder="Tezgah Ara..." 
-                            value={machineSearchTerm}
-                            onChange={(e) => setMachineSearchTerm(e.target.value)}
+                            placeholder={viewMode === 'MACHINES' ? "Tezgah Ara..." : "Personel Ara..."}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-8 p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-1 focus:ring-blue-500"
                         />
                     </div>
                 </div>
+
+                {/* Liste İçeriği */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                    {filteredMachines.map(machine => {
-                        const toolCount = machine.currentTools ? machine.currentTools.length : 0;
-                        return (
-                            <button
-                                key={machine.id}
-                                onClick={() => setSelectedMachineId(machine.id)}
-                                className={`w-full text-left p-4 rounded-lg border transition-all flex justify-between items-center ${
-                                    selectedMachineId === machine.id 
-                                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 shadow-md ring-1 ring-blue-500' 
-                                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
-                                }`}
-                            >
-                                <div>
-                                    <div className="font-bold text-gray-900 dark:text-white">{machine.name}</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400">{machine.type || 'Tezgah'}</div>
-                                </div>
-                                {toolCount > 0 && (
-                                    <span className="bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-200 text-xs font-bold px-2 py-1 rounded-full">
-                                        {toolCount}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
+                    {viewMode === 'MACHINES' ? (
+                        filteredMachines.map(machine => {
+                            const toolCount = machine.currentTools ? machine.currentTools.length : 0;
+                            return (
+                                <button
+                                    key={machine.id}
+                                    onClick={() => setSelectedOwnerId(machine.id)}
+                                    className={`w-full text-left p-3 rounded-lg border transition-all flex justify-between items-center ${
+                                        selectedOwnerId === machine.id 
+                                            ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 shadow-md ring-1 ring-blue-500' 
+                                            : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
+                                    }`}
+                                >
+                                    <div>
+                                        <div className="font-bold text-gray-900 dark:text-white">{machine.name}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">{machine.type || 'Tezgah'}</div>
+                                    </div>
+                                    {toolCount > 0 && (
+                                        <span className="bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-200 text-xs font-bold px-2 py-1 rounded-full">
+                                            {toolCount}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })
+                    ) : (
+                        filteredPersonnelList.map(person => {
+                            const toolCount = person.currentTools ? person.currentTools.length : 0;
+                            return (
+                                <button
+                                    key={person.id}
+                                    onClick={() => setSelectedOwnerId(person.id)}
+                                    className={`w-full text-left p-3 rounded-lg border transition-all flex justify-between items-center ${
+                                        selectedOwnerId === person.id 
+                                            ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-500 shadow-md ring-1 ring-purple-500' 
+                                            : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-purple-300 dark:hover:border-purple-500'
+                                    }`}
+                                >
+                                    <div>
+                                        <div className="font-bold text-gray-900 dark:text-white">{person.name}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">{person.role}</div>
+                                    </div>
+                                    {toolCount > 0 && (
+                                        <span className="bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200 text-xs font-bold px-2 py-1 rounded-full">
+                                            {toolCount}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })
+                    )}
                 </div>
             </div>
 
-            {/* 2. SAĞ PANEL: DETAY VE LİSTE (TEK SATIR LİSTE GÖRÜNÜMÜ) */}
+            {/* 2. SAĞ PANEL: DETAY VE İŞLEM */}
             <div className="flex-1 bg-gray-50 dark:bg-gray-900 flex flex-col">
-                {selectedMachine ? (
+                {selectedOwner ? (
                     <>
                         <div className="p-6 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                             <div>
                                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-                                    {selectedMachine.name} 
-                                    <span className="ml-3 text-sm font-normal text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full">
-                                        Mevcut Takımlar ({selectedMachine.currentTools?.length || 0})
+                                    {viewMode === 'MACHINES' ? <Monitor className="w-6 h-6 mr-2"/> : <User className="w-6 h-6 mr-2"/>}
+                                    {selectedOwner.name} 
+                                    <span className={`ml-3 text-sm font-normal text-white px-3 py-1 rounded-full ${viewMode === 'MACHINES' ? 'bg-blue-500' : 'bg-purple-500'}`}>
+                                        {viewMode === 'MACHINES' ? 'Tezgah Zimmeti' : 'Şahsi Zimmet'}
                                     </span>
                                 </h1>
                             </div>
                             <button 
                                 onClick={() => setIsAssignModalOpen(true)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5"
+                                className={`px-6 py-2 text-white rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5 ${
+                                    viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'
+                                }`}
                             >
                                 <Plus className="w-5 h-5 mr-2" /> Takım Ekle
                             </button>
                         </div>
 
                         <div className="p-4 flex-1 overflow-y-auto">
-                            {(!selectedMachine.currentTools || selectedMachine.currentTools.length === 0) ? (
+                            {(!selectedOwner.currentTools || selectedOwner.currentTools.length === 0) ? (
                                 <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 opacity-60">
                                     <Wrench className="w-20 h-20 mb-4" />
-                                    <p className="text-xl font-medium">Bu tezgahta kayıtlı takım yok.</p>
+                                    <p className="text-xl font-medium">Bu {viewMode === 'MACHINES' ? 'tezgahta' : 'personelde'} kayıtlı takım yok.</p>
                                     <p className="text-sm">"Takım Ekle" butonunu kullanarak ekleme yapabilirsiniz.</p>
                                 </div>
                             ) : (
                                 <div className="flex flex-col space-y-2">
-                                    {/* LİSTE BAŞLIKLARI */}
                                     <div className="flex px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                         <div className="w-10"></div>
                                         <div className="flex-1">Takım Adı / Kod</div>
@@ -360,9 +478,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                         <div className="w-64 text-right">İşlemler</div>
                                     </div>
 
-                                    {/* LİSTE ELEMANLARI */}
-                                    {selectedMachine.currentTools.map((toolEntry) => (
-                                        <div key={toolEntry.instanceId} className="group flex items-center bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition">
+                                    {selectedOwner.currentTools.map((toolEntry) => (
+                                        <div key={toolEntry.instanceId} className="group flex items-center bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition">
                                             <div className="w-10 flex justify-center">
                                                 <div className="bg-blue-50 dark:bg-blue-900/30 p-1.5 rounded text-blue-600 dark:text-blue-400">
                                                     <Wrench className="w-4 h-4" />
@@ -386,7 +503,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                             </div>
                                             <div className="w-64 flex justify-end gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
                                                 
-                                                {/* TRANSFER BUTONU */}
                                                 <button 
                                                     onClick={() => openTransferModal(toolEntry)}
                                                     className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/40 rounded text-xs font-bold transition flex items-center"
@@ -415,34 +531,30 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                     </>
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 opacity-60">
-                        <ArrowRight className="w-20 h-20 mb-4 animate-pulse" />
-                        <p className="text-xl font-medium">İşlem yapmak için soldan bir tezgah seçiniz.</p>
+                        {viewMode === 'MACHINES' ? <ArrowRight className="w-20 h-20 mb-4 animate-pulse" /> : <User className="w-20 h-20 mb-4 animate-pulse" />}
+                        <p className="text-xl font-medium">İşlem yapmak için soldan bir {viewMode === 'MACHINES' ? 'tezgah' : 'personel'} seçiniz.</p>
                     </div>
                 )}
             </div>
 
-            {/* --- GENİŞ MODAL: TAKIM SEÇİMİ VE SEPET --- */}
+            {/* --- MODAL: TAKIM SEÇİMİ VE SEPET --- */}
             {isAssignModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
                     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
                         
-                        {/* HEADER */}
-                        <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
+                        <div className={`px-6 py-4 flex justify-between items-center text-white shrink-0 ${viewMode === 'MACHINES' ? 'bg-blue-600' : 'bg-purple-600'}`}>
                             <h3 className="text-xl font-bold flex items-center">
                                 <List className="w-6 h-6 mr-3" /> 
-                                {selectedMachine?.name} İçin Takım Seçimi
+                                {selectedOwner?.name} İçin Takım Seçimi ({viewMode === 'MACHINES' ? 'Tezgah' : 'Şahsi'})
                             </h3>
                             <button onClick={() => setIsAssignModalOpen(false)} className="hover:text-blue-200 transition">
                                 <X className="w-8 h-8" />
                             </button>
                         </div>
 
-                        {/* BODY: SPLIT VIEW */}
                         <div className="flex flex-1 overflow-hidden">
-                            
-                            {/* SOL TARAF: DEPO GÖRÜNÜMÜ (LİSTE ŞEKLİNDE) */}
+                            {/* SOL TARAF: DEPO GÖRÜNÜMÜ */}
                             <div className="w-2/3 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-800/50">
-                                {/* Filtreler */}
                                 <div className="p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 space-y-3">
                                     <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
                                         {availableCategories.map(cat => (
@@ -451,7 +563,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                                 onClick={() => setSelectedCategory(cat)}
                                                 className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
                                                     selectedCategory === cat 
-                                                    ? 'bg-blue-600 text-white' 
+                                                    ? (viewMode === 'MACHINES' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white') 
                                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                                                 }`}
                                             >
@@ -471,10 +583,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                     </div>
                                 </div>
 
-                                {/* LİSTE GÖRÜNÜMÜ (MİNİ DEPO) */}
                                 <div className="flex-1 overflow-y-auto p-2">
                                     <div className="flex flex-col space-y-2">
-                                        {/* BAŞLIK SATIRI */}
                                         <div className="flex px-4 py-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 mb-1">
                                             <div className="w-20">Kod</div>
                                             <div className="flex-1">Parça Adı</div>
@@ -502,22 +612,18 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                                 <div className="w-20 flex justify-end">
                                                     <button 
                                                         onClick={() => handleAddItem(tool)}
-                                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition flex items-center"
+                                                        className={`px-3 py-1 text-white rounded text-xs font-bold transition flex items-center ${viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
                                                     >
                                                         <Plus className="w-3 h-3 mr-1" /> Ekle
                                                     </button>
                                                 </div>
                                             </div>
                                         ))}
-                                        
-                                        {filteredToolsForSelection.length === 0 && (
-                                            <div className="text-center text-gray-500 dark:text-gray-400 py-10">Kayıt bulunamadı.</div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* SAĞ TARAF: SEPET VE İŞLEM */}
+                            {/* SAĞ TARAF: SEPET */}
                             <div className="w-1/3 flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700">
                                 <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
                                     <h3 className="font-bold text-gray-800 dark:text-white flex items-center mb-4">
@@ -526,7 +632,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                     
                                     <div className="bg-white dark:bg-gray-700 p-3 rounded border border-gray-200 dark:border-gray-600 shadow-sm">
                                         <label className="block text-xs font-bold text-gray-500 dark:text-gray-300 mb-1">
-                                            Teslim Alan Operatör <span className="text-red-500">*</span>
+                                            {viewMode === 'MACHINES' ? 'Teslim Alan Operatör *' : 'Teslim Alan (Opsiyonel)'}
                                         </label>
                                         <div className="relative">
                                             <User className="absolute left-2 top-2 w-4 h-4 text-gray-400 dark:text-gray-300" />
@@ -535,8 +641,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                                 value={selectedOperatorId}
                                                 onChange={(e) => setSelectedOperatorId(e.target.value)}
                                             >
-                                                <option value="">Seçiniz...</option>
-                                                {operatorList.map(op => (
+                                                <option value="">{viewMode === 'PERSONNEL' ? `${selectedOwner.name} (Kendisi)` : 'Seçiniz...'}</option>
+                                                {allOperators.map(op => (
                                                     <option key={op.id} value={op.id}>{op.name}</option>
                                                 ))}
                                             </select>
@@ -545,56 +651,34 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                                    {pendingItems.length === 0 ? (
-                                        <div className="text-center text-gray-400 dark:text-gray-500 py-10 flex flex-col items-center">
-                                            <Package className="w-12 h-12 mb-2 opacity-20" />
-                                            <p className="text-sm">Soldan parça seçiniz.</p>
-                                        </div>
-                                    ) : (
-                                        pendingItems.map(item => (
-                                            <div key={item.tempId} className="flex flex-col bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div className="flex-1 pr-2">
-                                                        <div className="font-bold text-sm text-gray-800 dark:text-white leading-tight">{item.toolName}</div>
-                                                        {item.productCode && <div className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5">{item.productCode}</div>}
-                                                    </div>
-                                                    <button onClick={() => handleRemoveItem(item.tempId)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300">
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
+                                    {pendingItems.map(item => (
+                                        <div key={item.tempId} className="flex flex-col bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="flex-1 pr-2">
+                                                    <div className="font-bold text-sm text-gray-800 dark:text-white leading-tight">{item.toolName}</div>
+                                                    {item.productCode && <div className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5">{item.productCode}</div>}
                                                 </div>
-                                                
-                                                <div className="flex items-center justify-between bg-white dark:bg-gray-700 p-1.5 rounded border border-gray-200 dark:border-gray-600">
-                                                    <button 
-                                                        onClick={() => handleUpdateQuantity(item.tempId, -1)}
-                                                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
-                                                    >
-                                                        <Minus className="w-4 h-4" />
-                                                    </button>
-                                                    <span className="font-bold text-sm text-gray-900 dark:text-white w-8 text-center">{item.quantity}</span>
-                                                    <button 
-                                                        onClick={() => handleUpdateQuantity(item.tempId, 1)}
-                                                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-blue-600 dark:text-blue-400"
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                                <div className="text-[10px] text-right mt-1 text-gray-400 dark:text-gray-500">
-                                                    Stokta: {item.maxStock}
-                                                </div>
+                                                <button onClick={() => handleRemoveItem(item.tempId)} className="text-red-400 hover:text-red-600 dark:hover:text-red-300">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
                                             </div>
-                                        ))
-                                    )}
+                                            
+                                            <div className="flex items-center justify-between bg-white dark:bg-gray-700 p-1.5 rounded border border-gray-200 dark:border-gray-600">
+                                                <button onClick={() => handleUpdateQuantity(item.tempId, -1)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"><Minus className="w-4 h-4" /></button>
+                                                <span className="font-bold text-sm text-gray-900 dark:text-white w-8 text-center">{item.quantity}</span>
+                                                <button onClick={() => handleUpdateQuantity(item.tempId, 1)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-blue-600 dark:text-blue-400"><Plus className="w-4 h-4" /></button>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
 
                                 <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                                    <div className="flex justify-between items-center mb-3 text-sm font-bold text-gray-700 dark:text-gray-300">
-                                        <span>Toplam Parça:</span>
-                                        <span className="text-lg text-blue-600 dark:text-blue-400">{pendingItems.reduce((acc, i) => acc + i.quantity, 0)}</span>
-                                    </div>
                                     <button 
                                         onClick={handleConfirmAssignment}
-                                        disabled={pendingItems.length === 0 || !selectedOperatorId}
-                                        className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 dark:disabled:text-gray-500 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center"
+                                        disabled={pendingItems.length === 0 || (viewMode === 'MACHINES' && !selectedOperatorId)}
+                                        className={`w-full py-3 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center ${
+                                            viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'
+                                        } disabled:bg-gray-400`}
                                     >
                                         <CheckCircle className="w-5 h-5 mr-2" /> Onayla ve Ver
                                     </button>
@@ -605,7 +689,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                 </div>
             )}
 
-            {/* --- MODAL: TRANSFER İŞLEMİ (YENİ) --- */}
+            {/* --- MODAL: TRANSFER --- */}
             {isTransferModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
                     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
@@ -620,46 +704,60 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                         
                         <div className="p-6 space-y-6">
                             <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg border border-orange-100 dark:border-orange-800">
-                                <span className="block text-xs font-bold text-orange-800 dark:text-orange-300 mb-1">TRANSFER EDİLEN TAKIM</span>
-                                <div className="text-lg font-bold text-gray-900 dark:text-white">
-                                    {toolToTransfer?.toolName}
-                                </div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    Mevcut Konum: <strong>{selectedMachine?.name}</strong>
-                                </div>
+                                <span className="block text-xs font-bold text-orange-800 dark:text-orange-300 mb-1">TRANSFER EDİLEN</span>
+                                <div className="text-lg font-bold text-gray-900 dark:text-white">{toolToTransfer?.toolName}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kaynak: <strong>{selectedOwner?.name}</strong></div>
+                            </div>
+
+                            {/* HEDEF TİPİ SEÇİMİ */}
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => { setTargetType('MACHINE'); setTargetId(''); }}
+                                    className={`flex-1 py-2 text-sm font-bold rounded border ${targetType === 'MACHINE' ? 'bg-orange-100 border-orange-500 text-orange-800' : 'bg-white border-gray-300 text-gray-600'}`}
+                                >
+                                    <Monitor className="w-4 h-4 inline mr-1"/> Tezgaha
+                                </button>
+                                <button 
+                                    onClick={() => { setTargetType('PERSONNEL'); setTargetId(''); }}
+                                    className={`flex-1 py-2 text-sm font-bold rounded border ${targetType === 'PERSONNEL' ? 'bg-orange-100 border-orange-500 text-orange-800' : 'bg-white border-gray-300 text-gray-600'}`}
+                                >
+                                    <Users className="w-4 h-4 inline mr-1"/> Personele
+                                </button>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hedef Tezgah Seçin</label>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hedef {targetType === 'MACHINE' ? 'Tezgah' : 'Personel'}</label>
                                 <select 
-                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500"
-                                    value={targetMachineId}
-                                    onChange={(e) => setTargetMachineId(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    value={targetId}
+                                    onChange={(e) => setTargetId(e.target.value)}
                                 >
                                     <option value="">Seçiniz...</option>
-                                    {machines.filter(m => m.id !== selectedMachineId).map(m => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
-                                    ))}
+                                    {targetType === 'MACHINE' 
+                                        ? machines.filter(m => m.id !== selectedOwnerId).map(m => <option key={m.id} value={m.id}>{m.name}</option>)
+                                        : allOperators.filter(p => p.id !== selectedOwnerId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                                    }
                                 </select>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hedef Operatör Seçin</label>
-                                <select 
-                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500"
-                                    value={targetOperatorId}
-                                    onChange={(e) => setTargetOperatorId(e.target.value)}
-                                >
-                                    <option value="">Seçiniz...</option>
-                                    {operatorList.map(op => (
-                                        <option key={op.id} value={op.id}>{op.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {/* Eğer hedef makine ise operatör sor, personel ise sorma (kendisi alır) */}
+                            {targetType === 'MACHINE' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Teslim Alan Operatör</label>
+                                    <select 
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                        value={targetReceiverId}
+                                        onChange={(e) => setTargetReceiverId(e.target.value)}
+                                    >
+                                        <option value="">Seçiniz...</option>
+                                        {allOperators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
 
                             <button 
                                 onClick={handleExecuteTransfer}
-                                disabled={!targetMachineId || !targetOperatorId}
+                                disabled={!targetId || (targetType === 'MACHINE' && !targetReceiverId)}
                                 className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center"
                             >
                                 <ArrowRightLeft className="w-5 h-5 mr-2" /> Transferi Tamamla

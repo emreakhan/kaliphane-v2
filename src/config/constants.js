@@ -10,7 +10,7 @@ export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
 // TAKIMHANE KOLEKSİYONLARI
 export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventory`;
 export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
-export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`; // YENİ EKLENEN
+export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`;
 
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
@@ -175,10 +175,12 @@ export const TOOL_CATEGORIES = {
     DIGER: 'DİĞER'
 };
 
+// YENİ: TRANSFER TİPİ EKLENDİ
 export const TOOL_TRANSACTION_TYPES = {
     ADD_STOCK: 'STOK GİRİŞİ',
     ISSUE: 'TEZGAHA VERİLDİ',
     RETURN_HEALTHY: 'SAĞLAM İADE',
     RETURN_SCRAP: 'ISKARTA/HURDA',
+    TRANSFER: 'TEZGAH TRANSFERİ', // YENİ
     ADJUSTMENT: 'SAYIM DÜZELTME'
 };
