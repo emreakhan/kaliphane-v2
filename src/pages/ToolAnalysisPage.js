@@ -3,30 +3,47 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     BarChart2, AlertTriangle, Users, TrendingUp, 
-    Copy, CheckCircle, Package
+    Download, Calendar, Filter, CheckCircle 
 } from 'lucide-react';
 import { collection, query, getDocs, onSnapshot } from '../config/firebase.js';
 import { 
     INVENTORY_COLLECTION, TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES 
 } from '../config/constants.js';
 
+// GRAFİK KÜTÜPHANESİ
+import { 
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
+} from 'recharts';
+
+// PDF KÜTÜPHANESİ (GÜNCELLENDİ)
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable'; // Import şekli değişti
+
 const ToolAnalysisPage = ({ db }) => {
-    const [activeTab, setActiveTab] = useState('CRITICAL'); // Tabs: CRITICAL, USAGE, OPERATORS
+    const [activeTab, setActiveTab] = useState('USAGE'); 
     const [inventory, setInventory] = useState([]);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    // --- FİLTRE STATELERİ ---
+    const currentYear = new Date().getFullYear();
+    const [selectedYear, setSelectedYear] = useState(currentYear);
+    const [selectedMonth, setSelectedMonth] = useState('ALL'); 
+
+    const months = [
+        "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+    ];
 
     // --- VERİLERİ ÇEK ---
     useEffect(() => {
         if (!db) return;
 
-        // 1. Stok Verisi (Anlık Dinlenir)
         const unsubInventory = onSnapshot(collection(db, INVENTORY_COLLECTION), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setInventory(data);
         });
 
-        // 2. İşlem Geçmişi (Tek Seferlik Çekim - Analiz İçin)
         const fetchHistory = async () => {
             const q = query(collection(db, TOOL_TRANSACTIONS_COLLECTION));
             const snapshot = await getDocs(q);
@@ -36,58 +53,58 @@ const ToolAnalysisPage = ({ db }) => {
         };
 
         fetchHistory();
-
         return () => unsubInventory();
     }, [db]);
 
     // --- ANALİZ MANTIKLARI ---
 
-    // 1. Kritik Stok Listesi
     const criticalList = useMemo(() => {
         return inventory
             .filter(item => item.totalStock <= item.criticalStock)
-            .sort((a, b) => a.totalStock - b.totalStock); // En az olandan başla
+            .sort((a, b) => a.totalStock - b.totalStock);
     }, [inventory]);
 
-    // 2. En Çok Kullanılan ve Hurdaya Çıkanlar
-    const usageStats = useMemo(() => {
-        const usageCounts = {};
-        const scrapCounts = {};
+    const filteredTransactions = useMemo(() => {
+        return transactions.filter(tx => {
+            if (!tx.date) return false;
+            const txDate = new Date(tx.date);
+            const yearMatch = txDate.getFullYear() === parseInt(selectedYear);
+            const monthMatch = selectedMonth === 'ALL' || txDate.getMonth() === parseInt(selectedMonth);
+            return yearMatch && monthMatch;
+        });
+    }, [transactions, selectedYear, selectedMonth]);
 
-        transactions.forEach(tx => {
-            const name = tx.toolName;
-            if (!name) return;
+    const chartData = useMemo(() => {
+        const usageMap = {};
+        const scrapMap = {};
 
-            // Kullanım (Verilenler)
+        filteredTransactions.forEach(tx => {
+            const name = tx.toolName || 'Bilinmiyor';
+            
             if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
-                usageCounts[name] = (usageCounts[name] || 0) + (parseInt(tx.quantity) || 1);
+                usageMap[name] = (usageMap[name] || 0) + (parseInt(tx.quantity) || 1);
             }
-            // Hurda
             if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
-                scrapCounts[name] = (scrapCounts[name] || 0) + 1; // Genelde 1 adet iade olur, loga göre değişebilir
+                scrapMap[name] = (scrapMap[name] || 0) + 1;
             }
         });
 
-        // Objeyi Diziye Çevir ve Sırala (Top 10)
-        const topUsed = Object.entries(usageCounts)
+        const usageData = Object.entries(usageMap)
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count)
-            .slice(0, 10);
+            .slice(0, 10); 
 
-        const topScrap = Object.entries(scrapCounts)
+        const scrapData = Object.entries(scrapMap)
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count)
-            .slice(0, 10);
+            .slice(0, 10); 
 
-        return { topUsed, topScrap };
-    }, [transactions]);
+        return { usageData, scrapData, usageMap, scrapMap };
+    }, [filteredTransactions]);
 
-    // 3. Operatör Performansı
     const operatorStats = useMemo(() => {
         const ops = {};
-
-        transactions.forEach(tx => {
-            // receiver (alan kişi) veya user (işlemi yapan) değil, receiver önemli
+        filteredTransactions.forEach(tx => {
             const opName = tx.receiver; 
             if (!opName || opName === 'Bilinmiyor') return;
 
@@ -100,16 +117,68 @@ const ToolAnalysisPage = ({ db }) => {
                 ops[opName].totalScrap += 1;
             }
         });
-
         return Object.values(ops).sort((a, b) => b.totalTaken - a.totalTaken);
-    }, [transactions]);
+    }, [filteredTransactions]);
 
 
-    // Yardımcı: Panoya Kopyala
-    const copyCriticalList = () => {
-        const text = criticalList.map(i => `- ${i.name} (Kod: ${i.productCode || '-'}): Mevcut ${i.totalStock} / Kritik ${i.criticalStock}`).join('\n');
-        navigator.clipboard.writeText("ACİL SİPARİŞ LİSTESİ:\n" + text);
-        alert("Listesi panoya kopyalandı!");
+    // --- PDF RAPOR OLUŞTURMA (DÜZELTİLDİ) ---
+    const generatePDF = () => {
+        const doc = new jsPDF();
+        
+        const timeTitle = selectedMonth === 'ALL' 
+            ? `${selectedYear} YILI GENEL RAPORU` 
+            : `${months[selectedMonth]} ${selectedYear} RAPORU`;
+
+        doc.setFontSize(18);
+        doc.text("TAKIMHANE DETAYLI ANALIZ RAPORU", 14, 20);
+        doc.setFontSize(12);
+        doc.text(`Donem: ${timeTitle}`, 14, 28);
+        doc.text(`Rapor Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 34);
+
+        // Tablo 1
+        autoTable(doc, {
+            startY: 45,
+            head: [['Sira', 'Takim Adi', 'Tuketim Adedi', 'Hurda Adedi', 'Hurda Orani (%)']],
+            body: Object.entries(chartData.usageMap)
+                .sort((a, b) => b[1] - a[1]) 
+                .map(([name, count], index) => {
+                    const scrapCount = chartData.scrapMap[name] || 0;
+                    const rate = count > 0 ? ((scrapCount / count) * 100).toFixed(1) : 0;
+                    return [index + 1, name, count, scrapCount, `%${rate}`];
+                }),
+            theme: 'striped',
+            headStyles: { fillColor: [41, 128, 185] }
+        });
+
+        // Tablo 2
+        doc.text("Operator Kullanim ve Hurda Durumu", 14, doc.lastAutoTable.finalY + 15);
+        autoTable(doc, {
+            startY: doc.lastAutoTable.finalY + 20,
+            head: [['Operator', 'Toplam Alinan', 'Hurda Sayisi', 'Hurda Orani (%)']],
+            body: operatorStats.map(op => {
+                const rate = op.totalTaken > 0 ? ((op.totalScrap / op.totalTaken) * 100).toFixed(1) : 0;
+                return [op.name, op.totalTaken, op.totalScrap, `%${rate}`];
+            }),
+            theme: 'grid',
+            headStyles: { fillColor: [39, 174, 96] }
+        });
+
+        // Tablo 3 (Kritik Stok)
+        if (criticalList.length > 0) {
+            doc.addPage();
+            doc.text("KRITIK STOK LISTESI (ACIL SIPARIS)", 14, 20);
+            autoTable(doc, {
+                startY: 25,
+                head: [['Kod', 'Takim Adi', 'Kategori', 'Mevcut Stok', 'Kritik Sinir']],
+                body: criticalList.map(item => [
+                    item.productCode || '-', item.name, item.category, item.totalStock, item.criticalStock
+                ]),
+                theme: 'plain',
+                headStyles: { fillColor: [192, 57, 43] }
+            });
+        }
+
+        doc.save(`Takimhane_Raporu_${selectedYear}.pdf`);
     };
 
     if (loading) return <div className="p-10 text-center dark:text-white">Veriler Analiz Ediliyor...</div>;
@@ -117,58 +186,170 @@ const ToolAnalysisPage = ({ db }) => {
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center mb-6">
-                <TrendingUp className="w-8 h-8 mr-3 text-indigo-600" />
-                Takımhane Analiz Raporu
-            </h1>
+            {/* ÜST PANEL: BAŞLIK VE FİLTRELER */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
+                        <TrendingUp className="w-8 h-8 mr-3 text-indigo-600" />
+                        Takımhane Analiz Raporu
+                    </h1>
+                    <p className="text-gray-500 text-sm mt-1">
+                        Dönemsel tüketim, hurda analizi ve stok durumu.
+                    </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                    {/* Yıl Seçimi - DÜZELTİLDİ: Arka plan rengi eklendi */}
+                    <div className="flex items-center px-2">
+                        <Calendar className="w-4 h-4 mr-2 text-gray-500" />
+                        <select 
+                            value={selectedYear} 
+                            onChange={(e) => setSelectedYear(e.target.value)}
+                            className="bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold outline-none cursor-pointer"
+                        >
+                            {[currentYear, currentYear - 1, currentYear - 2].map(y => (
+                                <option key={y} value={y} className="dark:text-white dark:bg-gray-800">{y}</option>
+                            ))}
+                        </select>
+                    </div>
+                    
+                    {/* Ay Seçimi - DÜZELTİLDİ: Arka plan rengi eklendi */}
+                    <div className="flex items-center px-2 border-l border-gray-300 dark:border-gray-600">
+                        <Filter className="w-4 h-4 mr-2 text-gray-500" />
+                        <select 
+                            value={selectedMonth} 
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            className="bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold outline-none cursor-pointer"
+                        >
+                            <option value="ALL" className="dark:text-white dark:bg-gray-800">Tüm Yıl</option>
+                            {months.map((m, i) => (
+                                <option key={i} value={i} className="dark:text-white dark:bg-gray-800">{m}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* PDF Butonu */}
+                    <button 
+                        onClick={generatePDF}
+                        className="ml-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-xs font-bold flex items-center transition"
+                    >
+                        <Download className="w-4 h-4 mr-2" /> PDF Rapor İndir
+                    </button>
+                </div>
+            </div>
 
             {/* SEKME MENÜSÜ */}
             <div className="flex space-x-2 mb-6 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-                <button
-                    onClick={() => setActiveTab('CRITICAL')}
-                    className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${
-                        activeTab === 'CRITICAL' 
-                        ? 'border-b-2 border-red-500 text-red-600' 
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
-                    }`}
-                >
-                    <AlertTriangle className="w-4 h-4 mr-2" /> Kritik Stoklar ({criticalList.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('USAGE')}
-                    className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${
-                        activeTab === 'USAGE' 
-                        ? 'border-b-2 border-blue-500 text-blue-600' 
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
-                    }`}
-                >
+                <button onClick={() => setActiveTab('USAGE')} className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${activeTab === 'USAGE' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
                     <BarChart2 className="w-4 h-4 mr-2" /> Tüketim & Hurda Analizi
                 </button>
-                <button
-                    onClick={() => setActiveTab('OPERATORS')}
-                    className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${
-                        activeTab === 'OPERATORS' 
-                        ? 'border-b-2 border-green-500 text-green-600' 
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
-                    }`}
-                >
+                <button onClick={() => setActiveTab('OPERATORS')} className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${activeTab === 'OPERATORS' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
                     <Users className="w-4 h-4 mr-2" /> Operatör Durumu
+                </button>
+                <button onClick={() => setActiveTab('CRITICAL')} className={`pb-3 px-6 font-bold text-sm flex items-center whitespace-nowrap transition-colors ${activeTab === 'CRITICAL' ? 'border-b-2 border-red-500 text-red-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                    <AlertTriangle className="w-4 h-4 mr-2" /> Kritik Stoklar ({criticalList.length})
                 </button>
             </div>
 
-            {/* --- SEKME 1: KRİTİK STOK --- */}
+            {/* --- SEKME 1: TÜKETİM ANALİZİ (GRAFİKSEL) --- */}
+            {activeTab === 'USAGE' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* KULLANIM GRAFİĞİ */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
+                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+                            <CheckCircle className="w-5 h-5 mr-2 text-blue-500" /> En Çok Tüketilen 10 Takım
+                        </h3>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData.usageData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
+                                    itemStyle={{ color: '#fff' }}
+                                    formatter={(value) => [`${value} Adet`, 'Kullanım']}
+                                />
+                                <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]}>
+                                    {chartData.usageData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={index < 3 ? '#2563EB' : '#60A5FA'} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* HURDA GRAFİĞİ */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
+                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+                            <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> En Çok Hurdaya Çıkan 10 Takım
+                        </h3>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData.scrapData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
+                                    itemStyle={{ color: '#fff' }}
+                                    formatter={(value) => [`${value} Adet`, 'Hurda']}
+                                />
+                                <Bar dataKey="count" fill="#EF4444" radius={[0, 4, 4, 0]}>
+                                    {chartData.scrapData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={index < 3 ? '#DC2626' : '#F87171'} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
+            {/* --- SEKME 2: OPERATÖR RAPORU --- */}
+            {activeTab === 'OPERATORS' && (
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                        <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
+                            <tr>
+                                <th className="p-4">Operatör Adı</th>
+                                <th className="p-4 text-center">Toplam Alınan Takım</th>
+                                <th className="p-4 text-center">Hurdaya Ayrılan</th>
+                                <th className="p-4 text-center">Hurda Oranı</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {operatorStats.length === 0 ? (
+                                <tr><td colSpan="4" className="p-8 text-center text-gray-400">Bu dönem için veri bulunamadı.</td></tr>
+                            ) : (
+                                operatorStats.map((op, idx) => {
+                                    const rate = op.totalTaken > 0 ? ((op.totalScrap / op.totalTaken) * 100).toFixed(1) : 0;
+                                    return (
+                                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                            <td className="p-4 font-bold text-gray-900 dark:text-white">{op.name}</td>
+                                            <td className="p-4 text-center font-medium">{op.totalTaken}</td>
+                                            <td className="p-4 text-center text-red-600 font-bold">{op.totalScrap}</td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                    rate > 20 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                                                }`}>
+                                                    %{rate}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* --- SEKME 3: KRİTİK STOK --- */}
             {activeTab === 'CRITICAL' && (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-100 dark:border-red-800">
                         <div className="text-red-800 dark:text-red-200 text-sm">
                             <strong>Dikkat:</strong> Aşağıdaki {criticalList.length} kalem malzeme belirlenen kritik seviyenin altındadır.
                         </div>
-                        <button 
-                            onClick={copyCriticalList}
-                            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-white px-3 py-1.5 rounded border shadow-sm hover:bg-gray-50 text-xs font-bold flex items-center"
-                        >
-                            <Copy className="w-3 h-3 mr-2" /> Listeyi Kopyala
-                        </button>
                     </div>
 
                     <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -206,101 +387,8 @@ const ToolAnalysisPage = ({ db }) => {
                 </div>
             )}
 
-            {/* --- SEKME 2: TÜKETİM ANALİZİ (GRAFİKSEL) --- */}
-            {activeTab === 'USAGE' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* En Çok Kullanılanlar */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-                            <CheckCircle className="w-5 h-5 mr-2 text-blue-500" /> En Çok Kullanılan 10 Takım
-                        </h3>
-                        <div className="space-y-4">
-                            {usageStats.topUsed.map((item, idx) => {
-                                const maxVal = usageStats.topUsed[0]?.count || 1;
-                                const percent = (item.count / maxVal) * 100;
-                                return (
-                                    <div key={idx}>
-                                        <div className="flex justify-between text-xs font-bold mb-1 dark:text-gray-300">
-                                            <span>{idx + 1}. {item.name}</span>
-                                            <span>{item.count} Kez</span>
-                                        </div>
-                                        <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2.5">
-                                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${percent}%` }}></div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {usageStats.topUsed.length === 0 && <p className="text-gray-400 text-sm">Veri yok.</p>}
-                        </div>
-                    </div>
-
-                    {/* En Çok Hurdaya Çıkanlar */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-                            <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> En Çok Hurdaya Çıkan 10 Takım
-                        </h3>
-                        <div className="space-y-4">
-                            {usageStats.topScrap.map((item, idx) => {
-                                const maxVal = usageStats.topScrap[0]?.count || 1;
-                                const percent = (item.count / maxVal) * 100;
-                                return (
-                                    <div key={idx}>
-                                        <div className="flex justify-between text-xs font-bold mb-1 dark:text-gray-300">
-                                            <span>{idx + 1}. {item.name}</span>
-                                            <span>{item.count} Adet</span>
-                                        </div>
-                                        <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2.5">
-                                            <div className="bg-red-500 h-2.5 rounded-full" style={{ width: `${percent}%` }}></div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {usageStats.topScrap.length === 0 && <p className="text-gray-400 text-sm">Veri yok.</p>}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- SEKME 3: OPERATÖR RAPORU --- */}
-            {activeTab === 'OPERATORS' && (
-                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
-                        <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
-                            <tr>
-                                <th className="p-4">Operatör Adı</th>
-                                <th className="p-4 text-center">Toplam Alınan Takım</th>
-                                <th className="p-4 text-center">Hurdaya Ayrılan</th>
-                                <th className="p-4 text-center">Hurda Oranı</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                            {operatorStats.map((op, idx) => {
-                                const rate = op.totalTaken > 0 ? ((op.totalScrap / op.totalTaken) * 100).toFixed(1) : 0;
-                                return (
-                                    <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                        <td className="p-4 font-bold text-gray-900 dark:text-white">{op.name}</td>
-                                        <td className="p-4 text-center font-medium">{op.totalTaken}</td>
-                                        <td className="p-4 text-center text-red-600 font-bold">{op.totalScrap}</td>
-                                        <td className="p-4 text-center">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                rate > 20 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                                            }`}>
-                                                %{rate}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                            {operatorStats.length === 0 && (
-                                <tr><td colSpan="4" className="p-8 text-center text-gray-400">Veri bulunamadı.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-
         </div>
     );
 };
 
-export default ToolAnalysisPage; // BU SATIRIN OLDUĞUNDAN EMİN OLUN
+export default ToolAnalysisPage;

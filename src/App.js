@@ -24,7 +24,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp // YENİ: TrendingUp ikonu eklendi
+    Package, Wrench, FileText, TrendingUp, Activity // YENİ: Activity ikonu eklendi
 } from 'lucide-react';
 
 // Sayfalar
@@ -44,7 +44,8 @@ import CamJobEntryPage from './pages/CamJobEntryPage.js';
 import ToolInventoryPage from './pages/ToolInventoryPage.js';
 import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 import ToolHistoryPage from './pages/ToolHistoryPage.js';
-import ToolAnalysisPage from './pages/ToolAnalysisPage.js'; // YENİ SAYFA IMPORT EDİLDİ
+import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
+import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; // YENİ: Detaylı Analiz Sayfası
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -419,8 +420,9 @@ const App = () => {
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
             { path: '/tool-history', label: 'Geçmiş & Takip', icon: FileText, roles: canSeeTools },
-            // YENİ EKLENEN MENÜ: Analiz Raporu
             { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
+            // YENİ EKLENEN MENÜ: Detaylı Analiz
+            { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
 
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
             { 
@@ -514,8 +516,9 @@ const App = () => {
                 <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
                 
-                {/* YENİ EKLENEN ROUTE: Analiz Raporu */}
+                {/* RAPORLAR */}
                 <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
+                <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> {/* YENİ EKLENEN ROUTE */}
 
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 
