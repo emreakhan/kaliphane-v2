@@ -4,13 +4,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Package, Plus, Search, Filter, AlertTriangle, 
     Trash2, Edit, Save, X, PlusCircle, MinusCircle, 
-    Grid, List, Settings, Edit3, Hash
+    Grid, List, Settings, Edit3, Hash, CheckSquare // EKLENDİ: CheckSquare ikonu
 } from 'lucide-react';
 import { 
     addDoc, collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc
 } from '../config/firebase.js';
 import { 
-    INVENTORY_COLLECTION, TOOL_CATEGORIES_COLLECTION 
+    INVENTORY_COLLECTION, TOOL_CATEGORIES_COLLECTION,
+    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES // EKLENDİ: Loglama için gerekli sabitler
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
@@ -29,6 +30,10 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
     // Manuel Stok Güncelleme
     const [stockUpdateId, setStockUpdateId] = useState(null); // Hangi satırın stoğu düzenleniyor
     const [tempStockValue, setTempStockValue] = useState('');
+
+    // --- YENİ EKLENEN STATE: İşlem Tipi Seçimi ---
+    // True = Devir/Sayım (Analize girmez), False = Satın Alma (Analize girer)
+    const [isAdjustment, setIsAdjustment] = useState(false); 
 
     // Form State (Yeni Ekleme ve Düzenleme için)
     const [formData, setFormData] = useState({
@@ -88,11 +93,48 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         return tools.filter(t => t.category === catName).length;
     };
 
+    // --- YENİ: LOGLAMA FONKSİYONU ---
+    // Bu fonksiyon yapılan stok değişikliğini "Satın Alma" mı yoksa "Düzeltme" mi diye ayırıp kaydeder.
+    const logStockEntry = async (toolId, toolName, quantity, oldStock, newStock, isManualAdjustment = false) => {
+        if (quantity === 0) return; 
+
+        // İşlem Tipini Belirle
+        let type = TOOL_TRANSACTION_TYPES.ADJUSTMENT; // Varsayılan: Düzeltme
+
+        if (quantity > 0) {
+            // Artış var
+            if (isManualAdjustment) {
+                type = TOOL_TRANSACTION_TYPES.ADJUSTMENT; // Kullanıcı "Devir/Sayım" seçti
+            } else {
+                type = TOOL_TRANSACTION_TYPES.STOCK_ENTRY; // Kullanıcı seçmedi, "Satın Alma" kabul et
+            }
+        } else {
+            // Azalış var (Manuel düşüşler genelde düzeltmedir)
+            type = TOOL_TRANSACTION_TYPES.ADJUSTMENT;
+        }
+
+        try {
+            await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
+                type: type,
+                toolName: toolName,
+                quantity: Math.abs(quantity),
+                oldStock: oldStock,
+                newStock: newStock,
+                user: loggedInUser.name,
+                date: getCurrentDateTimeString(),
+                notes: isManualAdjustment ? 'Devir / Sayım Düzeltmesi' : 'Stok Girişi / Satın Alma'
+            });
+        } catch (e) {
+            console.error("Loglama hatası:", e);
+        }
+    };
+
     // --- 4. CRUD İŞLEMLERİ (EKLEME / DÜZENLEME / SİLME) ---
 
     // Modal Açma (Yeni Ekleme)
     const openAddModal = () => {
         setEditingTool(null);
+        setIsAdjustment(true); // YENİ: Yeni parça eklerken varsayılan olarak "Devir" seçili gelsin (İlk kurulum kolaylığı)
         setFormData({
             productCode: '',
             name: '',
@@ -107,6 +149,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
     // Modal Açma (Düzenleme)
     const openEditModal = (tool) => {
         setEditingTool(tool);
+        setIsAdjustment(true); // YENİ: Düzenlerken de varsayılan "Devir" olsun
         setFormData({
             productCode: tool.productCode || '',
             name: tool.name,
@@ -138,10 +181,11 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         // ----------------------------------------
 
         try {
+            const newStockVal = parseInt(formData.totalStock);
             const payload = {
                 ...formData,
                 productCode: cleanCode, // Temizlenmiş kodu kaydet
-                totalStock: parseInt(formData.totalStock),
+                totalStock: newStockVal,
                 criticalStock: parseInt(formData.criticalStock),
                 updatedAt: getCurrentDateTimeString(),
                 updatedBy: loggedInUser.name
@@ -149,14 +193,26 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
             if (editingTool) {
                 // Güncelleme
+                const oldStock = parseInt(editingTool.totalStock);
                 await updateDoc(doc(db, INVENTORY_COLLECTION, editingTool.id), payload);
+                
+                // --- LOGLAMA EKLENDİ ---
+                if (newStockVal !== oldStock) {
+                    await logStockEntry(editingTool.id, editingTool.name, newStockVal - oldStock, oldStock, newStockVal, isAdjustment);
+                }
+
             } else {
                 // Yeni Ekleme
-                await addDoc(collection(db, INVENTORY_COLLECTION), {
+                const docRef = await addDoc(collection(db, INVENTORY_COLLECTION), {
                     ...payload,
                     createdAt: getCurrentDateTimeString(),
                     createdBy: loggedInUser.name
                 });
+                
+                // --- LOGLAMA EKLENDİ (İlk Giriş) ---
+                if (newStockVal > 0) {
+                    await logStockEntry(docRef.id, payload.name, newStockVal, 0, newStockVal, isAdjustment);
+                }
             }
             setIsModalOpen(false); // UYARI YOK, DIREKT KAPAT
         } catch (error) {
@@ -178,10 +234,17 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
     // Hızlı Stok Güncelleme (+ / -)
     const handleQuickStockUpdate = async (tool, amount) => {
-        const newStock = parseInt(tool.totalStock) + amount;
+        const oldStock = parseInt(tool.totalStock);
+        const newStock = oldStock + amount;
         if (newStock < 0) return;
         try {
             await updateDoc(doc(db, INVENTORY_COLLECTION, tool.id), { totalStock: newStock });
+            
+            // --- LOGLAMA EKLENDİ ---
+            // + Butonu "Satın Alma" (isAdjustment=false), - Butonu "Düzeltme" (isAdjustment=true)
+            const isManual = amount < 0; 
+            await logStockEntry(tool.id, tool.name, amount, oldStock, newStock, isManual);
+
         } catch (error) {
             console.error("Stok güncelleme hatası:", error);
         }
@@ -189,11 +252,27 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
     // Manuel Stok Girişi (Input ile)
     const handleManualStockSave = async (toolId) => {
+        const tool = tools.find(t => t.id === toolId);
+        if (!tool) return;
+
         const val = parseInt(tempStockValue);
         if (isNaN(val) || val < 0) return alert("Geçerli bir stok adedi giriniz.");
         
+        const oldStock = parseInt(tool.totalStock);
+        const diff = val - oldStock;
+
+        if (diff === 0) {
+            setStockUpdateId(null);
+            return;
+        }
+
         try {
             await updateDoc(doc(db, INVENTORY_COLLECTION, toolId), { totalStock: val });
+            
+            // --- LOGLAMA EKLENDİ ---
+            // Kullanıcının seçtiği isAdjustment değerini kullan
+            await logStockEntry(tool.id, tool.name, diff, oldStock, val, isAdjustment);
+
             setStockUpdateId(null);
             setTempStockValue('');
         } catch (error) {
@@ -363,19 +442,28 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                             
                                             {/* STOK YÖNETİM HÜCRESİ */}
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-900/50 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+                                                <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-900/50 p-1 rounded-lg border border-gray-200 dark:border-gray-700 relative">
                                                     {stockUpdateId === tool.id ? (
-                                                        <div className="flex items-center">
-                                                            <input 
-                                                                type="number" 
-                                                                className="w-16 p-1 text-center text-sm border rounded focus:ring-2 focus:ring-blue-500 text-gray-900"
-                                                                value={tempStockValue}
-                                                                onChange={(e) => setTempStockValue(e.target.value)}
-                                                                onKeyDown={(e) => { if(e.key === 'Enter') handleManualStockSave(tool.id) }}
-                                                                autoFocus
-                                                            />
-                                                            <button onClick={() => handleManualStockSave(tool.id)} className="ml-1 text-green-600 hover:bg-green-100 p-1 rounded"><Save className="w-4 h-4"/></button>
-                                                            <button onClick={() => setStockUpdateId(null)} className="ml-1 text-red-600 hover:bg-red-100 p-1 rounded"><X className="w-4 h-4"/></button>
+                                                        <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-800 rounded shadow-lg absolute z-10 border border-blue-200 -top-8">
+                                                            <div className="flex items-center mb-2">
+                                                                <input 
+                                                                    type="number" 
+                                                                    className="w-20 p-1 text-center text-sm border rounded focus:ring-2 focus:ring-blue-500 text-gray-900"
+                                                                    value={tempStockValue}
+                                                                    onChange={(e) => setTempStockValue(e.target.value)}
+                                                                    onKeyDown={(e) => { if(e.key === 'Enter') handleManualStockSave(tool.id) }}
+                                                                    autoFocus
+                                                                />
+                                                                <button onClick={() => handleManualStockSave(tool.id)} className="ml-1 text-green-600 hover:bg-green-100 p-1 rounded"><Save className="w-4 h-4"/></button>
+                                                                <button onClick={() => {setStockUpdateId(null); setIsAdjustment(false);}} className="ml-1 text-red-600 hover:bg-red-100 p-1 rounded"><X className="w-4 h-4"/></button>
+                                                            </div>
+                                                            {/* YENİ EKLENDİ: Devir/Sayım Seçimi */}
+                                                            <label className="flex items-center space-x-2 cursor-pointer text-xs text-gray-600 dark:text-gray-300 select-none">
+                                                                <div onClick={() => setIsAdjustment(!isAdjustment)} className={`w-4 h-4 border rounded flex items-center justify-center ${isAdjustment ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-400'}`}>
+                                                                    {isAdjustment && <CheckSquare className="w-3 h-3" />}
+                                                                </div>
+                                                                <span>Devir/Sayım (Analize Yansımaz)</span>
+                                                            </label>
                                                         </div>
                                                     ) : (
                                                         <>
@@ -387,7 +475,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                                             </button>
                                                             
                                                             <span className={`text-lg font-bold w-12 text-center cursor-pointer hover:underline ${isCritical ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}
-                                                                  onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); }}
+                                                                  onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); setIsAdjustment(true); }}
                                                                   title="Tıkla ve elle düzenle"
                                                             >
                                                                 {tool.totalStock}
@@ -402,7 +490,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
                                                             {/* Manuel Düzenle İkonu */}
                                                             <button 
-                                                                onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); }}
+                                                                onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); setIsAdjustment(true); }}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-md text-blue-400 hover:bg-blue-100 hover:text-blue-600 transition ml-1"
                                                                 title="Stok Adedini Elle Gir"
                                                             >
@@ -507,16 +595,30 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stok Adedi</label>
-                                <div className="relative">
-                                    <input 
-                                        type="number" min="0" required
-                                        value={formData.totalStock}
-                                        onChange={(e) => setFormData({...formData, totalStock: e.target.value})}
-                                        className="w-full p-3 pl-4 border border-gray-300 dark:border-gray-600 rounded-lg font-bold text-lg text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700"
-                                    />
-                                    <div className="absolute right-3 top-3 text-sm text-gray-400">Adet</div>
+                            {/* YENİ EKLENDİ: STOK VE DEVİR SEÇİMİ */}
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
+                                <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Stok Adedi</label>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative flex-1">
+                                        <input 
+                                            type="number" min="0" required 
+                                            value={formData.totalStock} 
+                                            onChange={(e) => setFormData({...formData, totalStock: e.target.value})} 
+                                            className="w-full p-3 pl-4 border border-gray-300 dark:border-gray-600 rounded-lg font-bold text-lg text-blue-600 dark:text-blue-400 focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700" 
+                                        />
+                                        <div className="absolute right-3 top-3 text-sm text-gray-400">Adet</div>
+                                    </div>
+                                    
+                                    <div className="flex flex-col justify-center">
+                                        <label className="flex items-center space-x-2 cursor-pointer select-none">
+                                            <div onClick={() => setIsAdjustment(!isAdjustment)} className={`w-5 h-5 border-2 rounded transition flex items-center justify-center ${isAdjustment ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-400'}`}>
+                                                {isAdjustment && <CheckSquare className="w-4 h-4 text-white" />}
+                                            </div>
+                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                Devir / Sayım <br/> <span className="text-xs text-gray-500">(Analize Yansımaz)</span>
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 
