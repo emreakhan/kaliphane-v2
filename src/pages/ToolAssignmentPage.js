@@ -20,7 +20,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const [viewMode, setViewMode] = useState('MACHINES'); 
 
     const [selectedOwnerId, setSelectedOwnerId] = useState(null); // Seçilen Tezgah veya Personel ID
-    const [searchTerm, setSearchTerm] = useState(''); // DÜZELTİLDİ: Tekil arama terimi
+    const [searchTerm, setSearchTerm] = useState(''); // Tekil arama terimi
     
     // --- MODAL: TAKIM VERME (SEPET) ---
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -54,16 +54,12 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         return machines.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }, [machines, searchTerm, viewMode]);
 
-    // Personel Listesi (Sadece Operatörler ve İlgili Kişiler)
+    // Personel Listesi (DÜZELTME: Tüm Personel Gösteriliyor)
     const filteredPersonnelList = useMemo(() => {
         if (viewMode !== 'PERSONNEL') return [];
         
-        let list = personnel.filter(p => 
-            p.role === PERSONNEL_ROLES.MACHINE_OPERATOR || 
-            p.role === PERSONNEL_ROLES.CAM_OPERATOR ||
-            p.role === PERSONNEL_ROLES.SUPERVISOR ||
-            p.role === PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU
-        );
+        // Rol filtresi kaldırıldı, tüm personel listeleniyor
+        let list = [...personnel]; 
 
         if (searchTerm) {
             list = list.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -71,15 +67,11 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         return list.sort((a, b) => a.name.localeCompare(b.name));
     }, [personnel, searchTerm, viewMode]);
 
-    // Operatör Listesi (Dropdownlar için - Her zaman tüm operatörler)
+    // Operatör Listesi (Dropdownlar için - DÜZELTME: Tüm Personel Seçilebilir)
     const allOperators = useMemo(() => {
         if (!personnel) return [];
-        return personnel.filter(p => 
-            p.role === PERSONNEL_ROLES.MACHINE_OPERATOR || 
-            p.role === PERSONNEL_ROLES.CAM_OPERATOR ||
-            p.role === PERSONNEL_ROLES.SUPERVISOR ||
-            p.role === PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU
-        ).sort((a, b) => a.name.localeCompare(b.name));
+        // Rol filtresi kaldırıldı
+        return [...personnel].sort((a, b) => a.name.localeCompare(b.name));
     }, [personnel]);
 
     // --- TOOL SEÇİM MANTIĞI ---

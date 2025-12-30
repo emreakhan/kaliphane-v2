@@ -185,3 +185,18 @@ export const TOOL_TRANSACTION_TYPES = {
     ADJUSTMENT: 'SAYIM DÜZELTME',
     STOCK_ENTRY: 'SATIN ALMA / GİRİŞ' // YENİ: Analiz raporu için eklendi
 };
+
+// --- TASARIM OFİSİ AKTİVİTE TAKİBİ ---
+// Bu satırları constants.js dosyasının en altına ekleyin
+
+// Veritabanı Koleksiyonu
+export const ACTIVITY_LOGS_COLLECTION = `artifacts/default-app-id/public/data/activityLogs`;
+
+// Aktivite Tipleri
+export const DESIGN_ACTIVITY_TYPES = {
+    DESIGN: 'TASARIM / MODELLEME',
+    MOLD_TRIAL: 'KALIP DENEMESİ', // Proje seçimi zorunlu olacak
+    WORKSHOP: 'ATÖLYE / MONTAJ KONTROL',
+    MEETING: 'TOPLANTI',
+    OTHER: 'DİĞER / MANUEL GİRİŞ' // Açıklama zorunlu olacak
+};

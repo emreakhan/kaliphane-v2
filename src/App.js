@@ -24,11 +24,12 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity // YENİ: Activity ikonu eklendi
+    Package, Wrench, FileText, TrendingUp, Activity
 } from 'lucide-react';
 
 // Sayfalar
-import DesignOfficePage from './pages/DesignOfficePage'; 
+// --- DÜZELTME BURADA YAPILDI: Artık 'DesignProjectsView' DEĞİL, çatı dosya olan 'DesignOfficePage' import ediliyor ---
+import DesignOfficePage from './pages/DesignOfficePage.js'; 
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
 import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
@@ -45,7 +46,7 @@ import ToolInventoryPage from './pages/ToolInventoryPage.js';
 import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 import ToolHistoryPage from './pages/ToolHistoryPage.js';
 import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
-import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; // YENİ: Detaylı Analiz Sayfası
+import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -509,7 +510,7 @@ const App = () => {
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
-                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
                 
                 {/* YENİ ROUTE'LAR */}
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
