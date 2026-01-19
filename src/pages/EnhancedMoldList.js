@@ -406,6 +406,13 @@ const EnhancedMoldList = ({ projects }) => {
                                             </p>
                                         )}
                                         
+                                        {/* YENİ: CAM SORUMLUSU GÖSTERİMİ */}
+                                        {project.camResponsible && (
+                                            <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
+                                                CAM Sor: <span className="font-semibold text-orange-700 dark:text-orange-300">{project.camResponsible}</span>
+                                            </p>
+                                        )}
+                                        
                                         <p className="text-gray-600 dark:text-gray-400 text-xs">
                                             Termin: <span className="font-semibold">{formatDateTR(project.moldDeadline) || '---'}</span>
                                         </p>
@@ -523,7 +530,7 @@ const EnhancedMoldList = ({ projects }) => {
                                             </div>
                                         )}
                                     </div>
-                            
+                                    
                                     <div className="mt-3">
                                         <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
                                             <span>Toplam Operasyon İlerlemesi</span>

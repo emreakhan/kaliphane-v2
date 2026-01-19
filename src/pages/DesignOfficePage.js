@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { LayoutDashboard, Activity } from 'lucide-react';
 
-// 1. Senin eski 600 satırlık kodun (İsmini değiştirdiğin dosya)
+// 1. Senin eski 600 satırlık kodun
 import DesignProjectsView from './DesignProjectsView.js';
 
 // 2. Yeni yaptığımız Aktivite Günlüğü
@@ -56,7 +56,6 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db }) => {
             <div className="min-h-[500px]">
                 
                 {/* 1. SEKME: SENİN ESKİ SAYFAN */}
-                {/* CSS ile gizleyip gösteriyoruz ki component unmount olmasın */}
                 <div style={{ display: activeTab === 'PROJECTS' ? 'block' : 'none' }}>
                     <DesignProjectsView 
                         projects={projects} 
@@ -67,11 +66,13 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db }) => {
                 </div>
 
                 {/* 2. SEKME: YENİ AKTİVİTE GÜNLÜĞÜ */}
+                {/* DÜZELTME BURADA: personnel={personnel} eklendi! */}
                 {activeTab === 'LOGS' && (
                     <DesignActivityLog 
                         db={db} 
                         loggedInUser={loggedInUser} 
-                        projects={projects} 
+                        projects={projects}
+                        personnel={personnel} 
                     />
                 )}
             </div>

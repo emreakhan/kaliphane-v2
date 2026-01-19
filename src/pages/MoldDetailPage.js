@@ -111,6 +111,7 @@ const MoldDetailPage = ({
     handleUpdateProductImageUrl,
     handleUpdateProjectManager,
     handleUpdateMoldDesigner,
+    handleUpdateCamResponsible, // YENİ: CAM Sorumlusu Güncelleme Prop'u
     db 
 }) => {
     
@@ -122,11 +123,18 @@ const MoldDetailPage = ({
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
+    
+    // YENİ: CAM Operatörlerini Filtrele
+    const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
     const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
     const [localProjectManager, setLocalProjectManager] = useState('');
     const [localMoldDesigner, setLocalMoldDesigner] = useState('');
+    
+    // YENİ: Yerel CAM Sorumlusu State'i
+    const [localCamResponsible, setLocalCamResponsible] = useState('');
+
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
     const [localDeadline, setLocalDeadline] = useState('');
     const [localPriority, setLocalPriority] = useState('');
@@ -157,6 +165,7 @@ const MoldDetailPage = ({
             setLocalProductImageUrl(mold.productImageUrl || '');
             setLocalProjectManager(mold.projectManager || '');
             setLocalMoldDesigner(mold.moldDesigner || '');
+            setLocalCamResponsible(mold.camResponsible || ''); // YENİ: State güncelleme
             setLocalDeadline(mold.moldDeadline || '');
             setLocalPriority(mold.priority || '');
         }
@@ -428,6 +437,16 @@ const MoldDetailPage = ({
         handleUpdateMoldDesigner(mold.id, newDesigner);
     };
 
+    // YENİ: CAM Sorumlusu Değişikliği
+    const handleCamResponsibleChange = (e) => {
+        const newResponsible = e.target.value;
+        setLocalCamResponsible(newResponsible);
+        // Bu fonksiyonu App.js'den prop olarak bekliyoruz
+        if(handleUpdateCamResponsible) {
+            handleUpdateCamResponsible(mold.id, newResponsible);
+        }
+    };
+
     const handleOpenModal = (type, mold, task, operation) => {
         setModalState({ isOpen: true, type, data: { mold, task, operation } });
     };
@@ -550,7 +569,7 @@ const MoldDetailPage = ({
                 )}
              </div>
              
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 border-t dark:border-gray-700 pt-4">
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 border-t dark:border-gray-700 pt-4">
                 {isAdmin ? (
                     <div className="flex items-center gap-2">
                         <label htmlFor="projectManager" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Proje Sorumlusu:</label>
@@ -573,9 +592,22 @@ const MoldDetailPage = ({
                 ) : (
                     mold.moldDesigner && <p className="text-sm dark:text-gray-300">Tasarım Sor.: <span className="font-semibold dark:text-white">{mold.moldDesigner}</span></p>
                 )}
+
+                {/* --- YENİ: CAM SORUMLUSU SEÇİMİ --- */}
+                {isAdmin ? (
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="camResponsible" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">CAM Sorumlusu:</label>
+                        <select id="camResponsible" value={localCamResponsible} onChange={handleCamResponsibleChange} className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200">
+                            <option value="">Seçiniz...</option>
+                            {camOperators.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        </select>
+                    </div>
+                ) : (
+                    mold.camResponsible && <p className="text-sm dark:text-gray-300">CAM Sor.: <span className="font-semibold dark:text-white">{mold.camResponsible}</span></p>
+                )}
                 
                 {isManager && (
-                    <div className="flex items-center gap-2 w-full">
+                    <div className="flex items-center gap-2 w-full lg:col-span-3">
                         <label htmlFor="trialReportUrl" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">Deneme Raporu Linki:</label>
                         <input type="text" id="trialReportUrl" value={localTrialReportUrl} onChange={(e) => setLocalTrialReportUrl(e.target.value)} onBlur={handleReportUrlBlur} placeholder="E-Tablo linkini buraya yapıştırın..." className="w-full px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
                     </div>
@@ -583,7 +615,7 @@ const MoldDetailPage = ({
 
                 {/* --- IMAGE UPLOAD AREA --- */}
                 {isManager && (
-                    <div className="w-full border-t md:border-t-0 md:border-l dark:border-gray-700 md:pl-4 mt-2 md:mt-0">
+                    <div className="w-full border-t lg:col-span-3 dark:border-gray-700 pt-4 mt-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Ürün Görseli</label>
                         
                         <div className="flex items-center gap-2">
@@ -707,7 +739,7 @@ const MoldDetailPage = ({
                                             </div>
                                         )}
 
-                                        {/* --- TEKNİK RESİM ALANI (YENİ EKLENDİ) --- */}
+                                        {/* --- TEKNİK RESİM ALANI --- */}
                                         <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                                             <div className="flex items-center">
                                                 <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
@@ -807,7 +839,7 @@ const MoldDetailPage = ({
                                                                 )}
                                                                 
                                                                 {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && 
-                                                                  (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
+                                                                 (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
                                                                     <button 
                                                                         onClick={() => handleOpenModal('report_issue', mold, task, operation)}
                                                                         className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"

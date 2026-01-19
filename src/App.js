@@ -385,6 +385,7 @@ const App = () => {
     const handleUpdateTrialReportUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { trialReportUrl: val || '' }); }, []);
     const handleUpdateProductImageUrl = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { productImageUrl: val || '' }); }, []);
     const handleUpdateProjectManager = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { projectManager: val || '' }); }, []);
+    const handleUpdateCamResponsible = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { camResponsible: val || '' }); }, []);
     const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, []);
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
@@ -555,6 +556,7 @@ const App = () => {
                         handleUpdateProductImageUrl={handleUpdateProductImageUrl} 
                         handleUpdateProjectManager={handleUpdateProjectManager}
                         handleUpdateMoldDesigner={handleUpdateMoldDesigner}
+                        handleUpdateCamResponsible={handleUpdateCamResponsible}
                         projects={projects} 
                         personnel={personnel} 
                         machines={machines}
