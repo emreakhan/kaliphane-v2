@@ -12,6 +12,10 @@ export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventor
 export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
 export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`;
 
+// --- YENİ: KALIP BAKIM KOLEKSİYONLARI ---
+export const MAINTENANCE_MOLDS_COLLECTION = `artifacts/${appId}/public/data/maintenanceMolds`;
+export const MAINTENANCE_LOGS_COLLECTION = `artifacts/${appId}/public/data/maintenanceLogs`;
+
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
 
@@ -175,7 +179,7 @@ export const TOOL_CATEGORIES = {
     DIGER: 'DİĞER'
 };
 
-// YENİ: TRANSFER TİPİ EKLENDİ (GÜNCELLENDİ)
+// TRANSFER TİPİ
 export const TOOL_TRANSACTION_TYPES = {
     ADD_STOCK: 'STOK GİRİŞİ',
     ISSUE: 'TEZGAHA VERİLDİ',
@@ -183,20 +187,29 @@ export const TOOL_TRANSACTION_TYPES = {
     RETURN_SCRAP: 'ISKARTA/HURDA',
     TRANSFER: 'TEZGAH TRANSFERİ',
     ADJUSTMENT: 'SAYIM DÜZELTME',
-    STOCK_ENTRY: 'SATIN ALMA / GİRİŞ' // YENİ: Analiz raporu için eklendi
+    STOCK_ENTRY: 'SATIN ALMA / GİRİŞ'
 };
 
 // --- TASARIM OFİSİ AKTİVİTE TAKİBİ ---
-// Bu satırları constants.js dosyasının en altına ekleyin
-
-// Veritabanı Koleksiyonu
 export const ACTIVITY_LOGS_COLLECTION = `artifacts/default-app-id/public/data/activityLogs`;
 
-// Aktivite Tipleri
 export const DESIGN_ACTIVITY_TYPES = {
     DESIGN: 'TASARIM / MODELLEME',
-    MOLD_TRIAL: 'KALIP DENEMESİ', // Proje seçimi zorunlu olacak
+    MOLD_TRIAL: 'KALIP DENEMESİ',
     WORKSHOP: 'ATÖLYE / MONTAJ KONTROL',
     MEETING: 'TOPLANTI',
-    OTHER: 'DİĞER / MANUEL GİRİŞ' // Açıklama zorunlu olacak
+    OTHER: 'DİĞER / MANUEL GİRİŞ'
+};
+
+// --- YENİ: KALIP BAKIM MODÜLÜ SABİTLERİ ---
+export const MAINTENANCE_TYPES = {
+    FAULT: 'ARIZA MÜDAHALESİ',
+    PERIODIC: 'PERİYODİK BAKIM',
+    REVISION: 'REVİZYON / DEĞİŞİKLİK'
+};
+
+export const MAINTENANCE_STATUS = {
+    READY: 'ÜRETİME HAZIR',
+    IN_MAINTENANCE: 'BAKIMDA / TAMİRDE',
+    SCRAP: 'HURDA'
 };

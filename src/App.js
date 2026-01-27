@@ -28,7 +28,6 @@ import {
 } from 'lucide-react';
 
 // Sayfalar
-// --- DÜZELTME BURADA YAPILDI: Artık 'DesignProjectsView' DEĞİL, çatı dosya olan 'DesignOfficePage' import ediliyor ---
 import DesignOfficePage from './pages/DesignOfficePage.js'; 
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
 import EnhancedMoldList from './pages/EnhancedMoldList.js';
@@ -47,6 +46,7 @@ import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 import ToolHistoryPage from './pages/ToolHistoryPage.js';
 import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
 import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
+import MoldMaintenancePage from './pages/MoldMaintenancePage.js'; // --- YENİ EKLENDİ ---
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -415,6 +415,9 @@ const App = () => {
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
             
+            // --- YENİ EKLENDİ: Kalıp Bakım Menüsü ---
+            { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
+
             // Çalışan Parçalar: Herkes görecek (Takımhane dahil)
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             
@@ -520,7 +523,10 @@ const App = () => {
                 
                 {/* RAPORLAR */}
                 <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
-                <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> {/* YENİ EKLENEN ROUTE */}
+                <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
+
+                {/* --- YENİ EKLENEN ROUTE --- */}
+                <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
 
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 
