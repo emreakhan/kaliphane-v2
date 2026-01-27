@@ -129,7 +129,6 @@ const MoldMaintenancePage = ({ db, loggedInUser }) => {
         }));
     }, []);
 
-    // Klavye kontrolleri (Sağ/Sol Ok, ESC)
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (!lightbox.isOpen) return;
@@ -363,7 +362,7 @@ const MoldMaintenancePage = ({ db, loggedInUser }) => {
     return (
         <div className="flex h-[calc(100vh-80px)] bg-gray-100 dark:bg-gray-900 overflow-hidden">
             
-            {/* SOL PANEL */}
+            {/* SOL PANEL (Tablet/Mobilde gizlenebilir veya daraltılabilir ama şimdilik standart bırakıyoruz) */}
             <div className="w-1/3 md:w-1/4 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                     <button 
@@ -419,92 +418,97 @@ const MoldMaintenancePage = ({ db, loggedInUser }) => {
             <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
                 {selectedMold ? (
                     <>
-                        {/* HEADER */}
-                        <div className="bg-white dark:bg-gray-800 p-6 shadow-sm border-b border-gray-200 dark:border-gray-700">
-                            <div className="flex flex-col xl:flex-row justify-between items-start gap-6">
-                                {/* Sol: Resim ve Bilgi */}
-                                <div className="flex items-start gap-4 flex-1">
-                                    <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400 overflow-hidden border border-gray-300 dark:border-gray-600 shrink-0">
-                                        {selectedMold.photoUrl ? <img src={selectedMold.photoUrl} alt="Kalıp" className="w-full h-full object-cover" /> : <ImageIcon className="w-10 h-10" />}
+                        {/* HEADER - RESPONSIVE (DÜZELTME BURADA) */}
+                        <div className="bg-white dark:bg-gray-800 p-4 shadow-sm border-b border-gray-200 dark:border-gray-700">
+                            {/* Ana Flex Konteyner: Büyük ekranda tek satır, tablette satırlara bölünür */}
+                            <div className="flex flex-col lg:flex-row gap-4">
+                                
+                                {/* 1. Bölüm: Resim ve Bilgi (Sol Üst) */}
+                                <div className="flex items-start gap-3 flex-1">
+                                    <div className="w-20 h-20 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400 overflow-hidden border border-gray-300 dark:border-gray-600 shrink-0">
+                                        {selectedMold.photoUrl ? <img src={selectedMold.photoUrl} alt="Kalıp" className="w-full h-full object-cover" /> : <ImageIcon className="w-8 h-8" />}
                                     </div>
-                                    <div>
-                                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{selectedMold.moldName}</h1>
-                                        <p className="text-lg text-gray-600 dark:text-gray-300 font-mono font-bold">{selectedMold.moldCode}</p>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">{selectedMold.customer}</p>
-                                        
-                                        <div className="mt-3">
-                                            <span className={`px-4 py-1.5 text-sm font-bold rounded-full flex items-center w-fit ${selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                {selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? <CheckCircle className="w-4 h-4 mr-2"/> : <Wrench className="w-4 h-4 mr-2"/>}
+                                    <div className="min-w-0">
+                                        <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate">{selectedMold.moldName}</h1>
+                                        <p className="text-md text-gray-600 dark:text-gray-300 font-mono font-bold">{selectedMold.moldCode}</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{selectedMold.customer}</p>
+                                        <div className="mt-2">
+                                            <span className={`px-3 py-1 text-xs font-bold rounded-full flex items-center w-fit ${selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                {selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? <CheckCircle className="w-3 h-3 mr-1"/> : <Wrench className="w-3 h-3 mr-1"/>}
                                                 {selectedMold.currentStatus}
                                             </span>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Orta: İstatistik Kartı */}
-                                {moldStats && (
-                                    <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg border border-blue-100 dark:border-blue-800 text-sm flex-1 min-w-[250px]">
-                                        <h4 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center"><LayoutDashboard className="w-4 h-4 mr-1"/> Kalıp Analizi</h4>
-                                        <div className="grid grid-cols-3 gap-2 text-center mb-2">
-                                            <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">Bakım</div>
-                                                <div className="font-bold text-gray-900 dark:text-white">{moldStats.totalMaintenance}</div>
+                                {/* Tablette Yan Yana Durması Gereken Alan (Analiz + Butonlar) */}
+                                <div className="flex flex-col md:flex-row lg:items-start gap-4 shrink-0 w-full lg:w-auto">
+                                    
+                                    {/* 2. Bölüm: İstatistik Kartı (Orta) */}
+                                    {moldStats && (
+                                        <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg border border-blue-100 dark:border-blue-800 text-sm flex-1 md:w-64 min-w-[200px]">
+                                            <h4 className="font-bold text-blue-800 dark:text-blue-200 mb-2 flex items-center text-xs"><LayoutDashboard className="w-3 h-3 mr-1"/> Kalıp Analizi</h4>
+                                            <div className="grid grid-cols-3 gap-1 text-center mb-1">
+                                                <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
+                                                    <div className="text-[10px] text-gray-500 dark:text-gray-400">Bakım</div>
+                                                    <div className="font-bold text-sm text-gray-900 dark:text-white">{moldStats.totalMaintenance}</div>
+                                                </div>
+                                                <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
+                                                    <div className="text-[10px] text-gray-500 dark:text-gray-400">İşlem</div>
+                                                    <div className="font-bold text-sm text-gray-900 dark:text-white">{moldStats.totalProcessed}</div>
+                                                </div>
+                                                <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
+                                                    <div className="text-[10px] text-gray-500 dark:text-gray-400">Değişen</div>
+                                                    <div className="font-bold text-sm text-red-600 dark:text-red-400">{moldStats.totalChanged}</div>
+                                                </div>
                                             </div>
-                                            <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">İşlem</div>
-                                                <div className="font-bold text-gray-900 dark:text-white">{moldStats.totalProcessed}</div>
-                                            </div>
-                                            <div className="bg-white dark:bg-gray-800 p-1 rounded shadow-sm">
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">Değişen</div>
-                                                <div className="font-bold text-red-600 dark:text-red-400">{moldStats.totalChanged}</div>
-                                            </div>
+                                            {moldStats.topParts.length > 0 && (
+                                                <div className="mt-1">
+                                                    <p className="text-[10px] font-bold text-gray-600 dark:text-gray-300 mb-0.5">⚠️ Sorunlu Parçalar:</p>
+                                                    <ul className="text-[10px] space-y-0.5">
+                                                        {moldStats.topParts.slice(0, 2).map(([code, count]) => ( // Tablette yer kazanmak için sadece ilk 2'yi göster
+                                                            <li key={code} className="flex justify-between px-1">
+                                                                <span className="font-mono text-gray-800 dark:text-gray-300 truncate max-w-[80px]">{code}</span>
+                                                                <span className="font-bold text-red-500 dark:text-red-400">{count} kez</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
                                         </div>
-                                        {moldStats.topParts.length > 0 && (
-                                            <div>
-                                                <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1">⚠️ En Çok Sorun Çıkaranlar:</p>
-                                                <ul className="text-xs space-y-0.5">
-                                                    {moldStats.topParts.map(([code, count]) => (
-                                                        <li key={code} className="flex justify-between px-1">
-                                                            <span className="font-mono text-gray-800 dark:text-gray-300">{code}</span>
-                                                            <span className="font-bold text-red-500 dark:text-red-400">{count} kez</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
+                                    )}
+
+                                    {/* 3. Bölüm: Büyük Aksiyon Butonları (Sağ) */}
+                                    <div className="flex flex-row md:flex-col gap-2 w-full md:w-40 shrink-0">
+                                        <button 
+                                            onClick={() => setIsAddLogOpen(true)}
+                                            className="flex-1 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold shadow-sm flex items-center justify-center transition active:scale-95 text-xs md:text-sm"
+                                        >
+                                            <Plus className="w-4 h-4 mr-1 md:mr-2" /> İşlem Ekle
+                                        </button>
+
+                                        {selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? (
+                                            <button 
+                                                onClick={() => handleToggleStatus(MAINTENANCE_STATUS.IN_MAINTENANCE)}
+                                                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-sm flex items-center justify-center transition active:scale-95 text-xs md:text-sm"
+                                            >
+                                                <Wrench className="w-4 h-4 mr-1 md:mr-2" /> BAKIMA AL
+                                            </button>
+                                        ) : (
+                                            <button 
+                                                onClick={() => handleToggleStatus(MAINTENANCE_STATUS.READY)}
+                                                className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-sm flex items-center justify-center transition active:scale-95 text-xs md:text-sm"
+                                            >
+                                                <CheckCircle className="w-4 h-4 mr-1 md:mr-2" /> BAKIMI BİTİR
+                                            </button>
                                         )}
                                     </div>
-                                )}
-
-                                {/* Sağ: Büyük Aksiyon Butonları */}
-                                <div className="flex flex-col gap-3 w-full xl:w-48 shrink-0">
-                                    <button 
-                                        onClick={() => setIsAddLogOpen(true)}
-                                        className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold shadow-lg flex items-center justify-center transition active:scale-95"
-                                    >
-                                        <Plus className="w-5 h-5 mr-2" /> İşlem Ekle
-                                    </button>
-
-                                    {selectedMold.currentStatus === MAINTENANCE_STATUS.READY ? (
-                                        <button 
-                                            onClick={() => handleToggleStatus(MAINTENANCE_STATUS.IN_MAINTENANCE)}
-                                            className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-lg flex items-center justify-center transition active:scale-95 border-2 border-white dark:border-gray-800"
-                                        >
-                                            <Wrench className="w-5 h-5 mr-2" /> BAKIMA AL
-                                        </button>
-                                    ) : (
-                                        <button 
-                                            onClick={() => handleToggleStatus(MAINTENANCE_STATUS.READY)}
-                                            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-lg flex items-center justify-center transition active:scale-95 border-2 border-white dark:border-gray-800"
-                                        >
-                                            <CheckCircle className="w-5 h-5 mr-2" /> BAKIMI BİTİR
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                         </div>
 
                         {/* TİMELİNE */}
-                        <div className="flex-1 overflow-y-auto p-6">
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6">
                             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
                                 <History className="w-5 h-5 mr-2" /> Geçmiş İşlemler
                             </h3>
@@ -579,7 +583,7 @@ const MoldMaintenancePage = ({ db, loggedInUser }) => {
                                                 )}
                                             </div>
 
-                                            {/* Resimler: ÖNCE ve SONRA (DÜZELTME: BÜYÜK BUTON VE LIGHTBOX) */}
+                                            {/* Resimler: ÖNCE ve SONRA */}
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {/* Önce */}
                                                 <div>
