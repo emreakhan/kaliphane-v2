@@ -4,14 +4,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Package, Plus, Search, Filter, AlertTriangle, 
     Trash2, Edit, Save, X, PlusCircle, MinusCircle, 
-    Grid, List, Settings, Edit3, Hash, CheckSquare // EKLENDİ: CheckSquare ikonu
+    Grid, List, Settings, Edit3, Hash, CheckSquare, Check
 } from 'lucide-react';
 import { 
     addDoc, collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc
 } from '../config/firebase.js';
 import { 
     INVENTORY_COLLECTION, TOOL_CATEGORIES_COLLECTION,
-    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES // EKLENDİ: Loglama için gerekli sabitler
+    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES 
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
@@ -23,19 +23,22 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
     const [categories, setCategories] = useState([]);
     const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
 
+    // Kategori Düzenleme State'i
+    const [editingCategoryId, setEditingCategoryId] = useState(null);
+    const [editingCategoryName, setEditingCategoryName] = useState('');
+
     // Modal Stateleri
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingTool, setEditingTool] = useState(null); // Düzenlenen parça (null ise yeni ekleme)
+    const [editingTool, setEditingTool] = useState(null); 
     
     // Manuel Stok Güncelleme
-    const [stockUpdateId, setStockUpdateId] = useState(null); // Hangi satırın stoğu düzenleniyor
+    const [stockUpdateId, setStockUpdateId] = useState(null); 
     const [tempStockValue, setTempStockValue] = useState('');
 
-    // --- YENİ EKLENEN STATE: İşlem Tipi Seçimi ---
-    // True = Devir/Sayım (Analize girmez), False = Satın Alma (Analize girer)
+    // İşlem Tipi Seçimi
     const [isAdjustment, setIsAdjustment] = useState(false); 
 
-    // Form State (Yeni Ekleme ve Düzenleme için)
+    // Form State
     const [formData, setFormData] = useState({
         productCode: '',
         name: '',
@@ -52,7 +55,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             
-            // Eğer hiç kategori yoksa varsayılanları yükle (İlk Kurulum)
             if (cats.length === 0) {
                 const defaults = ["FREZE", "MATKAP", "KILAVUZ", "KESİCİ UÇ", "TUTUCU", "ÖLÇÜ ALETİ", "SARF", "DİĞER"];
                 defaults.forEach(async (catName) => {
@@ -69,12 +71,10 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
     const filteredTools = useMemo(() => {
         let result = tools || [];
 
-        // Kategori Filtresi
         if (selectedCategory !== 'TÜMÜ') {
             result = result.filter(t => t.category === selectedCategory);
         }
 
-        // Arama Filtresi
         if (searchTerm) {
             const lowerTerm = searchTerm.toLowerCase();
             result = result.filter(t => 
@@ -83,33 +83,28 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
             );
         }
 
-        // Sıralama (Önce Kod, Sonra İsim)
         return result.sort((a, b) => (a.productCode || '').localeCompare(b.productCode || '') || a.name.localeCompare(b.name));
     }, [tools, searchTerm, selectedCategory]);
 
-    // --- 3. İSTATİSTİKLER (KARTLAR İÇİN) ---
+    // --- 3. İSTATİSTİKLER ---
     const getCategoryCount = (catName) => {
         if (catName === 'TÜMÜ') return tools.length;
         return tools.filter(t => t.category === catName).length;
     };
 
-    // --- YENİ: LOGLAMA FONKSİYONU ---
-    // Bu fonksiyon yapılan stok değişikliğini "Satın Alma" mı yoksa "Düzeltme" mi diye ayırıp kaydeder.
+    // --- LOGLAMA FONKSİYONU ---
     const logStockEntry = async (toolId, toolName, quantity, oldStock, newStock, isManualAdjustment = false) => {
         if (quantity === 0) return; 
 
-        // İşlem Tipini Belirle
-        let type = TOOL_TRANSACTION_TYPES.ADJUSTMENT; // Varsayılan: Düzeltme
+        let type = TOOL_TRANSACTION_TYPES.ADJUSTMENT;
 
         if (quantity > 0) {
-            // Artış var
             if (isManualAdjustment) {
-                type = TOOL_TRANSACTION_TYPES.ADJUSTMENT; // Kullanıcı "Devir/Sayım" seçti
+                type = TOOL_TRANSACTION_TYPES.ADJUSTMENT; 
             } else {
-                type = TOOL_TRANSACTION_TYPES.STOCK_ENTRY; // Kullanıcı seçmedi, "Satın Alma" kabul et
+                type = TOOL_TRANSACTION_TYPES.STOCK_ENTRY; 
             }
         } else {
-            // Azalış var (Manuel düşüşler genelde düzeltmedir)
             type = TOOL_TRANSACTION_TYPES.ADJUSTMENT;
         }
 
@@ -129,12 +124,11 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         }
     };
 
-    // --- 4. CRUD İŞLEMLERİ (EKLEME / DÜZENLEME / SİLME) ---
+    // --- CRUD İŞLEMLERİ ---
 
-    // Modal Açma (Yeni Ekleme)
     const openAddModal = () => {
         setEditingTool(null);
-        setIsAdjustment(true); // YENİ: Yeni parça eklerken varsayılan olarak "Devir" seçili gelsin (İlk kurulum kolaylığı)
+        setIsAdjustment(true); 
         setFormData({
             productCode: '',
             name: '',
@@ -146,10 +140,9 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         setIsModalOpen(true);
     };
 
-    // Modal Açma (Düzenleme)
     const openEditModal = (tool) => {
         setEditingTool(tool);
-        setIsAdjustment(true); // YENİ: Düzenlerken de varsayılan "Devir" olsun
+        setIsAdjustment(true); 
         setFormData({
             productCode: tool.productCode || '',
             name: tool.name,
@@ -161,30 +154,24 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         setIsModalOpen(true);
     };
 
-    // Kaydetme İşlemi (Hem Yeni Hem Düzenleme)
     const handleSaveTool = async (e) => {
         e.preventDefault();
         if (!formData.name || !formData.category) return alert("Ad ve Kategori zorunludur.");
 
-        // --- DUPLICATE (AYNI KOD) KONTROLÜ ---
         const cleanCode = formData.productCode ? formData.productCode.trim().toUpperCase() : '';
         
         if (cleanCode) {
-            // Bu koda sahip başka bir parça var mı?
             const duplicate = tools.find(t => t.productCode === cleanCode);
-            
-            // Eğer varsa VE (Yeni ekleme yapıyorsak VEYA Düzenlerken başka birinin kodunu yazdıysak)
             if (duplicate && (!editingTool || duplicate.id !== editingTool.id)) {
                 return alert(`HATA: "${cleanCode}" kodu zaten stokta mevcut! Lütfen benzersiz bir kod giriniz.`);
             }
         }
-        // ----------------------------------------
 
         try {
             const newStockVal = parseInt(formData.totalStock);
             const payload = {
                 ...formData,
-                productCode: cleanCode, // Temizlenmiş kodu kaydet
+                productCode: cleanCode, 
                 totalStock: newStockVal,
                 criticalStock: parseInt(formData.criticalStock),
                 updatedAt: getCurrentDateTimeString(),
@@ -192,36 +179,31 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
             };
 
             if (editingTool) {
-                // Güncelleme
                 const oldStock = parseInt(editingTool.totalStock);
                 await updateDoc(doc(db, INVENTORY_COLLECTION, editingTool.id), payload);
                 
-                // --- LOGLAMA EKLENDİ ---
                 if (newStockVal !== oldStock) {
                     await logStockEntry(editingTool.id, editingTool.name, newStockVal - oldStock, oldStock, newStockVal, isAdjustment);
                 }
 
             } else {
-                // Yeni Ekleme
                 const docRef = await addDoc(collection(db, INVENTORY_COLLECTION), {
                     ...payload,
                     createdAt: getCurrentDateTimeString(),
                     createdBy: loggedInUser.name
                 });
                 
-                // --- LOGLAMA EKLENDİ (İlk Giriş) ---
                 if (newStockVal > 0) {
                     await logStockEntry(docRef.id, payload.name, newStockVal, 0, newStockVal, isAdjustment);
                 }
             }
-            setIsModalOpen(false); // UYARI YOK, DIREKT KAPAT
+            setIsModalOpen(false); 
         } catch (error) {
             console.error("Kaydetme hatası:", error);
             alert("İşlem sırasında hata oluştu.");
         }
     };
 
-    // Silme İşlemi
     const handleDeleteTool = async (id) => {
         if (window.confirm("Bu parçayı stoktan tamamen silmek istediğinize emin misiniz?")) {
             try {
@@ -232,7 +214,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         }
     };
 
-    // Hızlı Stok Güncelleme (+ / -)
     const handleQuickStockUpdate = async (tool, amount) => {
         const oldStock = parseInt(tool.totalStock);
         const newStock = oldStock + amount;
@@ -240,8 +221,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         try {
             await updateDoc(doc(db, INVENTORY_COLLECTION, tool.id), { totalStock: newStock });
             
-            // --- LOGLAMA EKLENDİ ---
-            // + Butonu "Satın Alma" (isAdjustment=false), - Butonu "Düzeltme" (isAdjustment=true)
             const isManual = amount < 0; 
             await logStockEntry(tool.id, tool.name, amount, oldStock, newStock, isManual);
 
@@ -250,7 +229,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         }
     };
 
-    // Manuel Stok Girişi (Input ile)
     const handleManualStockSave = async (toolId) => {
         const tool = tools.find(t => t.id === toolId);
         if (!tool) return;
@@ -268,9 +246,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
         try {
             await updateDoc(doc(db, INVENTORY_COLLECTION, toolId), { totalStock: val });
-            
-            // --- LOGLAMA EKLENDİ ---
-            // Kullanıcının seçtiği isAdjustment değerini kullan
             await logStockEntry(tool.id, tool.name, diff, oldStock, val, isAdjustment);
 
             setStockUpdateId(null);
@@ -295,11 +270,23 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
         }
     };
 
+    const startEditingCategory = (cat) => {
+        setEditingCategoryId(cat.id);
+        setEditingCategoryName(cat.name);
+    };
+
+    const saveEditingCategory = async () => {
+        if (!editingCategoryName.trim()) return;
+        await updateDoc(doc(db, TOOL_CATEGORIES_COLLECTION, editingCategoryId), { name: editingCategoryName.toUpperCase() });
+        setEditingCategoryId(null);
+        setEditingCategoryName('');
+    };
+
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             
             {/* 1. ÜST PANEL: BAŞLIK & İŞLEMLER */}
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                 <div>
                     <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3">
                         <Package className="w-8 h-8 text-blue-600" />
@@ -313,35 +300,36 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                 <div className="flex gap-3">
                     <button 
                         onClick={() => setIsCategoryManagerOpen(true)}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold flex items-center transition border border-gray-200 dark:border-gray-600"
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 px-4 py-2 rounded-lg font-semibold flex items-center transition border border-gray-200 dark:border-gray-600 text-sm"
                     >
-                        <Settings className="w-5 h-5 mr-2" /> Kategorileri Yönet
+                        <Settings className="w-4 h-4 mr-2" /> Kategoriler
                     </button>
                     <button 
                         onClick={openAddModal}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5"
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5 text-sm"
                     >
-                        <Plus className="w-5 h-5 mr-2" /> Yeni Parça Ekle
+                        <Plus className="w-4 h-4 mr-2" /> Yeni Parça
                     </button>
                 </div>
             </div>
 
-            {/* 2. KATEGORİ KARTLARI (GRID) */}
-            <div className="mb-8 overflow-x-auto pb-2">
-                <div className="flex gap-4 min-w-max">
+            {/* 2. KATEGORİ KARTLARI (KOMPAKT GRID) */}
+            <div className="mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {/* Tümü Kartı */}
                     <button
                         onClick={() => setSelectedCategory('TÜMÜ')}
-                        className={`min-w-[140px] p-4 rounded-xl border-2 transition-all text-left flex flex-col justify-between h-24 shadow-sm ${
+                        className={`p-3 rounded-lg border text-left flex flex-col justify-between h-16 shadow-sm transition-all ${
                             selectedCategory === 'TÜMÜ'
-                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-200'
-                                : 'border-white bg-white dark:bg-gray-800 dark:border-gray-700 hover:border-blue-300'
+                                ? 'bg-blue-600 text-white border-blue-700 shadow-md transform scale-105'
+                                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300'
                         }`}
                     >
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">TOPLAM</span>
-                        <div className="flex justify-between items-end">
-                            <span className="font-bold text-gray-800 dark:text-white truncate">TÜMÜ</span>
-                            <span className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs px-2 py-1 rounded-full font-bold">
+                        <div className="flex justify-between items-center w-full">
+                            <span className={`text-xs font-bold truncate ${selectedCategory === 'TÜMÜ' ? 'text-blue-100' : 'text-gray-800 dark:text-gray-200'}`}>TÜMÜ</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                                selectedCategory === 'TÜMÜ' ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                            }`}>
                                 {tools.length}
                             </span>
                         </div>
@@ -352,17 +340,16 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                         <button
                             key={cat.id}
                             onClick={() => setSelectedCategory(cat.name)}
-                            className={`min-w-[140px] p-4 rounded-xl border-2 transition-all text-left flex flex-col justify-between h-24 shadow-sm ${
+                            className={`p-3 rounded-lg border text-left flex flex-col justify-between h-16 shadow-sm transition-all ${
                                 selectedCategory === cat.name
-                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-200'
-                                    : 'border-white bg-white dark:bg-gray-800 dark:border-gray-700 hover:border-blue-300'
+                                    ? 'bg-blue-600 text-white border-blue-700 shadow-md transform scale-105'
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300'
                             }`}
                         >
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">KATEGORİ</span>
-                            <div className="flex justify-between items-end">
-                                <span className="font-bold text-gray-800 dark:text-white truncate max-w-[80px]" title={cat.name}>{cat.name}</span>
-                                <span className={`text-xs px-2 py-1 rounded-full font-bold ${
-                                    getCategoryCount(cat.name) > 0 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'
+                            <div className="flex justify-between items-center w-full">
+                                <span className={`text-xs font-bold truncate pr-2 ${selectedCategory === cat.name ? 'text-blue-100' : 'text-gray-800 dark:text-gray-200'}`} title={cat.name}>{cat.name}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                                    selectedCategory === cat.name ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                                 }`}>
                                     {getCategoryCount(cat.name)}
                                 </span>
@@ -444,7 +431,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-900/50 p-1 rounded-lg border border-gray-200 dark:border-gray-700 relative">
                                                     {stockUpdateId === tool.id ? (
-                                                        <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-800 rounded shadow-lg absolute z-10 border border-blue-200 -top-8">
+                                                        <div className="flex flex-col items-center p-2 bg-white dark:bg-gray-800 rounded shadow-lg absolute z-10 border border-blue-200 -top-8 min-w-[200px]">
                                                             <div className="flex items-center mb-2">
                                                                 <input 
                                                                     type="number" 
@@ -457,10 +444,9 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                                                 <button onClick={() => handleManualStockSave(tool.id)} className="ml-1 text-green-600 hover:bg-green-100 p-1 rounded"><Save className="w-4 h-4"/></button>
                                                                 <button onClick={() => {setStockUpdateId(null); setIsAdjustment(false);}} className="ml-1 text-red-600 hover:bg-red-100 p-1 rounded"><X className="w-4 h-4"/></button>
                                                             </div>
-                                                            {/* YENİ EKLENDİ: Devir/Sayım Seçimi */}
                                                             <label className="flex items-center space-x-2 cursor-pointer text-xs text-gray-600 dark:text-gray-300 select-none">
                                                                 <div onClick={() => setIsAdjustment(!isAdjustment)} className={`w-4 h-4 border rounded flex items-center justify-center ${isAdjustment ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-400'}`}>
-                                                                    {isAdjustment && <CheckSquare className="w-3 h-3" />}
+                                                                        {isAdjustment && <CheckSquare className="w-3 h-3" />}
                                                                 </div>
                                                                 <span>Devir/Sayım (Analize Yansımaz)</span>
                                                             </label>
@@ -595,7 +581,6 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                 </div>
                             </div>
 
-                            {/* YENİ EKLENDİ: STOK VE DEVİR SEÇİMİ */}
                             <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                                 <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Stok Adedi</label>
                                 <div className="flex items-center gap-4">
@@ -685,13 +670,37 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                             <div className="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700">
                                 {categories.map(cat => (
                                     <div key={cat.id} className="p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                        <span className="font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
-                                        <button 
-                                            onClick={() => handleDeleteCategory(cat.id)} 
-                                            className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30 transition"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        {editingCategoryId === cat.id ? (
+                                            <div className="flex items-center gap-2 w-full">
+                                                <input 
+                                                    type="text" 
+                                                    className="flex-1 p-1 border rounded text-sm dark:bg-gray-600 dark:text-white"
+                                                    value={editingCategoryName}
+                                                    onChange={(e) => setEditingCategoryName(e.target.value)}
+                                                    autoFocus
+                                                />
+                                                <button onClick={saveEditingCategory} className="text-green-600 hover:bg-green-100 p-1 rounded"><Check className="w-4 h-4"/></button>
+                                                <button onClick={() => setEditingCategoryId(null)} className="text-red-600 hover:bg-red-100 p-1 rounded"><X className="w-4 h-4"/></button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <span className="font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
+                                                <div className="flex gap-1">
+                                                    <button 
+                                                        onClick={() => startEditingCategory(cat)}
+                                                        className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-400 p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/30 transition"
+                                                    >
+                                                        <Edit3 className="w-4 h-4" />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteCategory(cat.id)} 
+                                                        className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30 transition"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 ))}
                                 {categories.length === 0 && (

@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { 
     Monitor, ArrowRight, RotateCcw, AlertOctagon, 
     CheckCircle, Plus, Search, Wrench, X, Trash2, List,
-    ShoppingCart, Minus, Package, User, ArrowRightLeft, Users, Briefcase
+    ShoppingCart, Minus, Package, User, ArrowRightLeft, Users, Briefcase, AlertTriangle, Recycle
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
@@ -36,6 +36,9 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const [targetId, setTargetId] = useState(''); // Hedef ID
     const [targetReceiverId, setTargetReceiverId] = useState(''); // Hedefteki Sorumlu (Personelse kendisi)
 
+    // --- MODAL: HURDA SEBEBİ SEÇİMİ (YENİ) ---
+    const [scrapReasonModal, setScrapReasonModal] = useState({ isOpen: false, toolEntry: null });
+
     // --- 1. SEÇİLEN VARLIĞI BUL (TEZGAH VEYA PERSONEL) ---
     const selectedOwner = useMemo(() => {
         if (viewMode === 'MACHINES') {
@@ -54,23 +57,19 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         return machines.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }, [machines, searchTerm, viewMode]);
 
-    // Personel Listesi (DÜZELTME: Tüm Personel Gösteriliyor)
+    // Personel Listesi
     const filteredPersonnelList = useMemo(() => {
         if (viewMode !== 'PERSONNEL') return [];
-        
-        // Rol filtresi kaldırıldı, tüm personel listeleniyor
         let list = [...personnel]; 
-
         if (searchTerm) {
             list = list.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
         }
         return list.sort((a, b) => a.name.localeCompare(b.name));
     }, [personnel, searchTerm, viewMode]);
 
-    // Operatör Listesi (Dropdownlar için - DÜZELTME: Tüm Personel Seçilebilir)
+    // Operatör Listesi
     const allOperators = useMemo(() => {
         if (!personnel) return [];
-        // Rol filtresi kaldırıldı
         return [...personnel].sort((a, b) => a.name.localeCompare(b.name));
     }, [personnel]);
 
@@ -140,12 +139,9 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const handleConfirmAssignment = async () => {
         if (pendingItems.length === 0) return;
         
-        // Eğer Şahsi ise, operatör seçimi zorunlu değil (kendi kendine alıyor), ama yine de seçilebilir.
-        // Eğer Tezgah ise, operatör seçimi zorunlu.
         let finalOperatorId = selectedOperatorId;
         
         if (viewMode === 'PERSONNEL' && !finalOperatorId) {
-            // Şahsi alımda operatör seçilmediyse, seçilen personelin kendisi varsayılır.
             finalOperatorId = selectedOwnerId;
         }
 
@@ -155,7 +151,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         const operatorName = operator ? operator.name : 'Bilinmiyor';
 
         try {
-            // Hedef Koleksiyonu Belirle (Tezgah mı Personel mi?)
             const targetCollectionRef = viewMode === 'MACHINES' 
                 ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
                 : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
@@ -187,8 +182,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                     quantity: item.quantity,
                     machineName: viewMode === 'MACHINES' ? selectedOwner.name : 'ŞAHSİ ZİMMET',
                     user: loggedInUser.name,
-                    receiver: operatorName, // Alan kişi
-                    targetType: viewMode, // MACHINE veya PERSONNEL
+                    receiver: operatorName, 
+                    targetType: viewMode, 
                     date: now
                 });
             }
@@ -220,7 +215,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const handleExecuteTransfer = async () => {
         if (!targetId) return alert("Lütfen hedefi seçiniz.");
         
-        // Eğer hedef personel ise, alıcı otomatik o personeldir. Değilse seçilmelidir.
         let finalReceiverId = targetReceiverId;
         if(targetType === 'PERSONNEL') {
             finalReceiverId = targetId; 
@@ -231,7 +225,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         const targetReceiver = personnel.find(p => p.id === finalReceiverId);
         const receiverName = targetReceiver ? targetReceiver.name : 'Bilinmiyor';
         
-        // Hedefin Adını Bul
         let targetName = '';
         if (targetType === 'MACHINE') {
             targetName = machines.find(m => m.id === targetId)?.name;
@@ -240,25 +233,21 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         }
 
         try {
-            // Kaynak Koleksiyon
             const sourceCollectionRef = viewMode === 'MACHINES' 
                 ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
                 : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
 
-            // Hedef Koleksiyon
             const targetCollectionRef = targetType === 'MACHINE'
                 ? doc(db, MACHINES_COLLECTION, targetId)
                 : doc(db, PERSONNEL_COLLECTION, targetId);
 
             const now = getCurrentDateTimeString();
 
-            // 1. Kaynaktan Sil
             const updatedSourceTools = (selectedOwner.currentTools || []).filter(t => t.instanceId !== toolToTransfer.instanceId);
             await updateDoc(sourceCollectionRef, {
                 currentTools: updatedSourceTools
             });
 
-            // 2. Hedefe Ekle
             const toolDataClean = JSON.parse(JSON.stringify(toolToTransfer));
             const toolToAdd = {
                 ...toolDataClean, 
@@ -271,11 +260,10 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                 currentTools: arrayUnion(toolToAdd)
             });
 
-            // 3. Log
             await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
                 type: TOOL_TRANSACTION_TYPES.TRANSFER,
                 toolName: toolToTransfer.toolName,
-                fromMachine: selectedOwner.name, // İsim olarak personelin adı veya tezgahın adı
+                fromMachine: selectedOwner.name,
                 toMachine: targetName,
                 user: loggedInUser.name,
                 receiver: receiverName,
@@ -292,30 +280,65 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         }
     };
 
-    // --- İADE ALMA ---
-    const handleReturnTool = async (toolEntry, isScrap) => {
+    // --- İADE VE HURDA İŞLEMLERİ ---
+    
+    // 1. Butona Tıklanınca Çalışan Fonksiyon
+    const handleReturnToolClick = (toolEntry, isScrap) => {
+        if (!isScrap) {
+            // İade ise direkt işlem yap
+            processReturn(toolEntry, TOOL_TRANSACTION_TYPES.RETURN_HEALTHY, 'Depoya geri alındı', false);
+        } else {
+            // Hurda ise Modal Aç
+            setScrapReasonModal({ isOpen: true, toolEntry: toolEntry });
+        }
+    };
+
+    // 2. Hurda Modalı Onaylanınca (Sebebe Göre)
+    const handleConfirmScrap = (reasonType) => {
+        const toolEntry = scrapReasonModal.toolEntry;
+        if (!toolEntry) return;
+
+        let transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP; // Fallback
+        let note = '';
+
+        if (reasonType === 'WEAR') {
+            transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR;
+            note = 'Ömür bitti / Doğal aşınma';
+        } else if (reasonType === 'DAMAGE') {
+            transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE;
+            note = 'Kırılma / Hasar / Hata';
+        }
+
+        processReturn(toolEntry, transactionType, note, true);
+        setScrapReasonModal({ isOpen: false, toolEntry: null });
+    };
+
+    // 3. Asıl Veritabanı İşlemini Yapan Fonksiyon
+    const processReturn = async (toolEntry, transactionType, note, isScrap) => {
         try {
-            // Hangi koleksiyondan silinecek?
             const ownerRef = viewMode === 'MACHINES' 
                 ? doc(db, MACHINES_COLLECTION, selectedOwnerId)
                 : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
 
             const toolRef = doc(db, INVENTORY_COLLECTION, toolEntry.toolId);
 
+            // Kişiden/Tezgahtan Sil
             const updatedToolsList = (selectedOwner.currentTools || []).filter(t => t.instanceId !== toolEntry.instanceId);
             await updateDoc(ownerRef, { currentTools: updatedToolsList });
 
+            // Eğer Sağlam İade ise Stok Artır
             if (!isScrap) {
                 await updateDoc(toolRef, { totalStock: increment(1) });
             }
 
+            // Log Kaydı
             await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
-                type: isScrap ? TOOL_TRANSACTION_TYPES.RETURN_SCRAP : TOOL_TRANSACTION_TYPES.RETURN_HEALTHY,
+                type: transactionType,
                 toolName: toolEntry.toolName,
                 machineName: selectedOwner.name,
                 user: loggedInUser.name,
                 date: getCurrentDateTimeString(),
-                notes: isScrap ? 'Iskartaya ayrıldı' : 'Depoya geri alındı'
+                notes: note
             });
 
         } catch (error) { console.error(error); }
@@ -335,8 +358,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
             
             {/* 1. SOL PANEL: LİSTE VE ARAMA */}
             <div className="w-1/3 md:w-1/4 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-                
-                {/* Header ve Sekmeler */}
                 <div className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex">
                         <button 
@@ -373,7 +394,6 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                     </div>
                 </div>
 
-                {/* Liste İçeriği */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     {viewMode === 'MACHINES' ? (
                         filteredMachines.map(machine => {
@@ -503,13 +523,13 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                                 </button>
 
                                                 <button 
-                                                    onClick={() => handleReturnTool(toolEntry, false)}
+                                                    onClick={() => handleReturnToolClick(toolEntry, false)}
                                                     className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/40 rounded text-xs font-bold transition"
                                                 >
                                                     İade
                                                 </button>
                                                 <button 
-                                                    onClick={() => handleReturnTool(toolEntry, true)}
+                                                    onClick={() => handleReturnToolClick(toolEntry, true)}
                                                     className="px-2 py-1 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-xs font-bold transition"
                                                 >
                                                     Hurda
@@ -753,6 +773,60 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                 className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center"
                             >
                                 <ArrowRightLeft className="w-5 h-5 mr-2" /> Transferi Tamamla
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL: HURDA SEBEBİ SEÇİMİ (YENİ) --- */}
+            {scrapReasonModal.isOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+                    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-red-200 dark:border-red-900 overflow-hidden">
+                        <div className="bg-red-50 dark:bg-red-900/30 p-4 border-b border-red-100 dark:border-red-800 text-center">
+                            <div className="mx-auto w-12 h-12 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center mb-2">
+                                <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Hurda Sebebi Seçiniz</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                "{scrapReasonModal.toolEntry?.toolName}" neden hurdaya ayrılıyor?
+                            </p>
+                        </div>
+                        
+                        <div className="p-6 space-y-3">
+                            <button 
+                                onClick={() => handleConfirmScrap('WEAR')}
+                                className="w-full p-4 rounded-xl border-2 border-blue-100 dark:border-blue-900 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group text-left flex items-center"
+                            >
+                                <div className="bg-blue-100 dark:bg-blue-900/50 p-2 rounded-full mr-4 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition">
+                                    <Recycle className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+                                </div>
+                                <div>
+                                    <div className="font-bold text-gray-900 dark:text-white">Doğal Aşınma / Ömür Bitti</div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">Normal kullanım sonucu köreldi.</div>
+                                </div>
+                            </button>
+
+                            <button 
+                                onClick={() => handleConfirmScrap('DAMAGE')}
+                                className="w-full p-4 rounded-xl border-2 border-red-100 dark:border-red-900 hover:border-red-500 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition group text-left flex items-center"
+                            >
+                                <div className="bg-red-100 dark:bg-red-900/50 p-2 rounded-full mr-4 group-hover:bg-red-200 dark:group-hover:bg-red-800 transition">
+                                    <AlertOctagon className="w-6 h-6 text-red-600 dark:text-red-300" />
+                                </div>
+                                <div>
+                                    <div className="font-bold text-gray-900 dark:text-white">Kırılma / Hasar / Hata</div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">Operatör hatası, kaza veya kırılma.</div>
+                                </div>
+                            </button>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-center">
+                            <button 
+                                onClick={() => setScrapReasonModal({ isOpen: false, toolEntry: null })}
+                                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 font-medium text-sm"
+                            >
+                                İptal
                             </button>
                         </div>
                     </div>

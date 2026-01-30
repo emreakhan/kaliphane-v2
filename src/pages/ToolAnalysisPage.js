@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     BarChart2, AlertTriangle, Users, TrendingUp, 
-    Download, Calendar, Filter, CheckCircle 
+    Download, Calendar, Filter, CheckCircle, Recycle, XCircle
 } from 'lucide-react';
 import { collection, query, getDocs, onSnapshot } from '../config/firebase.js';
 import { 
@@ -12,12 +12,12 @@ import {
 
 // GRAFİK KÜTÜPHANESİ
 import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend
 } from 'recharts';
 
-// PDF KÜTÜPHANESİ (GÜNCELLENDİ)
+// PDF KÜTÜPHANESİ
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; // Import şekli değişti
+import autoTable from 'jspdf-autotable'; 
 
 const ToolAnalysisPage = ({ db }) => {
     const [activeTab, setActiveTab] = useState('USAGE'); 
@@ -84,7 +84,11 @@ const ToolAnalysisPage = ({ db }) => {
             if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
                 usageMap[name] = (usageMap[name] || 0) + (parseInt(tx.quantity) || 1);
             }
-            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
+            
+            // GÜNCELLEME: Tüm hurda tiplerini genel grafikte göster
+            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
+                tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE || 
+                tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
                 scrapMap[name] = (scrapMap[name] || 0) + 1;
             }
         });
@@ -108,20 +112,29 @@ const ToolAnalysisPage = ({ db }) => {
             const opName = tx.receiver; 
             if (!opName || opName === 'Bilinmiyor') return;
 
-            if (!ops[opName]) ops[opName] = { name: opName, totalTaken: 0, totalScrap: 0 };
+            if (!ops[opName]) ops[opName] = { name: opName, totalTaken: 0, totalScrap: 0, totalWear: 0 };
 
             if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
                 ops[opName].totalTaken += (parseInt(tx.quantity) || 1);
             }
-            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
+            
+            // GÜNCELLEME: Hurda Ayrımı
+            // 1. HATA/KIRILMA (Performansa Eksi Yazar) - Eski 'RETURN_SCRAP' ve yeni 'DAMAGE'
+            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
+                tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE) {
                 ops[opName].totalScrap += 1;
+            }
+
+            // 2. DOĞAL AŞINMA (Performansı Etkilemez) - Yeni 'WEAR'
+            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
+                ops[opName].totalWear += 1;
             }
         });
         return Object.values(ops).sort((a, b) => b.totalTaken - a.totalTaken);
     }, [filteredTransactions]);
 
 
-    // --- PDF RAPOR OLUŞTURMA (DÜZELTİLDİ) ---
+    // --- PDF RAPOR OLUŞTURMA ---
     const generatePDF = () => {
         const doc = new jsPDF();
         
@@ -138,7 +151,7 @@ const ToolAnalysisPage = ({ db }) => {
         // Tablo 1
         autoTable(doc, {
             startY: 45,
-            head: [['Sira', 'Takim Adi', 'Tuketim Adedi', 'Hurda Adedi', 'Hurda Orani (%)']],
+            head: [['Sira', 'Takim Adi', 'Tuketim Adedi', 'Toplam Hurda', 'Hurda Orani (%)']],
             body: Object.entries(chartData.usageMap)
                 .sort((a, b) => b[1] - a[1]) 
                 .map(([name, count], index) => {
@@ -151,13 +164,13 @@ const ToolAnalysisPage = ({ db }) => {
         });
 
         // Tablo 2
-        doc.text("Operator Kullanim ve Hurda Durumu", 14, doc.lastAutoTable.finalY + 15);
+        doc.text("Operator Performans Durumu", 14, doc.lastAutoTable.finalY + 15);
         autoTable(doc, {
             startY: doc.lastAutoTable.finalY + 20,
-            head: [['Operator', 'Toplam Alinan', 'Hurda Sayisi', 'Hurda Orani (%)']],
+            head: [['Operator', 'Toplam Alinan', 'Kirilma/Hata', 'Dogal Asinma', 'Hata Orani (%)']],
             body: operatorStats.map(op => {
                 const rate = op.totalTaken > 0 ? ((op.totalScrap / op.totalTaken) * 100).toFixed(1) : 0;
-                return [op.name, op.totalTaken, op.totalScrap, `%${rate}`];
+                return [op.name, op.totalTaken, op.totalScrap, op.totalWear, `%${rate}`];
             }),
             theme: 'grid',
             headStyles: { fillColor: [39, 174, 96] }
@@ -199,7 +212,7 @@ const ToolAnalysisPage = ({ db }) => {
                 </div>
 
                 <div className="flex flex-wrap gap-3 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    {/* Yıl Seçimi - DÜZELTİLDİ: Arka plan rengi eklendi */}
+                    {/* Yıl Seçimi */}
                     <div className="flex items-center px-2">
                         <Calendar className="w-4 h-4 mr-2 text-gray-500" />
                         <select 
@@ -213,7 +226,7 @@ const ToolAnalysisPage = ({ db }) => {
                         </select>
                     </div>
                     
-                    {/* Ay Seçimi - DÜZELTİLDİ: Arka plan rengi eklendi */}
+                    {/* Ay Seçimi */}
                     <div className="flex items-center px-2 border-l border-gray-300 dark:border-gray-600">
                         <Filter className="w-4 h-4 mr-2 text-gray-500" />
                         <select 
@@ -312,21 +325,35 @@ const ToolAnalysisPage = ({ db }) => {
                             <tr>
                                 <th className="p-4">Operatör Adı</th>
                                 <th className="p-4 text-center">Toplam Alınan Takım</th>
-                                <th className="p-4 text-center">Hurdaya Ayrılan</th>
-                                <th className="p-4 text-center">Hurda Oranı</th>
+                                <th className="p-4 text-center">
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-red-600 flex items-center"><XCircle className="w-3 h-3 mr-1"/> Kırılma / Hata</span>
+                                        <span className="text-[10px] font-normal text-gray-500">Performansa yansır</span>
+                                    </div>
+                                </th>
+                                <th className="p-4 text-center">
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-blue-600 flex items-center"><Recycle className="w-3 h-3 mr-1"/> Doğal Aşınma</span>
+                                        <span className="text-[10px] font-normal text-gray-500">Ömrü bitti</span>
+                                    </div>
+                                </th>
+                                <th className="p-4 text-center">Hata Oranı</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                             {operatorStats.length === 0 ? (
-                                <tr><td colSpan="4" className="p-8 text-center text-gray-400">Bu dönem için veri bulunamadı.</td></tr>
+                                <tr><td colSpan="5" className="p-8 text-center text-gray-400">Bu dönem için veri bulunamadı.</td></tr>
                             ) : (
                                 operatorStats.map((op, idx) => {
+                                    // Hata Oranı: Sadece (Kırılma / Toplam) hesaplanıyor
                                     const rate = op.totalTaken > 0 ? ((op.totalScrap / op.totalTaken) * 100).toFixed(1) : 0;
+                                    
                                     return (
                                         <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                             <td className="p-4 font-bold text-gray-900 dark:text-white">{op.name}</td>
                                             <td className="p-4 text-center font-medium">{op.totalTaken}</td>
-                                            <td className="p-4 text-center text-red-600 font-bold">{op.totalScrap}</td>
+                                            <td className="p-4 text-center font-bold text-red-600">{op.totalScrap}</td>
+                                            <td className="p-4 text-center font-bold text-blue-500">{op.totalWear}</td>
                                             <td className="p-4 text-center">
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${
                                                     rate > 20 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
