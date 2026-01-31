@@ -2,16 +2,15 @@
 
 import React, { useState, useMemo } from 'react';
 import { 
-    Monitor, ArrowRight, RotateCcw, AlertOctagon, 
-    CheckCircle, Plus, Search, Wrench, X, Trash2, List,
-    ShoppingCart, Minus, Package, User, ArrowRightLeft, Users, Briefcase, AlertTriangle, Recycle
+    Monitor, ArrowRight, CheckCircle, Plus, Search, Wrench, X, Trash2, List,
+    ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
 } from '../config/firebase.js';
 import { 
     MACHINES_COLLECTION, INVENTORY_COLLECTION, PERSONNEL_COLLECTION,
-    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES, PERSONNEL_ROLES
+    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
@@ -36,8 +35,9 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const [targetId, setTargetId] = useState(''); // Hedef ID
     const [targetReceiverId, setTargetReceiverId] = useState(''); // Hedefteki Sorumlu (Personelse kendisi)
 
-    // --- MODAL: HURDA SEBEBİ SEÇİMİ (YENİ) ---
+    // --- MODAL: HURDA SEBEBİ SEÇİMİ ---
     const [scrapReasonModal, setScrapReasonModal] = useState({ isOpen: false, toolEntry: null });
+    const [scrapDescription, setScrapDescription] = useState(''); // Hurda Açıklaması
 
     // --- 1. SEÇİLEN VARLIĞI BUL (TEZGAH VEYA PERSONEL) ---
     const selectedOwner = useMemo(() => {
@@ -289,6 +289,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
             processReturn(toolEntry, TOOL_TRANSACTION_TYPES.RETURN_HEALTHY, 'Depoya geri alındı', false);
         } else {
             // Hurda ise Modal Aç
+            setScrapDescription('');
             setScrapReasonModal({ isOpen: true, toolEntry: toolEntry });
         }
     };
@@ -301,16 +302,19 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         let transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP; // Fallback
         let note = '';
 
+        const userDesc = scrapDescription.trim() ? ` - Açıklama: ${scrapDescription}` : '';
+
         if (reasonType === 'WEAR') {
             transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR;
-            note = 'Ömür bitti / Doğal aşınma';
+            note = `Ömür bitti / Doğal aşınma${userDesc}`;
         } else if (reasonType === 'DAMAGE') {
             transactionType = TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE;
-            note = 'Kırılma / Hasar / Hata';
+            note = `Kırılma / Hasar / Hata${userDesc}`;
         }
 
         processReturn(toolEntry, transactionType, note, true);
         setScrapReasonModal({ isOpen: false, toolEntry: null });
+        setScrapDescription('');
     };
 
     // 3. Asıl Veritabanı İşlemini Yapan Fonksiyon
@@ -331,12 +335,18 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                 await updateDoc(toolRef, { totalStock: increment(1) });
             }
 
+            // --- DÜZELTME BURADA YAPILDI ---
+            // Takımı tezgaha verirken kaydettiğimiz 'receivedBy' verisini burada okuyoruz.
+            // Bu sayede "Ahmet Usta" tezgaha takımı aldıysa, hurdaya çıkarken de "Sorumlu: Ahmet Usta" yazacak.
+            const responsiblePerson = toolEntry.receivedBy || (viewMode === 'PERSONNEL' ? selectedOwner.name : 'Bilinmiyor');
+
             // Log Kaydı
             await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
                 type: transactionType,
                 toolName: toolEntry.toolName,
-                machineName: selectedOwner.name,
-                user: loggedInUser.name,
+                machineName: viewMode === 'MACHINES' ? selectedOwner.name : 'ŞAHSİ ZİMMET',
+                user: loggedInUser.name, // İşlemi yapan admin
+                receiver: responsiblePerson, // <-- ARTIK SORUMLU KİŞİ YAZIYOR
                 date: getCurrentDateTimeString(),
                 notes: note
             });
@@ -793,37 +803,52 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                             </p>
                         </div>
                         
-                        <div className="p-6 space-y-3">
-                            <button 
-                                onClick={() => handleConfirmScrap('WEAR')}
-                                className="w-full p-4 rounded-xl border-2 border-blue-100 dark:border-blue-900 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group text-left flex items-center"
-                            >
-                                <div className="bg-blue-100 dark:bg-blue-900/50 p-2 rounded-full mr-4 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition">
-                                    <Recycle className="w-6 h-6 text-blue-600 dark:text-blue-300" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 dark:text-white">Doğal Aşınma / Ömür Bitti</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400">Normal kullanım sonucu köreldi.</div>
-                                </div>
-                            </button>
+                        <div className="p-6 space-y-4">
+                            
+                            {/* YENİ: AÇIKLAMA ALANI */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Açıklama / Hata Sebebi (Opsiyonel)</label>
+                                <textarea 
+                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white resize-none focus:ring-1 focus:ring-red-500"
+                                    rows="2"
+                                    placeholder="Örn: Uç sıkıştı, Tezgaha çarptı, Yanlış parametre..."
+                                    value={scrapDescription}
+                                    onChange={(e) => setScrapDescription(e.target.value)}
+                                ></textarea>
+                            </div>
 
-                            <button 
-                                onClick={() => handleConfirmScrap('DAMAGE')}
-                                className="w-full p-4 rounded-xl border-2 border-red-100 dark:border-red-900 hover:border-red-500 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition group text-left flex items-center"
-                            >
-                                <div className="bg-red-100 dark:bg-red-900/50 p-2 rounded-full mr-4 group-hover:bg-red-200 dark:group-hover:bg-red-800 transition">
-                                    <AlertOctagon className="w-6 h-6 text-red-600 dark:text-red-300" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 dark:text-white">Kırılma / Hasar / Hata</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400">Operatör hatası, kaza veya kırılma.</div>
-                                </div>
-                            </button>
+                            <div className="space-y-3">
+                                <button 
+                                    onClick={() => handleConfirmScrap('WEAR')}
+                                    className="w-full p-4 rounded-xl border-2 border-blue-100 dark:border-blue-900 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group text-left flex items-center"
+                                >
+                                    <div className="bg-blue-100 dark:bg-blue-900/50 p-2 rounded-full mr-4 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition">
+                                        <Recycle className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-gray-900 dark:text-white">Doğal Aşınma / Ömür Bitti</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">Normal kullanım sonucu köreldi.</div>
+                                    </div>
+                                </button>
+
+                                <button 
+                                    onClick={() => handleConfirmScrap('DAMAGE')}
+                                    className="w-full p-4 rounded-xl border-2 border-red-100 dark:border-red-900 hover:border-red-500 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition group text-left flex items-center"
+                                >
+                                    <div className="bg-red-100 dark:bg-red-900/50 p-2 rounded-full mr-4 group-hover:bg-red-200 dark:group-hover:bg-red-800 transition">
+                                        <AlertOctagon className="w-6 h-6 text-red-600 dark:text-red-300" />
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-gray-900 dark:text-white">Kırılma / Hasar / Hata</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">Operatör hatası, kaza veya kırılma.</div>
+                                    </div>
+                                </button>
+                            </div>
                         </div>
 
                         <div className="p-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-center">
                             <button 
-                                onClick={() => setScrapReasonModal({ isOpen: false, toolEntry: null })}
+                                onClick={() => { setScrapReasonModal({ isOpen: false, toolEntry: null }); setScrapDescription(''); }}
                                 className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 font-medium text-sm"
                             >
                                 İptal

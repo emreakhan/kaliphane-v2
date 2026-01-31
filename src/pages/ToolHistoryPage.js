@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     History, Search, User, FileText, CheckCircle, 
-    AlertOctagon, ArrowRightLeft, Clock
+    AlertOctagon, ArrowRightLeft, Clock, Recycle
 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from '../config/firebase.js';
 import { TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES } from '../config/constants.js';
@@ -89,7 +89,10 @@ const ToolHistoryPage = ({ machines, db }) => {
             case TOOL_TRANSACTION_TYPES.RETURN_HEALTHY:
                 return <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold flex items-center w-fit"><CheckCircle className="w-3 h-3 mr-1"/> Sağlam İade</span>;
             case TOOL_TRANSACTION_TYPES.RETURN_SCRAP:
+            case TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE:
                 return <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold flex items-center w-fit"><AlertOctagon className="w-3 h-3 mr-1"/> Hurda/Iskarta</span>;
+            case TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR:
+                return <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-bold flex items-center w-fit"><Recycle className="w-3 h-3 mr-1"/> Doğal Aşınma</span>;
             case TOOL_TRANSACTION_TYPES.TRANSFER:
                 return <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-bold flex items-center w-fit"><ArrowRightLeft className="w-3 h-3 mr-1"/> Transfer</span>;
             default:
@@ -97,13 +100,15 @@ const ToolHistoryPage = ({ machines, db }) => {
         }
     };
 
+    if (loading) return <div className="p-8 text-center text-gray-500">Yükleniyor...</div>;
+
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
-                        <FileText className="w-8 h-8 mr-3 text-purple-600" />
-                        Takım Takip & Geçmiş
+                        <History className="w-8 h-8 mr-3 text-purple-600" />
+                        Geçmiş & Takip
                     </h1>
                     <p className="text-gray-500 text-sm mt-1">
                         Operatör bazlı zimmet takibi ve geçmiş işlem dökümü.
@@ -210,18 +215,21 @@ const ToolHistoryPage = ({ machines, db }) => {
                             <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
                                 <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
                                     <tr>
-                                        <th className="p-4">Tarih</th>
-                                        <th className="p-4">İşlem Tipi</th>
-                                        <th className="p-4">Takım</th>
-                                        <th className="p-4">İlgili Kişi (Operatör)</th>
-                                        <th className="p-4">Tezgah</th>
+                                        <th className="p-4 w-40">Tarih</th>
+                                        <th className="p-4 w-32">İşlem Tipi</th>
+                                        <th className="p-4">Takım Adı</th>
+                                        <th className="p-4">Adet</th>
+                                        <th className="p-4">Tezgah / Bölüm</th>
+                                        {/* YENİ SÜTUN EKLENDİ */}
+                                        <th className="p-4">Sorumlu / Alan Kişi</th>
+                                        <th className="p-4">İşlemi Yapan</th>
                                         <th className="p-4">Notlar</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                     {filteredHistory.length === 0 ? (
                                         <tr>
-                                            <td colSpan="6" className="p-8 text-center text-gray-400">
+                                            <td colSpan="8" className="p-8 text-center text-gray-400">
                                                 İşlem geçmişi bulunamadı.
                                             </td>
                                         </tr>
@@ -237,9 +245,7 @@ const ToolHistoryPage = ({ machines, db }) => {
                                                 <td className="p-4 font-medium text-gray-900 dark:text-white">
                                                     {tx.toolName}
                                                 </td>
-                                                <td className="p-4">
-                                                    {tx.receiver || '-'}
-                                                </td>
+                                                <td className="p-4 font-bold">{tx.quantity}</td>
                                                 <td className="p-4">
                                                     {tx.machineName ? (
                                                         <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs">
@@ -254,7 +260,14 @@ const ToolHistoryPage = ({ machines, db }) => {
                                                         </span>
                                                     )}
                                                 </td>
-                                                <td className="p-4 text-xs text-gray-500 italic">
+                                                
+                                                {/* YENİ VERİ GÖSTERİMİ */}
+                                                <td className="p-4 font-bold text-gray-800 dark:text-gray-200">
+                                                    {tx.receiver || '-'}
+                                                </td>
+
+                                                <td className="p-4 text-xs">{tx.user}</td>
+                                                <td className="p-4 text-xs italic max-w-xs truncate" title={tx.notes}>
                                                     {tx.notes || ''}
                                                 </td>
                                             </tr>
