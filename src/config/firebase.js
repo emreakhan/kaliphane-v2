@@ -5,6 +5,7 @@ import {
     getFirestore, 
     collection, 
     getDocs, 
+    getDoc, // <-- YENİ EKLENDİ (Tekil döküman çekmek için)
     addDoc, 
     updateDoc, 
     deleteDoc, 
@@ -16,7 +17,7 @@ import {
     arrayUnion,
     increment,
     orderBy,
-    limit // YENİ EKLENDİ
+    limit 
 } from "firebase/firestore";
 import { 
     getAuth, 
@@ -56,7 +57,8 @@ export {
     auth, 
     storage, 
     collection, 
-    getDocs, 
+    getDocs,
+    getDoc, // <-- YENİ EKLENDİ (Dışa aktarıldı)
     addDoc, 
     updateDoc, 
     deleteDoc, 
@@ -74,5 +76,5 @@ export {
     arrayUnion,
     increment,
     orderBy,
-    limit // YENİ EKLENDİ
+    limit 
 };

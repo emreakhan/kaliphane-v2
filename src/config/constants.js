@@ -12,9 +12,14 @@ export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventor
 export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
 export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`;
 
-// --- YENİ: KALIP BAKIM KOLEKSİYONLARI ---
+// --- KALIP BAKIM KOLEKSİYONLARI ---
 export const MAINTENANCE_MOLDS_COLLECTION = `artifacts/${appId}/public/data/maintenanceMolds`;
 export const MAINTENANCE_LOGS_COLLECTION = `artifacts/${appId}/public/data/maintenanceLogs`;
+
+// --- CNC TORNA & KALİTE KONTROL (SPC) KOLEKSİYONLARI ---
+export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
+export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`; // YENİ: Parça Tanımları
+export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; // YENİ: Ölçüm Sonuçları
 
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
@@ -27,6 +32,8 @@ export const ROLES = {
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
+    CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
+    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', // YENİ: Parça Tanımlayan Kişi
 };
 
 export const PERSONNEL_ROLES = {
@@ -37,7 +44,12 @@ export const PERSONNEL_ROLES = {
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
+    CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
+    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', // YENİ EKLENDİ
 };
+
+// --- CNC TORNA TEZGAHLARI ---
+export const CNC_LATHE_MACHINES = ['K41', 'K60', 'K65'];
 
 export const OPERATION_STATUS = {
     NOT_STARTED: 'BAŞLAMADI',
@@ -184,9 +196,9 @@ export const TOOL_TRANSACTION_TYPES = {
     ADD_STOCK: 'STOK GİRİŞİ',
     ISSUE: 'TEZGAHA VERİLDİ',
     RETURN_HEALTHY: 'SAĞLAM İADE',
-    RETURN_SCRAP: 'ISKARTA/HURDA', // Genel Hurda (Eski kayıtlar için)
-    RETURN_SCRAP_WEAR: 'DOĞAL AŞINMA (HURDA)', // Yeni: Ömür Bitti
-    RETURN_SCRAP_DAMAGE: 'KIRILMA/HASAR (HURDA)', // Yeni: Operatör Hatası/Kaza
+    RETURN_SCRAP: 'ISKARTA/HURDA',
+    RETURN_SCRAP_WEAR: 'DOĞAL AŞINMA (HURDA)',
+    RETURN_SCRAP_DAMAGE: 'KIRILMA/HASAR (HURDA)',
     TRANSFER: 'TEZGAH TRANSFERİ',
     ADJUSTMENT: 'SAYIM DÜZELTME',
     STOCK_ENTRY: 'SATIN ALMA / GİRİŞ'

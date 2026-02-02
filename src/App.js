@@ -24,7 +24,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box
 } from 'lucide-react';
 
 // Sayfalar
@@ -46,7 +46,13 @@ import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 import ToolHistoryPage from './pages/ToolHistoryPage.js';
 import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
 import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
-import MoldMaintenancePage from './pages/MoldMaintenancePage.js'; // --- YENİ EKLENDİ ---
+import MoldMaintenancePage from './pages/MoldMaintenancePage.js'; 
+
+// --- CNC TORNA & SPC SAYFALARI ---
+import CncLatheDashboard from './pages/CncLatheDashboard.js';
+import CncLatheHistoryPage from './pages/CncLatheHistoryPage.js';
+import CncPartManager from './pages/CncPartManager.js'; 
+import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; // <-- YENİ EKLENDİ
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -398,14 +404,40 @@ const App = () => {
         // Rol Grupları
         const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU];
         const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU];
-        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; // Sadece Takımhane Sorumlusu
+        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; 
+        
+        // YETKİ KONTROLLERİ
+        const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
+        const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
 
-        // Takımhane Sorumlusunun GÖRMEMESİ gerekenler için liste
-        const rolesExceptToolRoom = allLoginRoles.filter(r => r !== ROLES.TAKIMHANE_SORUMLUSU);
+        // 1. CNC Torna Operatörü: SADECE KENDİ İŞİNİ GÖRÜR
+        if (isCncLatheOp) {
+            return [
+                { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_OPERATORU] },
+                { path: '/cnc-torna-history', label: 'Geçmiş İşler', icon: Archive, roles: [ROLES.CNC_TORNA_OPERATORU] }
+            ];
+        }
+
+        // 2. CNC Torna Sorumlusu: SADECE CNC YÖNETİMİNİ GÖRÜR
+        if (isCncLatheSup) {
+            return [
+                { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, // <-- YENİ EKLENDİ
+                { path: '/cnc-torna-history', label: 'Geçmiş İşler', icon: Archive, roles: [ROLES.CNC_TORNA_SORUMLUSU] }
+            ];
+        }
+
+        // 3. Diğer Roller (ADMIN DAHİL): Standart menü. CNC Torna Yok.
+        const rolesExceptToolRoomAndCnc = allLoginRoles.filter(r => 
+            r !== ROLES.TAKIMHANE_SORUMLUSU && 
+            r !== ROLES.CNC_TORNA_OPERATORU && 
+            r !== ROLES.CNC_TORNA_SORUMLUSU
+        );
         
         const finalBaseItems = [
-            // Kalıp İmalat: Takımhane görmeyecek
-            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoom },
+            // Kalıp İmalat
+            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
 
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
             { 
@@ -415,10 +447,12 @@ const App = () => {
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
             
-            // --- YENİ EKLENDİ: Kalıp Bakım Menüsü ---
+            // --- CNC TORNA MENÜSÜ BURADAN KALDIRILDI ---
+            // Admin dahil kimse menüde görmeyecek.
+
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
 
-            // Çalışan Parçalar: Herkes görecek (Takımhane dahil)
+            // Çalışan Parçalar
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             
             // Takımhane Menüleri
@@ -426,7 +460,6 @@ const App = () => {
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
             { path: '/tool-history', label: 'Geçmiş & Takip', icon: FileText, roles: canSeeTools },
             { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
-            // YENİ EKLENEN MENÜ: Detaylı Analiz
             { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
 
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
@@ -446,8 +479,7 @@ const App = () => {
 
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
             
-            // Geçmiş İşler: Takımhane görmeyecek
-            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoom },
+            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
 
             { 
                 path: '/analysis', 
@@ -509,7 +541,13 @@ const App = () => {
             </header>
 
             <Routes>
-                <Route path="/" element={<EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />} />
+                {/* --- ANA SAYFA YÖNLENDİRMESİ --- */}
+                <Route path="/" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <Navigate to="/cnc-torna" replace /> 
+                    : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
+                } />
+
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
@@ -525,8 +563,37 @@ const App = () => {
                 <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                 <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
 
-                {/* --- YENİ EKLENEN ROUTE --- */}
                 <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
+
+                {/* --- CNC TORNA & SPC SAYFALARI (SADECE TORNA EKİBİ İÇİN) --- */}
+                
+                {/* 1. CNC Dashboard: Torna Operatörü ve Sorumlusu */}
+                <Route path="/cnc-torna" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* 2. CNC Geçmiş: Torna Operatörü ve Sorumlusu */}
+                <Route path="/cnc-torna-history" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncLatheHistoryPage db={db} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* 3. Parça Yönetimi: SADECE Torna Sorumlusu */}
+                <Route path="/cnc-part-manager" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncPartManager db={db} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* 4. SPC Analiz: SADECE Torna Sorumlusu */}
+                <Route path="/cnc-spc-analysis" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncSpcAnalysisPage db={db} />
+                    : <Navigate to="/" replace />
+                } />
 
                 <Route path="/admin" element={<AdminDashboard 
                     db={db} 
