@@ -1,12 +1,12 @@
 // src/pages/CncLatheDashboard.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     Monitor, PlayCircle, StopCircle, Clock, 
-    Ruler, CheckCircle, XCircle, AlertTriangle, Save, ThumbsUp, ThumbsDown
+    Ruler, CheckCircle, XCircle, Save, Search, ChevronDown 
 } from 'lucide-react';
 import { 
-    collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc
+    collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc, getDocs 
 } from '../config/firebase.js';
 import { 
     CNC_LATHE_JOBS_COLLECTION, CNC_LATHE_MACHINES, 
@@ -24,7 +24,7 @@ const SimpleModal = ({ isOpen, onClose, title, children, maxWidth = "max-w-md" }
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white">{title}</h3>
                     <button onClick={onClose} className="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
                 </div>
-                <div className="p-6 overflow-y-auto">{children}</div>
+                <div className="p-6 overflow-y-auto overflow-x-hidden">{children}</div>
             </div>
         </div>
     );
@@ -33,7 +33,6 @@ const SimpleModal = ({ isOpen, onClose, title, children, maxWidth = "max-w-md" }
 // --- YARDIMCI: VİRGÜL/NOKTA DÖNÜŞTÜRÜCÜ ---
 const parseInputFloat = (value) => {
     if (value === '' || value === null || value === undefined) return NaN;
-    // Virgülü noktaya çevirip sayıya dönüştür
     const sanitized = value.toString().replace(',', '.');
     return parseFloat(sanitized);
 };
@@ -53,8 +52,13 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
 
     // Forms
     const [startFormData, setStartFormData] = useState({ orderNumber: '', selectedPartId: '', targetQuantity: '' });
+    
+    // Arama Özellikli Dropdown
+    const [partSearchTerm, setPartSearchTerm] = useState('');
+    const [isPartDropdownOpen, setIsPartDropdownOpen] = useState(false);
+    
     const [producedQuantity, setProducedQuantity] = useState('');
-    const [measurementValues, setMeasurementValues] = useState({}); // { id: deger }
+    const [measurementValues, setMeasurementValues] = useState({}); 
 
     useEffect(() => {
         if (!db) return;
@@ -82,7 +86,15 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
     const handleOpenStartModal = (machine) => {
         setSelectedMachine(machine);
         setStartFormData({ orderNumber: '', selectedPartId: '', targetQuantity: '' });
+        setPartSearchTerm('');
+        setIsPartDropdownOpen(false);
         setIsStartModalOpen(true);
+    };
+
+    const handleSelectPart = (part) => {
+        setStartFormData({ ...startFormData, selectedPartId: part.id });
+        setPartSearchTerm(part.partName); 
+        setIsPartDropdownOpen(false); 
     };
 
     const handleStartJob = async () => {
@@ -91,6 +103,21 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         if (!selectedPart) return alert("Parça bulunamadı.");
 
         try {
+            // Mükerrer Kontrol
+            const qCheck = query(
+                collection(db, CNC_LATHE_JOBS_COLLECTION), 
+                where('orderNumber', '==', startFormData.orderNumber)
+            );
+            const checkSnapshot = await getDocs(qCheck);
+
+            if (!checkSnapshot.empty) {
+                // Eğer bu numara var ama BİTMİŞ ise uyarı vererek devam etmeye izin verilebilir, 
+                // ama aktifse kesin durdurulmalı. Şimdilik katı kural devam.
+                // İyileştirme: Eğer kullanıcı "Devam" diyorsa izin verilebilir ama şu an basit tutalım.
+                alert(`HATA: "${startFormData.orderNumber}" numaralı iş emri sistemde zaten kayıtlı!\n\nLütfen iş emri numarasını kontrol ediniz.`);
+                return;
+            }
+
             await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), {
                 machine: selectedMachine,
                 orderNumber: startFormData.orderNumber,
@@ -102,7 +129,10 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                 status: 'RUNNING'
             });
             setIsStartModalOpen(false);
-        } catch (error) { console.error("Hata:", error); alert("Başlatılamadı."); }
+        } catch (error) { 
+            console.error("Hata:", error); 
+            alert("İş başlatılamadı. Bağlantınızı kontrol ediniz."); 
+        }
     };
 
     const handleOpenFinishModal = (job) => {
@@ -111,6 +141,7 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         setIsFinishModalOpen(true);
     };
 
+    // --- GÜNCELLENEN FONKSİYON: PARENT STATUS UPDATE ---
     const handleFinishJob = async () => {
         if (!selectedJob) return;
         try {
@@ -119,12 +150,26 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
             const end = new Date(endTime);
             const durationMinutes = Math.floor((end - start) / 60000);
 
+            // 1. Mevcut işi bitir
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJob.id), {
                 status: 'COMPLETED',
                 endTime: endTime,
                 producedQuantity: parseInt(producedQuantity) || 0,
                 durationMinutes: durationMinutes
             });
+
+            // 2. EĞER BU İŞ BİR DEVAM İŞİ İSE (PARENT VARSA), ANA İŞİ DE GÜNCELLE
+            if (selectedJob.parentJobId) {
+                // Ana işi bul ve "Sonradan Tamamlandı" (isCompletedLater) olarak işaretle
+                try {
+                    await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJob.parentJobId), {
+                        isCompletedLater: true
+                    });
+                } catch (parentError) {
+                    console.error("Ana iş durumu güncellenemedi:", parentError);
+                }
+            }
+
             setIsFinishModalOpen(false);
         } catch (error) { console.error("Hata:", error); }
     };
@@ -173,7 +218,6 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
             let finalValue = null;
 
             if (isBool) {
-                // 'OK' ise 1, 'RET' ise 0
                 if (rawValue === 'OK') {
                     finalValue = 1;
                     status = 'PASS';
@@ -185,13 +229,11 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                     status = 'SKIP';
                 }
             } else {
-                // Sayısal
                 if (rawValue !== undefined && rawValue !== '') {
                     const val = parseInputFloat(rawValue);
                     finalValue = val;
                     if (!isNaN(val)) {
                         const nominal = parseInputFloat(crit.nominal);
-                        // Alt tolerans her zaman çıkarılır
                         const min = nominal - Math.abs(parseInputFloat(crit.lowerTol));
                         const max = nominal + Math.abs(parseInputFloat(crit.upperTol));
                         
@@ -232,10 +274,8 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         } catch (error) { console.error("Hata:", error); alert("Kaydedilemedi."); }
     };
 
-    // Renklendirme ve Kontrol
     const getInputStyle = (crit, rawValue) => {
         if (crit.type === 'BOOL') return ''; 
-
         if (rawValue === '' || rawValue === undefined) return 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700';
         
         const val = parseInputFloat(rawValue);
@@ -245,8 +285,8 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         const min = nominal - Math.abs(parseInputFloat(crit.lowerTol));
         const max = nominal + Math.abs(parseInputFloat(crit.upperTol));
 
-        if (val >= min && val <= max) return 'bg-green-50 border-green-500 text-green-700 font-bold'; // OK
-        return 'bg-red-50 border-red-500 text-red-700 font-bold animate-pulse'; // NG
+        if (val >= min && val <= max) return 'bg-green-50 border-green-500 text-green-700 font-bold'; 
+        return 'bg-red-50 border-red-500 text-red-700 font-bold animate-pulse'; 
     };
 
     const calculateDuration = (startTime) => {
@@ -257,6 +297,12 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         const minutes = Math.floor((diffMs % 3600000) / 60000);
         return `${hours}s ${minutes}dk`;
     };
+
+    // Parça Filtreleme Mantığı
+    const filteredParts = parts.filter(part => 
+        part.partName.toLowerCase().includes(partSearchTerm.toLowerCase()) ||
+        (part.orderNumber && part.orderNumber.toLowerCase().includes(partSearchTerm.toLowerCase()))
+    );
 
     return (
         <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
@@ -361,26 +407,80 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                 })}
             </div>
 
-            {/* --- MODAL: İŞ BAŞLAT --- */}
+            {/* --- MODAL: İŞ BAŞLAT (YENİLENMİŞ ARAMA ÖZELLİKLİ) --- */}
             <SimpleModal isOpen={isStartModalOpen} onClose={() => setIsStartModalOpen(false)} title={`Yeni İş Başlat - ${selectedMachine}`}>
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">İş Emri Numarası</label>
-                        <input type="text" className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white" value={startFormData.orderNumber} onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} placeholder="Örn: 2024-105" />
+                        <input 
+                            type="text" 
+                            className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                            value={startFormData.orderNumber} 
+                            onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} 
+                            placeholder="Örn: 2024-105" 
+                        />
                     </div>
-                    <div>
+                    
+                    {/* --- ARAMA ÖZELLİKLİ PARÇA SEÇİMİ --- */}
+                    <div className="relative">
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Parça Seçimi</label>
-                        <select className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white" value={startFormData.selectedPartId} onChange={e => setStartFormData({...startFormData, selectedPartId: e.target.value})}>
-                            <option value="">Seçiniz...</option>
-                            {parts.map(part => <option key={part.id} value={part.id}>{part.partName} {part.orderNumber ? `(${part.orderNumber})` : ''}</option>)}
-                        </select>
-                        {parts.length === 0 && <p className="text-xs text-red-500 mt-1">Önce parça tanımlayın.</p>}
+                        <div className="relative">
+                            <input 
+                                type="text"
+                                className="w-full p-3 pl-10 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Parça adı veya kodu yazın..."
+                                value={partSearchTerm}
+                                onChange={(e) => {
+                                    setPartSearchTerm(e.target.value);
+                                    setIsPartDropdownOpen(true);
+                                    if(e.target.value === '') setStartFormData({...startFormData, selectedPartId: ''});
+                                }}
+                                onClick={() => setIsPartDropdownOpen(true)}
+                            />
+                            <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                            <ChevronDown 
+                                className="absolute right-3 top-3.5 text-gray-400 w-5 h-5 cursor-pointer hover:text-gray-600" 
+                                onClick={() => setIsPartDropdownOpen(!isPartDropdownOpen)}
+                            />
+                        </div>
+
+                        {isPartDropdownOpen && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                                {filteredParts.length > 0 ? (
+                                    filteredParts.map(part => (
+                                        <div 
+                                            key={part.id} 
+                                            onClick={() => handleSelectPart(part)}
+                                            className="p-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
+                                        >
+                                            <div className="font-bold text-gray-800 dark:text-white">{part.partName}</div>
+                                            {part.orderNumber && <div className="text-xs text-gray-500">{part.orderNumber}</div>}
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="p-4 text-center text-gray-500 text-sm">
+                                        Sonuç bulunamadı. <br/>
+                                        <span className="text-xs">Yeni parça tanımlamak için Sorumluya başvurun.</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
+
                     <div>
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Hedeflenen Adet</label>
-                        <input type="number" className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white" value={startFormData.targetQuantity} onChange={e => setStartFormData({...startFormData, targetQuantity: e.target.value})} placeholder="Örn: 500" />
+                        <input 
+                            type="number" 
+                            className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                            value={startFormData.targetQuantity} 
+                            onChange={e => setStartFormData({...startFormData, targetQuantity: e.target.value})} 
+                            placeholder="Örn: 500" 
+                        />
                     </div>
-                    <button onClick={handleStartJob} className="w-full py-3 mt-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg">BAŞLAT</button>
+                    
+                    <button onClick={handleStartJob} className="w-full py-3 mt-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transform active:scale-95 transition">
+                        BAŞLAT
+                    </button>
                 </div>
             </SimpleModal>
 
@@ -400,7 +500,7 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                 </div>
             </SimpleModal>
 
-            {/* --- MODAL: ÖLÇÜM AL (GÜNCELLENDİ) --- */}
+            {/* --- MODAL: ÖLÇÜM AL --- */}
             <SimpleModal isOpen={isMeasureModalOpen} onClose={() => setIsMeasureModalOpen(false)} title="Ölçüm Girişi (SPC)" maxWidth="max-w-2xl">
                 <div className="space-y-4">
                     <div className="flex justify-between items-center text-sm text-gray-500 border-b pb-2">
@@ -422,25 +522,23 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                                     {crit.name}
                                 </div>
 
-                                {/* REFERANS DEĞERLERİ (GÖRSEL İYİLEŞTİRME YAPILDI) */}
+                                {/* REFERANS DEĞERLERİ */}
                                 <div className="col-span-3 text-center flex flex-col items-center justify-center">
                                     {crit.type === 'BOOL' ? (
                                         <span className="text-orange-500 font-bold text-xs">Gözle Kontrol</span>
                                     ) : (
                                         <>
-                                            {/* Nominal Değer: Büyük ve Beyaz */}
-                                            <span className="text-xl font-bold text-gray-900 dark:text-white leading-none">
+                                            <span className="text-xl font-black text-blue-600 dark:text-white leading-none">
                                                 {crit.nominal}
                                             </span>
-                                            {/* Toleranslar: Sarı ve Okunaklı */}
-                                            <span className="text-xs font-bold text-yellow-600 dark:text-yellow-400 mt-1 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">
+                                            <span className="text-xs font-bold text-orange-600 dark:text-yellow-400 mt-1 bg-orange-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">
                                                 +{crit.upperTol} / -{Math.abs(crit.lowerTol)}
                                             </span>
                                         </>
                                     )}
                                 </div>
 
-                                {/* GİRİŞ ALANI (KEYPAD DÜZELTİLDİ: inputMode="decimal") */}
+                                {/* GİRİŞ ALANI */}
                                 <div className="col-span-5 flex justify-center">
                                     {crit.type === 'BOOL' ? (
                                         <div className="flex gap-2 w-full">
@@ -468,7 +566,7 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                                     ) : (
                                         <input 
                                             type="text"
-                                            inputMode="decimal" // TABLETTE NUMARA KLAVYESİ AÇAR
+                                            inputMode="decimal" 
                                             className={`w-full p-2 text-center font-mono font-bold text-lg border-2 rounded outline-none transition-colors ${
                                                 getInputStyle(crit, measurementValues[crit.id])
                                             }`}

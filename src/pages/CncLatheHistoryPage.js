@@ -1,140 +1,225 @@
 // src/pages/CncLatheHistoryPage.js
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Archive, Search, Trash2, Filter, PlayCircle, AlertTriangle, CheckCircle } from 'lucide-react'; // CheckCircle eklendi
 import { 
-    History, Search, FileText, Calendar, User, Clock
-} from 'lucide-react';
-import { collection, query, where, onSnapshot } from '../config/firebase.js';
-import { CNC_LATHE_JOBS_COLLECTION } from '../config/constants.js';
-import { formatDateTime } from '../utils/dateUtils.js';
+    collection, query, where, onSnapshot, orderBy, doc, deleteDoc, getDocs, addDoc 
+} from '../config/firebase.js';
+import { CNC_LATHE_JOBS_COLLECTION, ROLES } from '../config/constants.js';
+import { formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-const CncLatheHistoryPage = ({ db }) => {
-    const [jobs, setJobs] = useState([]);
+const CncLatheHistoryPage = ({ db, loggedInUser }) => {
+    const [historyJobs, setHistoryJobs] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [loading, setLoading] = useState(true);
+    
+    const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
 
     useEffect(() => {
         if (!db) return;
-
-        // Sadece 'COMPLETED' olanları çekiyoruz.
-        // Sıralamayı (orderBy) client tarafında yapacağız ki index hatası almayalım.
         const q = query(
             collection(db, CNC_LATHE_JOBS_COLLECTION), 
-            where('status', '==', 'COMPLETED')
+            where('status', '==', 'COMPLETED'),
+            orderBy('endTime', 'desc')
         );
-
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Tarihe göre yeniden eskiye sırala
-            data.sort((a, b) => new Date(b.endTime) - new Date(a.endTime));
-            setJobs(data);
-            setLoading(false);
+            const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setHistoryJobs(jobs);
         });
 
         return () => unsubscribe();
     }, [db]);
 
-    const filteredJobs = useMemo(() => {
-        if (!searchTerm) return jobs;
-        const lowerTerm = searchTerm.toLowerCase();
-        return jobs.filter(job => 
-            (job.orderNumber && job.orderNumber.toLowerCase().includes(lowerTerm)) ||
-            (job.partName && job.partName.toLowerCase().includes(lowerTerm)) ||
-            (job.operator && job.operator.toLowerCase().includes(lowerTerm)) ||
-            (job.machine && job.machine.toLowerCase().includes(lowerTerm))
-        );
-    }, [jobs, searchTerm]);
+    const handleDeleteJob = async (jobId) => {
+        if (!window.confirm("Bu geçmiş iş kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
+        try {
+            await deleteDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, jobId));
+        } catch (error) {
+            console.error("Silme hatası:", error);
+            alert("Silinemedi.");
+        }
+    };
+
+    const handleResumeJob = async (job) => {
+        const remainingQty = parseInt(job.targetQuantity) - parseInt(job.producedQuantity);
+        
+        if (remainingQty <= 0) {
+            alert("Bu iş zaten hedeflenen adede ulaşmış veya geçmiş.");
+            return;
+        }
+
+        if (!window.confirm(`Bu iş emrini "${job.machine}" tezgahında tekrar başlatmak istiyor musunuz?\n\nKalan Hedef: ${remainingQty} Adet`)) return;
+
+        try {
+            const qActive = query(
+                collection(db, CNC_LATHE_JOBS_COLLECTION),
+                where('status', '==', 'RUNNING'),
+                where('machine', '==', job.machine)
+            );
+            const activeSnap = await getDocs(qActive);
+
+            if (!activeSnap.empty) {
+                alert(`HATA: ${job.machine} tezgahında şu an çalışan başka bir iş var! Önce onu bitirmelisiniz.`);
+                return;
+            }
+
+            await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), {
+                machine: job.machine,
+                orderNumber: job.orderNumber,
+                partName: job.partName,
+                partId: job.partId || '',
+                targetQuantity: remainingQty, 
+                startTime: getCurrentDateTimeString(),
+                operator: loggedInUser.name,
+                status: 'RUNNING',
+                isResumed: true,              
+                parentJobId: job.id           
+            });
+
+            alert(`İş Emri ${job.machine} tezgahında tekrar başlatıldı!`);
+
+        } catch (error) {
+            console.error("İş sürdürme hatası:", error);
+            alert("İş başlatılamadı.");
+        }
+    };
+
+    const filteredJobs = historyJobs.filter(job => {
+        const matchesSearch = 
+            job.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            job.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            job.operator.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        if (showIncompleteOnly) {
+            // SADECE Gerçekten eksik kalan ve sonradan tamamlanmayanları göster
+            const isIncomplete = (parseInt(job.producedQuantity) || 0) < (parseInt(job.targetQuantity) || 0);
+            return matchesSearch && isIncomplete && !job.isCompletedLater;
+        }
+
+        return matchesSearch;
+    });
+
+    const isSupervisor = loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU;
+    const canResume = true; 
 
     return (
-        <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
-            <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center">
-                        <History className="w-8 h-8 mr-3 text-blue-600" />
-                        Geçmiş CNC İşleri
-                    </h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">
-                        Tamamlanan tüm torna işlerinin arşivi.
-                    </p>
-                </div>
+        <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
+            <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center mb-6">
+                <Archive className="w-8 h-8 mr-3 text-gray-600 dark:text-gray-300" />
+                Geçmiş CNC İşleri
+            </h1>
 
-                <div className="relative w-full md:w-1/3">
-                    <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
                     <input 
                         type="text" 
-                        placeholder="İş Emri, Parça, Operatör Ara..." 
-                        className="w-full pl-10 p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                        placeholder="İş Emri, Parça veya Operatör Ara..." 
+                        className="w-full pl-10 p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
+                
+                <button 
+                    onClick={() => setShowIncompleteOnly(!showIncompleteOnly)}
+                    className={`px-4 py-2 rounded-lg font-bold flex items-center transition ${
+                        showIncompleteOnly 
+                        ? 'bg-orange-100 text-orange-700 border border-orange-300' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600'
+                    }`}
+                >
+                    <Filter className="w-4 h-4 mr-2" />
+                    {showIncompleteOnly ? 'Tümünü Göster' : 'Eksik Kalanları Göster'}
+                </button>
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                {loading ? (
-                    <div className="p-10 text-center text-gray-500">Yükleniyor...</div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
-                            <thead className="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white uppercase font-bold text-xs">
-                                <tr>
-                                    <th className="p-4">Bitiş Tarihi</th>
-                                    <th className="p-4">Tezgah</th>
-                                    <th className="p-4">İş Emri</th>
-                                    <th className="p-4">Parça Adı</th>
-                                    <th className="p-4 text-center">Hedef / Üretilen</th>
-                                    <th className="p-4 text-center">Süre</th>
-                                    <th className="p-4">Operatör</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                                {filteredJobs.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="7" className="p-8 text-center text-gray-400">
-                                            Kayıt bulunamadı.
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <th className="px-6 py-3">İş Emri</th>
+                                <th className="px-6 py-3">Parça</th>
+                                <th className="px-6 py-3">Tezgah</th>
+                                <th className="px-6 py-3">Bitiş Zamanı</th>
+                                {/* YENİ: SÜTUNLAR AYRILDI */}
+                                <th className="px-6 py-3 text-center bg-gray-100 dark:bg-gray-600">Hedef</th>
+                                <th className="px-6 py-3 text-center bg-gray-100 dark:bg-gray-600">Üretilen</th>
+                                <th className="px-6 py-3">Süre</th>
+                                <th className="px-6 py-3">Operatör</th>
+                                <th className="px-6 py-3 text-right">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredJobs.length > 0 ? filteredJobs.map(job => {
+                                const produced = parseInt(job.producedQuantity) || 0;
+                                const target = parseInt(job.targetQuantity) || 0;
+                                
+                                // Eksik mi? (Ama sonradan tamamlanmışsa eksik sayma)
+                                const isIncompleteReal = produced < target;
+                                const showWarning = isIncompleteReal && !job.isCompletedLater;
+
+                                return (
+                                    <tr key={job.id} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 ${showWarning ? 'bg-orange-50 dark:bg-orange-900/10' : 'bg-white dark:bg-gray-800'}`}>
+                                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                                            {job.orderNumber}
+                                            {showWarning && <AlertTriangle className="w-4 h-4 text-orange-500 inline ml-2" title="Hedefe Ulaşmadı"/>}
+                                            {/* Sonradan tamamlandıysa yeşil tik göster */}
+                                            {isIncompleteReal && job.isCompletedLater && (
+                                                <CheckCircle className="w-4 h-4 text-green-500 inline ml-2" title="Ek üretimle tamamlandı"/>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4">{job.partName}</td>
+                                        <td className="px-6 py-4 font-mono">{job.machine}</td>
+                                        <td className="px-6 py-4">{formatDateTime(job.endTime)}</td>
+                                        
+                                        {/* AYRI SÜTUNLAR */}
+                                        <td className="px-6 py-4 text-center font-bold text-gray-600 bg-gray-50 dark:bg-gray-700/50">
+                                            {target}
+                                        </td>
+                                        <td className={`px-6 py-4 text-center font-bold bg-gray-50 dark:bg-gray-700/50 ${showWarning ? 'text-red-600' : 'text-green-600'}`}>
+                                            {produced}
+                                        </td>
+
+                                        <td className="px-6 py-4">{job.durationMinutes ? `${Math.floor(job.durationMinutes / 60)}s ${job.durationMinutes % 60}dk` : '-'}</td>
+                                        <td className="px-6 py-4">{job.operator}</td>
+                                        
+                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                            {/* İŞİ SÜRDÜR (Eğer gerçekten eksikse ve sonradan tamamlanmadıysa) */}
+                                            {canResume && showWarning && (
+                                                <button 
+                                                    onClick={() => handleResumeJob(job)}
+                                                    className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded transition flex items-center"
+                                                    title="Kalan Adet İle Devam Et"
+                                                >
+                                                    <PlayCircle className="w-5 h-5 mr-1" />
+                                                    <span className="text-xs font-bold">SÜRDÜR</span>
+                                                </button>
+                                            )}
+
+                                            {isSupervisor && (
+                                                <button 
+                                                    onClick={() => handleDeleteJob(job.id)}
+                                                    className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded transition"
+                                                    title="Kaydı Sil"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
-                                ) : (
-                                    filteredJobs.map((job) => (
-                                        <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                            <td className="p-4 text-xs font-mono">
-                                                <div className="flex items-center">
-                                                    <Calendar className="w-3 h-3 mr-1 text-gray-400"/>
-                                                    {formatDateTime(job.endTime)}
-                                                </div>
-                                            </td>
-                                            <td className="p-4 font-bold text-orange-600">
-                                                {job.machine}
-                                            </td>
-                                            <td className="p-4 font-mono font-bold">
-                                                {job.orderNumber}
-                                            </td>
-                                            <td className="p-4 font-medium text-gray-900 dark:text-white">
-                                                {job.partName}
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <span className="text-gray-400 text-xs mr-1">{job.targetQuantity} /</span>
-                                                <span className="font-bold text-green-600 text-lg">{job.producedQuantity}</span>
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <div className="flex items-center justify-center text-gray-500">
-                                                    <Clock className="w-3 h-3 mr-1"/>
-                                                    {job.durationMinutes} dk
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-xs">
-                                                <div className="flex items-center">
-                                                    <User className="w-3 h-3 mr-1 text-gray-400"/>
-                                                    {job.operator}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                );
+                            }) : (
+                                <tr>
+                                    <td colSpan="9" className="px-6 py-8 text-center text-gray-400">
+                                        Kayıt bulunamadı.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

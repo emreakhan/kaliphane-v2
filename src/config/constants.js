@@ -18,8 +18,8 @@ export const MAINTENANCE_LOGS_COLLECTION = `artifacts/${appId}/public/data/maint
 
 // --- CNC TORNA & KALİTE KONTROL (SPC) KOLEKSİYONLARI ---
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
-export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`; // YENİ: Parça Tanımları
-export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; // YENİ: Ölçüm Sonuçları
+export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`; 
+export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; 
 
 // --- DİĞER SABİTLER ---
 export const initialAuthToken = null;
@@ -32,21 +32,15 @@ export const ROLES = {
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
+    MACHINE_OPERATOR: 'Makine Operatörü',
+    
+    // --- YENİ EKLENEN CNC TORNA ROLLERİ ---
     CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
-    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', // YENİ: Parça Tanımlayan Kişi
+    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', 
 };
 
-export const PERSONNEL_ROLES = {
-    ADMIN: 'Yönetici',
-    CAM_OPERATOR: 'CAM Operatörü',
-    SUPERVISOR: 'Kalıphane Yetkilisi',
-    MACHINE_OPERATOR: 'Tezgah Operatörü',
-    PROJE_SORUMLUSU: 'Proje Sorumlusu',
-    KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
-    TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
-    CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
-    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', // YENİ EKLENDİ
-};
+// Kolaylık olsun diye aynısını kullanıyoruz
+export const PERSONNEL_ROLES = ROLES;
 
 // --- CNC TORNA TEZGAHLARI ---
 export const CNC_LATHE_MACHINES = ['K41', 'K60', 'K65'];

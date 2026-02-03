@@ -24,7 +24,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users // Users ikonu eklendi
 } from 'lucide-react';
 
 // Sayfalar
@@ -52,7 +52,9 @@ import MoldMaintenancePage from './pages/MoldMaintenancePage.js';
 import CncLatheDashboard from './pages/CncLatheDashboard.js';
 import CncLatheHistoryPage from './pages/CncLatheHistoryPage.js';
 import CncPartManager from './pages/CncPartManager.js'; 
-import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; // <-- YENİ EKLENDİ
+import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; 
+import CncInspectionReport from './pages/CncInspectionReport.js'; 
+import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; // YENİ SAYFA EKLENDİ
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -423,7 +425,9 @@ const App = () => {
             return [
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, // <-- YENİ EKLENDİ
+                { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                { path: '/cnc-inspection-report', label: 'Raporlar (Form)', icon: FileOutput, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
+                { path: '/operator-performance', label: 'Personel Takip', icon: Users, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, // YENİ MENÜ
                 { path: '/cnc-torna-history', label: 'Geçmiş İşler', icon: Archive, roles: [ROLES.CNC_TORNA_SORUMLUSU] }
             ];
         }
@@ -577,7 +581,7 @@ const App = () => {
                 {/* 2. CNC Geçmiş: Torna Operatörü ve Sorumlusu */}
                 <Route path="/cnc-torna-history" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLatheHistoryPage db={db} />
+                    ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} /> 
                     : <Navigate to="/" replace />
                 } />
 
@@ -592,6 +596,20 @@ const App = () => {
                 <Route path="/cnc-spc-analysis" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncSpcAnalysisPage db={db} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* 5. Raporlama Sayfası: SADECE Torna Sorumlusu */}
+                <Route path="/cnc-inspection-report" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncInspectionReport db={db} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* 6. Operatör Performans: SADECE Torna Sorumlusu */}
+                <Route path="/operator-performance" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} />
                     : <Navigate to="/" replace />
                 } />
 
