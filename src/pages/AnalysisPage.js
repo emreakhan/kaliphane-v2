@@ -5,9 +5,9 @@ import React, { useState, useMemo } from 'react';
 // İkonlar
 import { 
     Search, Users, Box, Calendar, Clock, CheckCircle, 
-    AlertTriangle, BarChart2, PieChart, Monitor, TrendingUp, 
+    BarChart2, PieChart, Monitor, TrendingUp, 
     CalendarDays, AlertOctagon, History, ClipboardList,
-    ArrowRight, Activity, Layers, Filter, Table as TableIcon 
+    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle 
 } from 'lucide-react';
 
 // Sabitler
@@ -19,8 +19,7 @@ import {
 // Yardımcı Fonksiyonlar
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
-// --- YENİ BİLEŞEN IMPORT EDİLDİ ---
-// (Dosya yolu: src/components/Analysis/PersonnelPerformanceAnalysis.js)
+// Bileşenler
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
 
 const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
@@ -31,6 +30,19 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear()); 
     const [selectedTimelineMoldId, setSelectedTimelineMoldId] = useState('');
 
+    // --- KRİTİK DÜZELTME: VERİ TEMİZLİĞİ ---
+    // CNC Torna işleri (moldName olmayanlar) buraya girmemeli.
+    // Sayfanın geri kalanında "projects" yerine "validMoldProjects" kullanılacak.
+    const validMoldProjects = useMemo(() => {
+        if (!projects || !Array.isArray(projects)) return [];
+        return projects.filter(p => 
+            p && 
+            p.moldName && // Kalıp adı mutlaka olmalı
+            typeof p.moldName === 'string' &&
+            Array.isArray(p.tasks) // Görev listesi olmalı
+        );
+    }, [projects]);
+
     // --- YETKİ KONTROLÜ ---
     const canViewReworkTab = 
         loggedInUser?.role === ROLES.ADMIN || 
@@ -39,7 +51,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
 
     // --- ORTAK VERİ HAZIRLIĞI ---
     const allCompletedOperations = useMemo(() => {
-        return projects.flatMap(mold => 
+        return validMoldProjects.flatMap(mold => 
             mold.tasks.flatMap(task => 
                 task.operations
                     .filter(op => op.status === OPERATION_STATUS.COMPLETED)
@@ -51,7 +63,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                     }))
             )
         );
-    }, [projects]);
+    }, [validMoldProjects]);
 
     const availableYears = useMemo(() => {
         const years = new Set();
@@ -63,13 +75,13 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             }
         });
 
-        projects.forEach(p => {
+        validMoldProjects.forEach(p => {
             if (p.createdAt) years.add(new Date(p.createdAt).getFullYear());
             if (p.moldDeadline) years.add(new Date(p.moldDeadline).getFullYear());
         });
 
         return Array.from(years).sort((a, b) => b - a); 
-    }, [allCompletedOperations, projects]);
+    }, [allCompletedOperations, validMoldProjects]);
 
 
     // --- HESAPLAMALAR ---
@@ -80,7 +92,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             op.finishDate && new Date(op.finishDate).getFullYear() === parseInt(selectedYear)
         );
         const totalHours = operationsInYear.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
-        const completedMoldsInYear = projects.filter(p => {
+        const completedMoldsInYear = validMoldProjects.filter(p => {
             if (p.status !== MOLD_STATUS.COMPLETED) return false;
             const allOps = p.tasks.flatMap(t => t.operations);
             const lastOpDate = allOps.filter(op => op.finishDate).map(op => new Date(op.finishDate)).sort((a, b) => b - a)[0]; 
@@ -94,12 +106,12 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         });
         const maxMonthlyOps = Math.max(...monthlyData.map(d => d.ops), 1);
         return { totalOps: operationsInYear.length, totalHours: totalHours.toFixed(0), completedMolds: completedMoldsInYear, monthlyData, maxMonthlyOps };
-    }, [allCompletedOperations, projects, selectedYear]);
+    }, [allCompletedOperations, validMoldProjects, selectedYear]);
 
     // 2. Hata Analizi
     const reworkAnalysis = useMemo(() => {
         if (!canViewReworkTab) return null;
-        const allReworks = projects.flatMap(mold => 
+        const allReworks = validMoldProjects.flatMap(mold => 
             mold.tasks.flatMap(task => 
                 task.operations.flatMap(op => 
                     (op.reworkHistory || []).map(history => ({
@@ -126,11 +138,11 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             mostProblematicMold: mostProblematicMold ? { name: mostProblematicMold[0], count: mostProblematicMold[1] } : null,
             mostCommonReason: mostCommonReason ? { name: mostCommonReason[0], count: mostCommonReason[1] } : null
         };
-    }, [projects, canViewReworkTab]);
+    }, [validMoldProjects, canViewReworkTab]);
 
     // 3. Üretim Logları
     const productionLogs = useMemo(() => {
-        const logs = projects.flatMap(mold => 
+        const logs = validMoldProjects.flatMap(mold => 
             mold.tasks.flatMap(task => 
                 task.operations
                     .filter(op => op.setupStartTime || op.productionStartTime || op.finishTime)
@@ -171,12 +183,12 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             )
         ).sort((a, b) => new Date(b.date) - new Date(a.date));
         return logs;
-    }, [projects]);
+    }, [validMoldProjects]);
 
     // 4. Zaman Çizelgesi
     const timelineAnalysis = useMemo(() => {
         if (!selectedTimelineMoldId) return null;
-        const mold = projects.find(p => p.id === selectedTimelineMoldId);
+        const mold = validMoldProjects.find(p => p.id === selectedTimelineMoldId);
         if (!mold) return null;
 
         const ops = mold.tasks.flatMap(t => 
@@ -210,17 +222,23 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         }).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 
         return { moldName: mold.moldName, noData: false, totalEffortHours, calendarDays, calendarHours, timelineData, minDate: new Date(minTime), maxDate: new Date(maxTime) };
-    }, [selectedTimelineMoldId, projects]);
+    }, [selectedTimelineMoldId, validMoldProjects]);
 
-    // 5. Filtreleme (Kalıp Listesi için - Personel ayrıldı)
+    // 5. Filtreleme (Kalıp Listesi için)
+    // --- HATA DÜZELTME: Artık sadece temiz veriyi (validMoldProjects) filtreliyor ---
     const filteredMolds = useMemo(() => {
-        const lowerSearchTerm = searchTerm.toLowerCase();
-        return projects.filter(p => p.moldName.toLowerCase().includes(lowerSearchTerm) || p.customer.toLowerCase().includes(lowerSearchTerm)).sort((a, b) => a.moldName.localeCompare(b.moldName));
-    }, [projects, searchTerm]);
+        const lowerSearchTerm = (searchTerm || '').toLowerCase();
+        return validMoldProjects
+            .filter(p => 
+                (p.moldName || '').toLowerCase().includes(lowerSearchTerm) || 
+                (p.customer || '').toLowerCase().includes(lowerSearchTerm)
+            )
+            .sort((a, b) => a.moldName.localeCompare(b.moldName));
+    }, [validMoldProjects, searchTerm]);
 
     const selectedMoldData = useMemo(() => {
         if (activeTab !== 'mold' || !selectedId) return null;
-        const mold = projects.find(p => p.id === selectedId);
+        const mold = validMoldProjects.find(p => p.id === selectedId);
         if (!mold) return null;
         const allOps = mold.tasks.flatMap(t => t.operations);
         const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
@@ -246,7 +264,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         const opHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; opHourDistribution[op.type] = (opHourDistribution[op.type] || 0) + duration; });
         const machineHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; const machineName = op.machineName && op.machineName !== 'SEÇ' ? op.machineName : 'Tezgahsız / Diğer'; machineHourDistribution[machineName] = (machineHourDistribution[machineName] || 0) + duration; });
         return { ...mold, stats: { firstStartDate, lastFinishDate, totalDurationDays, totalManHours: totalManHours.toFixed(1), averageQuality, deadlineStatus, deadlineColor, totalOps: allOps.length, completedOpsCount: completedOps.length, opDistribution, opHourDistribution, machineHourDistribution } };
-    }, [selectedId, projects, activeTab]);
+    }, [selectedId, validMoldProjects, activeTab]);
 
 
     // --- ALT BİLEŞENLER ---
@@ -266,7 +284,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                 monthlyStats.forEach(month => month[type] = 0);
             });
 
-            projects.forEach(project => {
+            validMoldProjects.forEach(project => {
                 const dateStr = project.createdAt || project.moldDeadline || new Date().toISOString();
                 const date = new Date(dateStr);
                 
@@ -284,7 +302,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
 
             const totalProjects = Object.values(yearlyTotals).reduce((a, b) => a + b, 0);
             return { monthlyStats, yearlyTotals, totalProjects, types, config };
-        }, [projects, analysisYear]);
+        }, [validMoldProjects, analysisYear]);
 
         const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
@@ -523,7 +541,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     };
 
     const TimelineCard = () => {
-        const moldList = projects.map(p => ({ id: p.id, name: p.moldName }));
+        const moldList = validMoldProjects.map(p => ({ id: p.id, name: p.moldName }));
         return (
             <div className="space-y-6 animate-fadeIn">
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-between">
@@ -582,12 +600,11 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
              activeTab === 'production_logs' ? <ProductionLogsCard /> :
              activeTab === 'rework' ? <ReworkAnalysisCard /> : 
              activeTab === 'personnel' ? (
-                // --- YENİ BİLEŞEN KULLANIMI ---
+                // --- DÜZELTME: ARTIK SADECE "TEMİZ" VERİ GÖNDERİLİYOR ---
                 <PersonnelPerformanceAnalysis 
                     personnel={personnel} 
-                    projects={projects} 
+                    projects={validMoldProjects} 
                 />
-                // -----------------------------
              ) : (
                 <div className="flex flex-col lg:flex-row gap-6 h-full">
                     {/* Kalıp Karnesi İçin Sol Menü */}

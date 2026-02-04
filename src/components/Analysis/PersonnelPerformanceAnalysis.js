@@ -6,33 +6,38 @@ import { PERSONNEL_ROLES, OPERATION_STATUS } from '../../config/constants.js';
 import { formatDate, formatDateTime } from '../../utils/dateUtils.js';
 
 const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
-    const [personnelSearchTerm, setPersonnelSearchTerm] = useState(''); // Sol Menü (Personel) Araması
+    const [personnelSearchTerm, setPersonnelSearchTerm] = useState(''); 
     const [selectedPersonId, setSelectedPersonId] = useState(null);
-    
-    // YENİ: Tek Birleştirilmiş Filtre (Hem Kalıp Seçimi Hem Metin Arama)
     const [unifiedFilter, setUnifiedFilter] = useState(''); 
 
     // 1. Personel Listesini Filtrele
     const filteredPersonnel = useMemo(() => {
-        const lowerSearch = personnelSearchTerm.toLowerCase();
+        if (!personnel) return [];
+        const lowerSearch = (personnelSearchTerm || '').toLowerCase();
         return personnel
             .filter(p => 
                 (p.role === PERSONNEL_ROLES.CAM_OPERATOR || p.role === PERSONNEL_ROLES.MACHINE_OPERATOR) &&
-                (p.name.toLowerCase().includes(lowerSearch) || p.role.toLowerCase().includes(lowerSearch))
+                (
+                    (p.name || '').toLowerCase().includes(lowerSearch) || 
+                    (p.role || '').toLowerCase().includes(lowerSearch)
+                )
             )
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [personnel, personnelSearchTerm]);
 
-    // 2. Seçilen Personelin TÜM Verilerini Hazırla (Filtresiz Ham Veri)
+    // 2. Seçilen Personelin Verilerini Hazırla
     const rawPersonData = useMemo(() => {
-        if (!selectedPersonId) return null;
+        if (!selectedPersonId || !personnel) return null;
         const person = personnel.find(p => p.id === selectedPersonId);
         if (!person) return null;
 
+        // Parent bileşenden zaten filtrelenmiş (CNC olmayan) veriler geliyor
+        // Ama yine de undefined kontrolü (?. ve || []) eklemek iyi pratiktir.
+        
         // A) Operasyonlar
-        const allCompletedOps = projects.flatMap(mold => 
-            mold.tasks.flatMap(task => 
-                task.operations
+        const allCompletedOps = (projects || []).flatMap(mold => 
+            (mold.tasks || []).flatMap(task => 
+                (task.operations || [])
                     .filter(op => op.status === OPERATION_STATUS.COMPLETED)
                     .filter(op => {
                         if (person.role === PERSONNEL_ROLES.CAM_OPERATOR) return op.assignedOperator === person.name;
@@ -46,11 +51,11 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                         moldId: mold.id
                     }))
             )
-        ).sort((a, b) => new Date(b.finishDate) - new Date(a.finishDate));
+        ).sort((a, b) => new Date(b.finishDate || 0) - new Date(a.finishDate || 0));
 
-        // B) Proje Genel Değerlendirmeleri
+        // B) Değerlendirmeler
         const projectEvaluations = [];
-        projects.forEach(mold => {
+        (projects || []).forEach(mold => {
             if (mold.personnelEvaluations && Array.isArray(mold.personnelEvaluations)) {
                 const evaluation = mold.personnelEvaluations.find(ev => ev.operator === person.name);
                 if (evaluation) {
@@ -63,12 +68,12 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                 }
             }
         });
-        projectEvaluations.sort((a, b) => new Date(b.date) - new Date(a.date));
+        projectEvaluations.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-        // C) Hatalar (Reworks)
-        const reworks = projects.flatMap(mold => 
-            mold.tasks.flatMap(task => 
-                task.operations.flatMap(op => 
+        // C) Hatalar
+        const reworks = (projects || []).flatMap(mold => 
+            (mold.tasks || []).flatMap(task => 
+                (task.operations || []).flatMap(op => 
                     (op.reworkHistory || [])
                         .filter(history => {
                             if (person.role === PERSONNEL_ROLES.CAM_OPERATOR) return op.assignedOperator === person.name;
@@ -83,22 +88,22 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                         }))
                 )
             )
-        ).sort((a, b) => new Date(b.date) - new Date(a.date));
+        ).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
         return { person, allCompletedOps, projectEvaluations, reworks };
     }, [selectedPersonId, personnel, projects]);
 
-    // 3. Mevcut Kalıpları Listele (Otomatik Tamamlama İçin)
+    // 3. Mevcut Kalıpları Listele
     const availableMolds = useMemo(() => {
         if (!rawPersonData) return [];
         const molds = new Set();
-        rawPersonData.allCompletedOps.forEach(op => molds.add(op.moldName));
-        rawPersonData.reworks.forEach(rw => molds.add(rw.moldName));
-        rawPersonData.projectEvaluations.forEach(ev => molds.add(ev.moldName));
+        rawPersonData.allCompletedOps.forEach(op => { if(op.moldName) molds.add(op.moldName) });
+        rawPersonData.reworks.forEach(rw => { if(rw.moldName) molds.add(rw.moldName) });
+        rawPersonData.projectEvaluations.forEach(ev => { if(ev.moldName) molds.add(ev.moldName) });
         return Array.from(molds).sort();
     }, [rawPersonData]);
 
-    // 4. Filtrelenmiş Veriyi ve İstatistikleri Hesapla
+    // 4. Filtrelenmiş Veriyi Hesapla
     const displayedData = useMemo(() => {
         if (!rawPersonData) return null;
 
@@ -106,34 +111,29 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
         let evals = rawPersonData.projectEvaluations;
         let rws = rawPersonData.reworks;
 
-        // BİRLEŞTİRİLMİŞ FİLTRE MANTIĞI
-        // Hem kalıp seçimi hem de serbest metin araması olarak çalışır.
         if (unifiedFilter) {
-            const lowerTerm = unifiedFilter.toLowerCase();
+            const lowerTerm = (unifiedFilter || '').toLowerCase();
             
-            // Operasyonları Filtrele
             ops = ops.filter(op => 
-                op.moldName.toLowerCase().includes(lowerTerm) ||
-                op.taskName.toLowerCase().includes(lowerTerm) ||
-                (op.supervisorComment && op.supervisorComment.toLowerCase().includes(lowerTerm)) ||
-                (op.camOperatorCommentForMachineOp && op.camOperatorCommentForMachineOp.toLowerCase().includes(lowerTerm))
+                (op.moldName || '').toLowerCase().includes(lowerTerm) ||
+                (op.taskName || '').toLowerCase().includes(lowerTerm) ||
+                (op.supervisorComment && (op.supervisorComment || '').toLowerCase().includes(lowerTerm)) ||
+                (op.camOperatorCommentForMachineOp && (op.camOperatorCommentForMachineOp || '').toLowerCase().includes(lowerTerm))
             );
 
-            // Değerlendirmeleri Filtrele
             evals = evals.filter(ev => 
-                ev.moldName.toLowerCase().includes(lowerTerm) ||
-                (ev.comment && ev.comment.toLowerCase().includes(lowerTerm))
+                (ev.moldName || '').toLowerCase().includes(lowerTerm) ||
+                (ev.comment && (ev.comment || '').toLowerCase().includes(lowerTerm))
             );
 
-            // Hataları Filtrele
             rws = rws.filter(rw => 
-                rw.moldName.toLowerCase().includes(lowerTerm) ||
-                rw.taskName.toLowerCase().includes(lowerTerm) ||
-                rw.reason.toLowerCase().includes(lowerTerm)
+                (rw.moldName || '').toLowerCase().includes(lowerTerm) ||
+                (rw.taskName || '').toLowerCase().includes(lowerTerm) ||
+                (rw.reason || '').toLowerCase().includes(lowerTerm)
             );
         }
 
-        // Puan Ortalaması Hesapla (Filtrelenmiş veriye göre)
+        // Puan Ortalaması
         let totalRatings = 0; 
         let ratingCount = 0;
 
@@ -159,7 +159,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
         };
     }, [rawPersonData, unifiedFilter]);
 
-    // Personel değişirse filtreyi temizle
     useMemo(() => {
         setUnifiedFilter('');
     }, [selectedPersonId]);
@@ -168,7 +167,7 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-full min-h-[600px]">
             
-            {/* --- SOL MENÜ (PERSONEL LİSTESİ) --- */}
+            {/* SOL MENÜ */}
             <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-inner border border-gray-200 dark:border-gray-700">
                 <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-4 h-4" />
@@ -177,7 +176,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                         placeholder="Personel ara..." 
                         value={personnelSearchTerm} 
                         onChange={(e) => setPersonnelSearchTerm(e.target.value)} 
-                        // OKUNABİLİRLİK İÇİN: bg-white text-gray-900 (Koyu modda bile beyaz zemin)
                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" 
                     />
                 </div>
@@ -191,12 +189,11 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                 </div>
             </div>
 
-            {/* --- SAĞ TARAF (DETAYLAR) --- */}
+            {/* SAĞ TARAF */}
             <div className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6">
                 {displayedData ? (
                     <div className="space-y-8 animate-fadeIn">
                         
-                        {/* BAŞLIK VE AKILLI FİLTRE ALANI */}
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b dark:border-gray-700 pb-4 gap-4">
                             <div>
                                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
@@ -206,21 +203,18 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Performans Özeti</p>
                             </div>
                             
-                            {/* YENİ: BİRLEŞTİRİLMİŞ ARAMA KUTUSU (DATALIST İLE) */}
                             <div className="relative w-full md:w-80">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     {unifiedFilter ? <Filter className="h-5 w-5 text-blue-500" /> : <Search className="h-5 w-5 text-gray-400" />}
                                 </div>
                                 <input 
                                     type="text" 
-                                    list="mold-options" // Bu ID aşağıdaki datalist ile eşleşir
+                                    list="mold-options" 
                                     placeholder="Kalıp seçin veya arayın..." 
                                     value={unifiedFilter}
                                     onChange={(e) => setUnifiedFilter(e.target.value)}
-                                    // OKUNABİLİRLİK İÇİN: bg-white text-gray-900
                                     className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg leading-5 bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 sm:text-sm shadow-sm"
                                 />
-                                {/* Otomatik Tamamlama Listesi */}
                                 <datalist id="mold-options">
                                     {availableMolds.map(m => (
                                         <option key={m} value={m} />
@@ -238,7 +232,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                             </div>
                         </div>
 
-                        {/* İSTATİSTİK KARTLARI */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 flex items-center justify-between">
                                 <div>
@@ -261,7 +254,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                             </div>
                         </div>
 
-                        {/* PROJE SONU GENEL DEĞERLENDİRMELER */}
                         {displayedData.projectEvaluations.length > 0 && (
                             <div className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
                                 <h3 className="text-lg font-bold text-indigo-800 dark:text-indigo-300 mb-3 flex items-center">
@@ -290,7 +282,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                             </div>
                         )}
 
-                        {/* HATA KAYITLARI */}
                         {displayedData.reworks.length > 0 && (
                             <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-xl p-4">
                                 <h3 className="text-lg font-bold text-red-700 dark:text-red-400 mb-3 flex items-center"><AlertOctagon className="w-5 h-5 mr-2" /> Hata & Rework Kayıtları</h3>
@@ -306,7 +297,6 @@ const PersonnelPerformanceAnalysis = ({ personnel, projects }) => {
                             </div>
                         )}
 
-                        {/* TAMAMLANAN İŞLER LİSTESİ */}
                         <div>
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
