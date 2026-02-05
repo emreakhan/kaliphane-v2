@@ -1,6 +1,6 @@
 // src/pages/CamJobEntryPage.js
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus, AlertTriangle, List, Briefcase } from 'lucide-react';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
@@ -17,8 +17,21 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     const [moldError, setMoldError] = useState('');
     const [batchError, setBatchError] = useState('');
 
+    // --- HATA DÜZELTME: Veri Temizliği ---
+    // Kalıp Adı olmayan (CNC işleri vb.) kayıtları filtrele
+    const cleanProjects = useMemo(() => {
+        if (!projects || !Array.isArray(projects)) return [];
+        return projects.filter(p => 
+            p && 
+            p.moldName && 
+            typeof p.moldName === 'string' &&
+            p.moldName.trim() !== ''
+        );
+    }, [projects]);
+
     const checkDuplicateMold = (moldName) => {
-        return projects.some(project => 
+        // cleanProjects kullanarak kontrol et
+        return cleanProjects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
         );
     };
@@ -55,7 +68,10 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
 
     const handleBatchAddTasks = async () => {
         if (!selectedMoldId || !batchTaskNames.trim()) return;
-        const moldToUpdate = projects.find(p => p.id === selectedMoldId);
+        
+        // cleanProjects içinden ara
+        const moldToUpdate = cleanProjects.find(p => p.id === selectedMoldId);
+        
         if (!moldToUpdate) {
             setBatchError("Hata: Kalıp bulunamadı.");
             return;
@@ -121,7 +137,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     };
 
     const handleDeleteTask = async (moldId, taskId) => {
-        const moldToUpdate = projects.find(p => p.id === moldId);
+        const moldToUpdate = cleanProjects.find(p => p.id === moldId);
         if (!moldToUpdate) return;
         const updatedTasks = moldToUpdate.tasks.filter(t => t.id !== taskId);
         const renumberedTasks = updatedTasks.map((task, index) => ({
@@ -135,7 +151,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
         }
     };
 
-    const selectedMold = projects.find(p => p.id === selectedMoldId);
+    const selectedMold = cleanProjects.find(p => p.id === selectedMoldId);
 
     return (
         <div className="p-4 sm:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8 min-h-[85vh]">
@@ -174,7 +190,11 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                     <div className="p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/10">
                         <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> İŞ PARÇASI EKLEME</h3>
                         <div className="space-y-4">
-                            <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2"><option value="">Kalıp Seçiniz</option>{projects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}</select>
+                            <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2">
+                                <option value="">Kalıp Seçiniz</option>
+                                {/* Liste render edilirken cleanProjects kullan */}
+                                {cleanProjects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}
+                            </select>
                             <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Parça İsimleri (Her satıra bir parça)</label><textarea value={batchTaskNames} onChange={(e) => { setBatchTaskNames(e.target.value); setBatchError(''); }} rows={6} placeholder={`Örnek:\nANA GÖVDE SOL\nANA GÖVDE SAĞ\nSICAK YOLLUK\n...`} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
                             {batchError && (<div className={`flex items-center text-sm p-3 rounded-lg ${batchError.startsWith('ℹ️') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}><AlertTriangle className="w-4 h-4 mr-2" />{batchError}</div>)}
                             <button onClick={handleBatchAddTasks} className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50" disabled={!selectedMoldId || !batchTaskNames.trim()}>Toplu Parça Ekle ({batchTaskNames.split('\n').filter(name => name.trim().length > 0).length} parça)</button>

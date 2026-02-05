@@ -21,36 +21,45 @@ import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff } from '../
 const EnhancedMoldList = ({ projects }) => {
     
     // --- 1. DEĞİŞİKLİK: FİLTRE HAFIZASI ---
-    // Başlangıçta hafızaya bak, yoksa varsayılan olarak 'ACTIVE_OVERVIEW' (Aktif Çalışan) yap.
     const [activeFilter, setActiveFilter] = useState(() => {
         return localStorage.getItem('moldListActiveFilter') || 'ACTIVE_OVERVIEW';
     });
 
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Görünüm Modu (LocalStorage'dan hatırlar)
+    // Görünüm Modu
     const [viewMode, setViewMode] = useState(() => {
         return localStorage.getItem('moldListViewMode') || 'card';
     });
 
-    // --- 2. DEĞİŞİKLİK: FİLTREYİ KAYDETME ---
-    // Filtre her değiştiğinde hafızaya yaz
     useEffect(() => {
         localStorage.setItem('moldListActiveFilter', activeFilter);
     }, [activeFilter]);
 
-    // Görünüm modu her değiştiğinde hafızaya kaydet
     useEffect(() => {
         localStorage.setItem('moldListViewMode', viewMode);
     }, [viewMode]);
     
     const navigate = useNavigate();
     
+    // --- 0. ADIM: VERİ TEMİZLİĞİ VE AYRIŞTIRMA ---
+    // CNC Torna işlerini veya bozuk kayıtları (Kalıp Adı olmayanları) listeden tamamen çıkarıyoruz.
+    // Bu işlem sayesinde 'localeCompare' hatası ve veri karışıklığı engellenir.
+    const cleanProjects = useMemo(() => {
+        if (!projects || !Array.isArray(projects)) return [];
+        return projects.filter(p => 
+            p && 
+            p.moldName && // Kalıp Adı Olmalı
+            typeof p.moldName === 'string' && // Metin olmalı
+            p.moldName.trim() !== '' // Boş olmamalı
+        );
+    }, [projects]);
+
     const calculateMoldProgress = (tasks) => {
         if (!tasks || tasks.length === 0) return 0;
-        const allOperations = tasks.flatMap(t => t.operations);
+        const allOperations = tasks.flatMap(t => t.operations || []);
         if (allOperations.length === 0) return 0;
-        const totalProgress = allOperations.reduce((acc, op) => acc + op.progressPercentage, 0);
+        const totalProgress = allOperations.reduce((acc, op) => acc + (op.progressPercentage || 0), 0);
         return totalProgress / allOperations.length;
     };
 
@@ -60,7 +69,9 @@ const EnhancedMoldList = ({ projects }) => {
     };
 
     const filteredProjects = useMemo(() => {
-        let filtered = projects;
+        // cleanProjects kullanarak başlıyoruz (Hata riskini sıfıra indirir)
+        let filtered = cleanProjects;
+
         if (activeFilter !== 'all') {
             if (activeFilter === 'ACTIVE_OVERVIEW') {
                 filtered = filtered.filter(project => 
@@ -70,14 +81,14 @@ const EnhancedMoldList = ({ projects }) => {
                 filtered = filtered.filter(project => 
                     project.status === activeFilter
                 );
-            
             }
         }
+
         if (searchTerm.trim()) {
             const lowerSearchTerm = searchTerm.toLowerCase();
             filtered = filtered.filter(project => 
-                project.moldName.toLowerCase().includes(lowerSearchTerm) ||
-                project.customer.toLowerCase().includes(lowerSearchTerm)
+                (project.moldName || '').toLowerCase().includes(lowerSearchTerm) ||
+                (project.customer || '').toLowerCase().includes(lowerSearchTerm)
             );
         }
         
@@ -94,15 +105,17 @@ const EnhancedMoldList = ({ projects }) => {
             if (!priorityA && priorityB) {
                 return 1;
             }
-            return a.moldName.localeCompare(b.moldName);
+            // Güvenli sıralama (cleanProjects sayesinde moldName varlığı garanti ama yine de önlem)
+            return (a.moldName || '').localeCompare(b.moldName || '');
         });
         
         return filtered;
-    }, [projects, activeFilter, searchTerm]);
+    }, [cleanProjects, activeFilter, searchTerm]); // projects yerine cleanProjects bağımlılığı
 
+    // İstatistikler de sadece temiz veriye göre hesaplanır
     const stats = useMemo(() => {
         const counts = {
-            total: projects.length,
+            total: cleanProjects.length,
             waiting: 0,
             completed: 0,
             activeOverview: 0,
@@ -111,7 +124,8 @@ const EnhancedMoldList = ({ projects }) => {
         Object.values(MOLD_STATUS).forEach(status => {
             counts[status] = 0;
         });
-        for (const project of projects) {
+        
+        for (const project of cleanProjects) {
             const status = project.status || MOLD_STATUS.WAITING;
             if (counts[status] !== undefined) {
                 counts[status]++;
@@ -123,7 +137,7 @@ const EnhancedMoldList = ({ projects }) => {
         counts.waiting = counts[MOLD_STATUS.WAITING];
         counts.completed = counts[MOLD_STATUS.COMPLETED];
         return counts;
-    }, [projects]);
+    }, [cleanProjects]);
 
     const FilterCard = ({ filterKey, title, count, icon: Icon, colorClass }) => {
         const isActive = activeFilter === filterKey;
@@ -153,7 +167,6 @@ const EnhancedMoldList = ({ projects }) => {
                 <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
                 <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
                 <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
-                {/* TASARIM FİLTRESİ */}
                 <FilterCard filterKey={MOLD_STATUS.TASARIM} title="Tasarım" count={stats[MOLD_STATUS.TASARIM]} icon={Edit2} colorClass="border-purple-500 bg-purple-50 text-purple-500"/>
                 
                 <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
@@ -162,7 +175,6 @@ const EnhancedMoldList = ({ projects }) => {
                 <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
                 <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                {/* REVİZYON BUTONU KALDIRILDI */}
                 <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
             </div>
 
@@ -186,7 +198,6 @@ const EnhancedMoldList = ({ projects }) => {
                         />
                     </div>
 
-                    {/* GÖRÜNÜM DEĞİŞTİRME BUTONLARI */}
                     <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 border border-gray-200 dark:border-gray-600">
                         <button 
                             onClick={() => setViewMode('card')} 
@@ -207,7 +218,6 @@ const EnhancedMoldList = ({ projects }) => {
             </div>
 
             {viewMode === 'list' ? (
-                // LİSTE GÖRÜNÜMÜ (TABLO)
                 <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-900">
@@ -294,7 +304,6 @@ const EnhancedMoldList = ({ projects }) => {
                     </table>
                 </div>
             ) : (
-                // KART GÖRÜNÜMÜ
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                     {filteredProjects.length === 0 ? (
                         <div className="col-span-full text-center py-8">
@@ -307,19 +316,17 @@ const EnhancedMoldList = ({ projects }) => {
                         filteredProjects.map(project => {
                             const totalProgress = calculateMoldProgress(project.tasks);
                             const moldStatus = project.status || MOLD_STATUS.WAITING;
-                            
                             const typeStyle = getProjectTypeStyle(project.projectType);
 
-                            const assignedCamOperators = project.tasks
-                                .flatMap(task => task.operations.map(op => op.assignedOperator))
+                            // Güvenli erişim operatörleri eklendi (?.)
+                            const assignedCamOperators = (project.tasks || [])
+                                .flatMap(task => (task.operations || []).map(op => op.assignedOperator))
                                 .filter(op => op && op !== 'SEÇ');
     
                             const uniqueCamOperators = [...new Set(assignedCamOperators)];
                             
-                            // --- TERMİN HESAPLAMALARI ---
                             const remainingDays = calculate6DayWorkRemaining(project.moldDeadline);
                             
-                            // Termin geçmiş mi kontrolü (Takvim günü üzerinden)
                             const today = new Date();
                             today.setHours(0,0,0,0);
                             const deadlineDate = project.moldDeadline ? new Date(project.moldDeadline) : null;
@@ -334,7 +341,6 @@ const EnhancedMoldList = ({ projects }) => {
                                                 totalProgress <= 80 &&
                                                 moldStatus !== MOLD_STATUS.COMPLETED;
                                                 
-                            // RENKLİ KENAR ÇİZGİSİ
                             const cardHighlightClasses = isCritical 
                                 ? 'bg-red-100 dark:bg-red-900/30 border-red-600 dark:border-red-500 animate-pulse'
                                 : `bg-white dark:bg-gray-800 ${typeStyle.borderClass}`; 
@@ -347,7 +353,7 @@ const EnhancedMoldList = ({ projects }) => {
                             let workingPartCount = 0;
                             let idlePartCount = 0;
 
-                            project.tasks.forEach(task => {
+                            (project.tasks || []).forEach(task => {
                                 const operations = task.operations || [];
                                 const inProgressOps = operations.filter(op => op.status === OPERATION_STATUS.IN_PROGRESS);
                                 const notStartedOps = operations.filter(op => op.status === OPERATION_STATUS.NOT_STARTED);
@@ -406,7 +412,6 @@ const EnhancedMoldList = ({ projects }) => {
                                             </p>
                                         )}
                                         
-                                        {/* YENİ: CAM SORUMLUSU GÖSTERİMİ */}
                                         {project.camResponsible && (
                                             <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
                                                 CAM Sor: <span className="font-semibold text-orange-700 dark:text-orange-300">{project.camResponsible}</span>
@@ -424,7 +429,7 @@ const EnhancedMoldList = ({ projects }) => {
                                                 
                                                 let finishDateStr = project.completedAt;
                                                 if (!finishDateStr && project.tasks) {
-                                                    const allOps = project.tasks.flatMap(t => t.operations);
+                                                    const allOps = project.tasks.flatMap(t => t.operations || []);
                                                     const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED && (op.finishDate || op.supervisorReviewDate));
                                                     if (completedOps.length > 0) {
                                                         const maxTime = Math.max(...completedOps.map(op => new Date(op.finishDate || op.supervisorReviewDate).getTime()));
@@ -489,7 +494,7 @@ const EnhancedMoldList = ({ projects }) => {
                                         )}
 
                                         <p className="text-gray-600 dark:text-gray-400 text-xs mt-2">
-                                            Alt Parça Sayısı: <span className="font-semibold">{project.tasks.length}</span>
+                                            Alt Parça Sayısı: <span className="font-semibold">{(project.tasks || []).length}</span>
                                         </p>
                                         
                                         <div className="text-xs mt-1 space-y-0.5">
