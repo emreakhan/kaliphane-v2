@@ -17,8 +17,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     const [moldError, setMoldError] = useState('');
     const [batchError, setBatchError] = useState('');
 
-    // --- HATA DÜZELTME: Veri Temizliği ---
-    // Kalıp Adı olmayan (CNC işleri vb.) kayıtları filtrele
+    // --- GÜVENLİK ÖNLEMİ: Hatalı verileri filtrele ---
     const cleanProjects = useMemo(() => {
         if (!projects || !Array.isArray(projects)) return [];
         return projects.filter(p => 
@@ -30,7 +29,6 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     }, [projects]);
 
     const checkDuplicateMold = (moldName) => {
-        // cleanProjects kullanarak kontrol et
         return cleanProjects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
         );
@@ -68,10 +66,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
 
     const handleBatchAddTasks = async () => {
         if (!selectedMoldId || !batchTaskNames.trim()) return;
-        
-        // cleanProjects içinden ara
         const moldToUpdate = cleanProjects.find(p => p.id === selectedMoldId);
-        
         if (!moldToUpdate) {
             setBatchError("Hata: Kalıp bulunamadı.");
             return;
@@ -133,6 +128,26 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
             } else {
                 setBatchError('');
             }
+        }
+    };
+
+    // --- YENİ EKLENEN FONKSİYON: Parça Adı Güncelleme ---
+    const handleUpdateTaskName = async (moldId, taskId, newName) => {
+        const moldToUpdate = cleanProjects.find(p => p.id === moldId);
+        if (!moldToUpdate) return;
+
+        const updatedTasks = moldToUpdate.tasks.map(task => {
+            if (task.id === taskId) {
+                return { ...task, taskName: newName };
+            }
+            return task;
+        });
+
+        try {
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: updatedTasks });
+            console.log("Parça ismi güncellendi:", taskId, newName);
+        } catch (e) {
+            console.error("Parça güncellenirken hata: ", e);
         }
     };
 
@@ -202,7 +217,20 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                     </div>
                 </div>
                 <div className="lg:col-span-1">
-                    {selectedMold ? (<TaskListSidebar tasks={selectedMold.tasks.sort((a,b) => a.taskNumber - b.taskNumber)} onDeleteTask={handleDeleteTask} selectedMoldId={selectedMoldId} />) : (<div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6 text-center"><List className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" /><p className="text-gray-500 dark:text-gray-400">Parça listesini görmek için bir kalıp seçin</p></div>)}
+                    {/* onUpdateTask prop'u eklendi */}
+                    {selectedMold ? (
+                        <TaskListSidebar 
+                            tasks={selectedMold.tasks.sort((a,b) => a.taskNumber - b.taskNumber)} 
+                            onDeleteTask={handleDeleteTask} 
+                            onUpdateTask={handleUpdateTaskName}
+                            selectedMoldId={selectedMoldId} 
+                        />
+                    ) : (
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
+                            <List className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
+                            <p className="text-gray-500 dark:text-gray-400">Parça listesini görmek için bir kalıp seçin</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
