@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-    Plus, Save, Trash2, Edit2, X, Box, Ruler, CheckSquare, Settings, Wrench, Search, FileText
+    Plus, Save, Trash2, Edit2, X, Box, Ruler, CheckSquare, Settings, Wrench, Search, FileText, Clock // Clock ikonu eklendi
 } from 'lucide-react';
 import { 
     collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy 
@@ -21,8 +21,9 @@ const CncPartManager = ({ db }) => {
         partName: '',
         orderNumber: '', 
         controlFrequency: '',
+        cycleTime: '', // YENİ: Çevrim Süresi (Saniye)
         
-        // --- YENİ EKLENEN KALİTE BİLGİLERİ ---
+        // --- KALİTE BİLGİLERİ ---
         technicalDrawingNo: '', // Teknik Resim No
         revisionInfo: '',       // Revizyon No/Tarih
         instructionNo: '',      // Talimat No
@@ -50,7 +51,7 @@ const CncPartManager = ({ db }) => {
 
     const handleNewPart = () => {
         const newPart = { 
-            partName: '', orderNumber: '', controlFrequency: '10', 
+            partName: '', orderNumber: '', controlFrequency: '10', cycleTime: '', // cycleTime eklendi
             technicalDrawingNo: '', revisionInfo: '', instructionNo: '', rawMaterialCode: '',
             criteria: [] 
         };
@@ -160,6 +161,8 @@ const CncPartManager = ({ db }) => {
                                     <div className="text-[10px] font-mono bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-gray-600 dark:text-gray-300 mb-1">
                                         {part.criteria?.length || 0} Kriter
                                     </div>
+                                    {/* Listede de çevrim süresini göstermek istersen burası aktif olabilir */}
+                                    {/* <div className="text-[10px] text-gray-400">{part.cycleTime ? `${part.cycleTime} sn` : ''}</div> */}
                                 </div>
                             </div>
                         ))
@@ -204,8 +207,8 @@ const CncPartManager = ({ db }) => {
                         {/* FORM */}
                         <div className="space-y-6">
                             
-                            {/* Temel Bilgiler */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Temel Bilgiler (Grid yapısı 3'ten 4'e çıkarıldı) */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Parça Adı</label>
                                     {isEditing ? (
@@ -223,19 +226,39 @@ const CncPartManager = ({ db }) => {
                                     )}
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kontrol Sıklığı (Adet)</label>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kontrol Sıklığı</label>
                                     {isEditing ? (
                                         <input type="number" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.controlFrequency} onChange={e => setPartForm({...partForm, controlFrequency: e.target.value})} placeholder="Örn: 10" />
                                     ) : (
                                         <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded flex items-center">
                                             <Settings className="w-4 h-4 mr-2 text-gray-400"/>
-                                            Her {selectedPart.controlFrequency || '?'} parçada bir
+                                            {selectedPart.controlFrequency ? `Her ${selectedPart.controlFrequency} parçada` : '?'}
                                         </div>
                                     )}
                                 </div>
+                                
+                                {/* --- YENİ EKLENEN ÇEVRİM SÜRESİ ALANI --- */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Çevrim Süresi (sn)</label>
+                                    {isEditing ? (
+                                        <input 
+                                            type="number" 
+                                            className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600 text-center font-bold" 
+                                            value={partForm.cycleTime} 
+                                            onChange={e => setPartForm({...partForm, cycleTime: e.target.value})} 
+                                            placeholder="Örn: 45" 
+                                        />
+                                    ) : (
+                                        <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded flex items-center justify-center">
+                                            <Clock className="w-4 h-4 mr-2 text-blue-500"/>
+                                            {selectedPart.cycleTime ? `${selectedPart.cycleTime} sn` : '-'}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* --------------------------------------- */}
                             </div>
 
-                            {/* --- YENİ EKLENEN KISIM: KALİTE DOKÜMAN BİLGİLERİ --- */}
+                            {/* KALİTE DOKÜMAN BİLGİLERİ */}
                             <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-900/30">
                                 <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-3 flex items-center text-sm">
                                     <FileText className="w-4 h-4 mr-2"/> Kalite Doküman Bilgileri (PDF İçin)
@@ -282,7 +305,6 @@ const CncPartManager = ({ db }) => {
                                     </div>
                                 </div>
                             </div>
-                            {/* ---------------------------------------------------- */}
 
                             {/* KRİTER TABLOSU */}
                             <div>

@@ -30,7 +30,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users 
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar
 } from 'lucide-react';
 
 // Sayfalar
@@ -61,6 +61,8 @@ import CncPartManager from './pages/CncPartManager.js';
 import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; 
 import CncInspectionReport from './pages/CncInspectionReport.js'; 
 import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; 
+// YENİ EKLENEN PLANLAMA SAYFASI (Cnclathe olarak adlandırıldı)
+import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -103,7 +105,7 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
-    // Seed Data (Bu kısmı kısaltıyorum, orijinalindeki gibi kalmalı)
+    // Seed Data
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -134,7 +136,6 @@ const App = () => {
             }
         } 
         
-        // ... Personel ve Makine Seed kodları (Orijinal koddaki gibi) ...
         const personnelQuery = query(collection(db, PERSONNEL_COLLECTION), where("username", "==", "admin"));
         const adminUserSnapshot = await getDocs(personnelQuery);
         if (adminUserSnapshot.empty) {
@@ -211,24 +212,21 @@ const App = () => {
         };
     }, [userId, seedInitialData]); 
     
-    // --- KRİTİK DEĞİŞİKLİK: VERİ MERKEZİNDE FİLTRELEME ---
     useEffect(() => {
         if (!db || !userId || !loggedInUser) return;
         setIsProjectsLoading(true);
 
         // 1. DİNLEYİCİ: KALIP PROJELERİ (projects - KUTU A)
-        // Burada gelen veriyi "state"e atmadan önce temizliyoruz.
         const unsubscribeProjects = onSnapshot(query(collection(db, PROJECT_COLLECTION)), (snapshot) => {
             const cleanData = [];
             snapshot.docs.forEach(d => {
                 const data = d.data();
-                // EĞER KALIP ADI YOKSA, BU SATIRI HİÇ ALMA!
                 if (data.moldName && typeof data.moldName === 'string' && data.moldName.trim() !== '') {
                     cleanData.push({ id: d.id, ...data });
                 }
             });
             
-            setProjects(cleanData); // ARTIK "projects" STATE'İ TERTEMİZ
+            setProjects(cleanData); 
             setIsProjectsLoading(false);
         });
 
@@ -409,6 +407,7 @@ const App = () => {
         // 2. CNC Torna Sorumlusu: SADECE CNC YÖNETİMİNİ GÖRÜR
         if (isCncLatheSup) {
             return [
+                { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -593,6 +592,13 @@ const App = () => {
                 <Route path="/operator-performance" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* --- YENİ EKLENEN İŞ PLANLAMA ROUTE --- */}
+                <Route path="/cnc-lathe-planning" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
                     : <Navigate to="/" replace />
                 } />
 

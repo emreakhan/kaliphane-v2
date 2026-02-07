@@ -1,9 +1,10 @@
 // src/pages/CncLatheDashboard.js
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     Monitor, PlayCircle, StopCircle, Clock, 
-    Ruler, CheckCircle, XCircle, Save, Search, ChevronDown 
+    Ruler, CheckCircle, XCircle, Save, Search, ChevronDown, 
+    List, Edit2, AlertTriangle, Calendar 
 } from 'lucide-react';
 import { 
     collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc, getDocs 
@@ -37,7 +38,7 @@ const parseInputFloat = (value) => {
     return parseFloat(sanitized);
 };
 
-const CncLatheDashboard = ({ db, loggedInUser }) => {
+const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => { // cncJobs prop olarak eklendi
     const [activeJobs, setActiveJobs] = useState([]); 
     const [parts, setParts] = useState([]); 
     
@@ -45,14 +46,20 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
     const [isStartModalOpen, setIsStartModalOpen] = useState(false);
     const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
     const [isMeasureModalOpen, setIsMeasureModalOpen] = useState(false);
+    const [isEditJobModalOpen, setIsEditJobModalOpen] = useState(false); // Yeni: İş Düzenleme Modalı
 
     const [selectedMachine, setSelectedMachine] = useState(null);
     const [selectedJob, setSelectedJob] = useState(null);
     const [activeCriteria, setActiveCriteria] = useState([]); 
 
     // Forms
-    const [startFormData, setStartFormData] = useState({ orderNumber: '', selectedPartId: '', targetQuantity: '' });
+    const [startFormData, setStartFormData] = useState({ 
+        orderNumber: '', selectedPartId: '', targetQuantity: '', plannedJobId: null // plannedJobId eklendi
+    });
     
+    // Düzenleme Formu
+    const [editFormData, setEditFormData] = useState({ orderNumber: '', targetQuantity: '' });
+
     // Arama Özellikli Dropdown
     const [partSearchTerm, setPartSearchTerm] = useState('');
     const [isPartDropdownOpen, setIsPartDropdownOpen] = useState(false);
@@ -81,14 +88,45 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         return () => { unsubActive(); unsubParts(); };
     }, [db]);
 
+    // --- PLANLANMIŞ İŞLERİ FİLTRELE ---
+    // Bu tezgaha atanmış ama henüz başlamamış (ASSIGNED) işleri bul
+    const getPlannedJobsForMachine = (machineName) => {
+        if (!cncJobs) return [];
+        return cncJobs.filter(job => 
+            job.machine === machineName && 
+            job.status === 'ASSIGNED'
+        );
+    };
+
     // --- İŞLEMLER ---
 
     const handleOpenStartModal = (machine) => {
         setSelectedMachine(machine);
-        setStartFormData({ orderNumber: '', selectedPartId: '', targetQuantity: '' });
+        setStartFormData({ orderNumber: '', selectedPartId: '', targetQuantity: '', plannedJobId: null });
         setPartSearchTerm('');
         setIsPartDropdownOpen(false);
         setIsStartModalOpen(true);
+    };
+
+    // Planlanmış bir iş seçildiğinde formu doldur
+    const handleSelectPlannedJob = (plannedJob) => {
+        setStartFormData({
+            orderNumber: plannedJob.orderNumber || '', // Varsa getir
+            selectedPartId: plannedJob.partId || '', // partId planlamadan gelmeli
+            targetQuantity: plannedJob.targetQuantity || '',
+            plannedJobId: plannedJob.id
+        });
+        
+        // Parça ismini de arama kutusuna yaz
+        setPartSearchTerm(plannedJob.partName || '');
+        
+        // Eğer partId yoksa (eski veri), isme göre bulmaya çalış
+        if (!plannedJob.partId) {
+            const matchingPart = parts.find(p => p.partName === plannedJob.partName);
+            if (matchingPart) {
+                setStartFormData(prev => ({ ...prev, selectedPartId: matchingPart.id }));
+            }
+        }
     };
 
     const handleSelectPart = (part) => {
@@ -98,40 +136,78 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
     };
 
     const handleStartJob = async () => {
-        if (!startFormData.orderNumber || !startFormData.selectedPartId) return alert("Lütfen iş emri ve parça seçiniz.");
+        // İş Emri No zorunluluğunu kaldırdık (boş olabilir)
+        if (!startFormData.selectedPartId) return alert("Lütfen bir parça seçiniz.");
+        
         const selectedPart = parts.find(p => p.id === startFormData.selectedPartId);
         if (!selectedPart) return alert("Parça bulunamadı.");
 
         try {
-            // Mükerrer Kontrol
-            const qCheck = query(
-                collection(db, CNC_LATHE_JOBS_COLLECTION), 
-                where('orderNumber', '==', startFormData.orderNumber)
-            );
-            const checkSnapshot = await getDocs(qCheck);
+            // Mükerrer Kontrol (Sadece İş Emri Girildiyse)
+            if (startFormData.orderNumber) {
+                const qCheck = query(
+                    collection(db, CNC_LATHE_JOBS_COLLECTION), 
+                    where('orderNumber', '==', startFormData.orderNumber),
+                    where('status', '==', 'RUNNING') // Sadece o an çalışanları kontrol et
+                );
+                const checkSnapshot = await getDocs(qCheck);
 
-            if (!checkSnapshot.empty) {
-                // Eğer bu numara var ama BİTMİŞ ise uyarı vererek devam etmeye izin verilebilir, 
-                // ama aktifse kesin durdurulmalı. Şimdilik katı kural devam.
-                // İyileştirme: Eğer kullanıcı "Devam" diyorsa izin verilebilir ama şu an basit tutalım.
-                alert(`HATA: "${startFormData.orderNumber}" numaralı iş emri sistemde zaten kayıtlı!\n\nLütfen iş emri numarasını kontrol ediniz.`);
-                return;
+                if (!checkSnapshot.empty) {
+                    alert(`HATA: "${startFormData.orderNumber}" numaralı iş emri şu an başka bir tezgahta çalışıyor!`);
+                    return;
+                }
             }
 
-            await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), {
+            const newJobData = {
                 machine: selectedMachine,
-                orderNumber: startFormData.orderNumber,
+                orderNumber: startFormData.orderNumber || 'Plansız', // Boşsa 'Plansız' yazabiliriz veya boş bırakabiliriz
                 partName: selectedPart.partName, 
                 partId: selectedPart.id,         
                 targetQuantity: parseInt(startFormData.targetQuantity) || 0,
                 startTime: getCurrentDateTimeString(),
                 operator: loggedInUser.name,
                 status: 'RUNNING'
-            });
+            };
+
+            // Eğer bu bir planlı iş ise (listeden seçildiyse), o kaydı güncelle (RUNNING yap)
+            // Değilse yeni kayıt oluştur
+            if (startFormData.plannedJobId) {
+                await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, startFormData.plannedJobId), {
+                    ...newJobData,
+                    operator: loggedInUser.name // Operatörü güncelle
+                });
+            } else {
+                await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), newJobData);
+            }
+
             setIsStartModalOpen(false);
         } catch (error) { 
             console.error("Hata:", error); 
             alert("İş başlatılamadı. Bağlantınızı kontrol ediniz."); 
+        }
+    };
+
+    // --- AKTİF İŞİ DÜZENLEME ---
+    const handleOpenEditJobModal = (job) => {
+        setSelectedJob(job);
+        setEditFormData({
+            orderNumber: job.orderNumber || '',
+            targetQuantity: job.targetQuantity || ''
+        });
+        setIsEditJobModalOpen(true);
+    };
+
+    const handleSaveJobEdit = async () => {
+        if (!selectedJob) return;
+        try {
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJob.id), {
+                orderNumber: editFormData.orderNumber,
+                targetQuantity: parseInt(editFormData.targetQuantity) || 0
+            });
+            setIsEditJobModalOpen(false);
+        } catch (error) {
+            console.error("Güncelleme hatası:", error);
+            alert("Güncellenemedi.");
         }
     };
 
@@ -141,7 +217,6 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         setIsFinishModalOpen(true);
     };
 
-    // --- GÜNCELLENEN FONKSİYON: PARENT STATUS UPDATE ---
     const handleFinishJob = async () => {
         if (!selectedJob) return;
         try {
@@ -150,25 +225,12 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
             const end = new Date(endTime);
             const durationMinutes = Math.floor((end - start) / 60000);
 
-            // 1. Mevcut işi bitir
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJob.id), {
                 status: 'COMPLETED',
                 endTime: endTime,
                 producedQuantity: parseInt(producedQuantity) || 0,
                 durationMinutes: durationMinutes
             });
-
-            // 2. EĞER BU İŞ BİR DEVAM İŞİ İSE (PARENT VARSA), ANA İŞİ DE GÜNCELLE
-            if (selectedJob.parentJobId) {
-                // Ana işi bul ve "Sonradan Tamamlandı" (isCompletedLater) olarak işaretle
-                try {
-                    await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJob.parentJobId), {
-                        isCompletedLater: true
-                    });
-                } catch (parentError) {
-                    console.error("Ana iş durumu güncellenemedi:", parentError);
-                }
-            }
 
             setIsFinishModalOpen(false);
         } catch (error) { console.error("Hata:", error); }
@@ -181,12 +243,22 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         setActiveCriteria([]); 
 
         if (!job.partId) {
-            alert("Bu iş kaydında Parça ID bulunamadı.");
+            // Eğer partId yoksa (eski kayıt), isme göre bulmayı dene
+            const foundPart = parts.find(p => p.partName === job.partName);
+            if (foundPart) {
+                // Bulduysan devam et
+                loadCriteria(foundPart.id);
+            } else {
+                alert("Bu iş kaydında Parça ID bulunamadı ve isimle eşleşmedi.");
+            }
             return;
         }
+        loadCriteria(job.partId);
+    };
 
+    const loadCriteria = async (partId) => {
         try {
-            const partRef = doc(db, CNC_PARTS_COLLECTION, job.partId);
+            const partRef = doc(db, CNC_PARTS_COLLECTION, partId);
             const partSnap = await getDoc(partRef);
             
             if (partSnap.exists()) {
@@ -261,7 +333,7 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
         try {
             await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), {
                 jobId: selectedJob.id,
-                partId: selectedJob.partId,
+                partId: selectedJob.partId, // Part ID yoksa undefined gidebilir, sorun değil
                 partName: selectedJob.partName,
                 machine: selectedJob.machine,
                 operator: loggedInUser.name,
@@ -341,53 +413,64 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                             </div>
 
                             <div className="p-6 flex flex-col h-auto min-h-[300px] justify-between">
-                                <div className="text-center border-b border-gray-100 dark:border-gray-700 pb-4 mb-4">
+                                <div className="text-center border-b border-gray-100 dark:border-gray-700 pb-4 mb-4 relative">
                                     <h2 className="text-4xl font-black text-gray-800 dark:text-white">{machine}</h2>
                                     <p className="text-xs text-gray-400">CNC TORNA</p>
+                                    
+                                    {/* DÜZENLEME BUTONU (Sadece Aktif İş Varsa) */}
+                                    {activeJob && (
+                                        <button 
+                                            onClick={() => handleOpenEditJobModal(activeJob)}
+                                            className="absolute top-0 right-0 p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition"
+                                            title="İş Bilgilerini Düzenle"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
 
                                 {activeJob ? (
                                     <>
-                                        <div className="space-y-4 flex-1">
-                                            <div>
-                                                <span className="text-xs font-bold text-gray-400 uppercase">İŞ EMRİ / PARÇA</span>
-                                                <div className="font-mono font-bold text-xl text-gray-900 dark:text-white">{activeJob.orderNumber}</div>
-                                                <div className="text-sm font-bold text-gray-600 dark:text-gray-300 truncate">{activeJob.partName}</div>
-                                            </div>
-                                            
-                                            <div className="flex justify-between bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                                            <div className="space-y-4 flex-1">
                                                 <div>
-                                                    <span className="text-[10px] text-gray-400 block uppercase">HEDEF</span>
-                                                    <span className="font-bold text-gray-700 dark:text-gray-200">{activeJob.targetQuantity} Adet</span>
+                                                    <span className="text-xs font-bold text-gray-400 uppercase">İŞ EMRİ / PARÇA</span>
+                                                    <div className="font-mono font-bold text-xl text-gray-900 dark:text-white">{activeJob.orderNumber || '---'}</div>
+                                                    <div className="text-sm font-bold text-gray-600 dark:text-gray-300 truncate">{activeJob.partName}</div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <span className="text-[10px] text-gray-400 block uppercase">SÜRE</span>
-                                                    <span className="font-bold text-yellow-600 dark:text-yellow-400 flex items-center">
-                                                        <Clock className="w-3 h-3 mr-1"/>
-                                                        {calculateDuration(activeJob.startTime)}
-                                                    </span>
+                                                
+                                                <div className="flex justify-between bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                                                    <div>
+                                                        <span className="text-[10px] text-gray-400 block uppercase">HEDEF</span>
+                                                        <span className="font-bold text-gray-700 dark:text-gray-200">{activeJob.targetQuantity} Adet</span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] text-gray-400 block uppercase">SÜRE</span>
+                                                        <span className="font-bold text-yellow-600 dark:text-yellow-400 flex items-center">
+                                                            <Clock className="w-3 h-3 mr-1"/>
+                                                            {calculateDuration(activeJob.startTime)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* ÖLÇÜM BUTONU */}
+                                                <button 
+                                                    onClick={() => handleOpenMeasureModal(activeJob)}
+                                                    className="w-full py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-lg font-bold flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-900/50 transition"
+                                                >
+                                                    <Ruler className="w-4 h-4 mr-2" /> ÖLÇÜM AL
+                                                </button>
+
+                                                <div className="text-xs text-center text-gray-400 pt-2">
+                                                    Op: <span className="text-gray-600 dark:text-gray-300 font-bold">{activeJob.operator}</span>
                                                 </div>
                                             </div>
 
-                                            {/* ÖLÇÜM BUTONU */}
                                             <button 
-                                                onClick={() => handleOpenMeasureModal(activeJob)}
-                                                className="w-full py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-lg font-bold flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-900/50 transition"
+                                                onClick={() => handleOpenFinishModal(activeJob)}
+                                                className="mt-4 w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center transition transform active:scale-95"
                                             >
-                                                <Ruler className="w-4 h-4 mr-2" /> ÖLÇÜM AL
+                                                <StopCircle className="w-6 h-6 mr-2" /> İŞİ BİTİR
                                             </button>
-
-                                            <div className="text-xs text-center text-gray-400 pt-2">
-                                                Op: <span className="text-gray-600 dark:text-gray-300 font-bold">{activeJob.operator}</span>
-                                            </div>
-                                        </div>
-
-                                        <button 
-                                            onClick={() => handleOpenFinishModal(activeJob)}
-                                            className="mt-4 w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center transition transform active:scale-95"
-                                        >
-                                            <StopCircle className="w-6 h-6 mr-2" /> İŞİ BİTİR
-                                        </button>
                                     </>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center h-full text-gray-400 py-4">
@@ -407,79 +490,139 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                 })}
             </div>
 
-            {/* --- MODAL: İŞ BAŞLAT (YENİLENMİŞ ARAMA ÖZELLİKLİ) --- */}
-            <SimpleModal isOpen={isStartModalOpen} onClose={() => setIsStartModalOpen(false)} title={`Yeni İş Başlat - ${selectedMachine}`}>
+            {/* --- MODAL: İŞ BAŞLAT (PLANLAMA ENTEGRASYONLU) --- */}
+            <SimpleModal isOpen={isStartModalOpen} onClose={() => setIsStartModalOpen(false)} title={`Yeni İş Başlat - ${selectedMachine}`} maxWidth="max-w-2xl">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    {/* SOL: PLANLANMIŞ İŞLER LİSTESİ */}
+                    <div className="border-r border-gray-200 dark:border-gray-700 pr-6">
+                        <h4 className="text-sm font-bold text-gray-500 mb-3 flex items-center">
+                            <Calendar className="w-4 h-4 mr-2"/> Planlanan İşler (Havuz)
+                        </h4>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {getPlannedJobsForMachine(selectedMachine).length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">Bu tezgah için planlanmış iş yok.</p>
+                            ) : (
+                                getPlannedJobsForMachine(selectedMachine).map(job => (
+                                    <div 
+                                        key={job.id}
+                                        onClick={() => handleSelectPlannedJob(job)}
+                                        className={`p-3 border rounded-lg cursor-pointer transition hover:bg-blue-50 dark:hover:bg-gray-700 ${startFormData.plannedJobId === job.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'}`}
+                                    >
+                                        <div className="font-bold text-gray-800 dark:text-white text-sm">{job.partName}</div>
+                                        <div className="flex justify-between mt-1 text-xs text-gray-500">
+                                            <span>{job.orderNumber || 'No Yok'}</span>
+                                            <span className="font-bold">{job.targetQuantity} Adet</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* SAĞ: İŞ BAŞLATMA FORMU */}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">İş Emri Numarası</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                                value={startFormData.orderNumber} 
+                                onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} 
+                                placeholder="Örn: 2024-105 (Opsiyonel)" 
+                            />
+                        </div>
+                        
+                        {/* --- ARAMA ÖZELLİKLİ PARÇA SEÇİMİ --- */}
+                        <div className="relative">
+                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Parça Seçimi</label>
+                            <div className="relative">
+                                <input 
+                                    type="text"
+                                    className="w-full p-3 pl-10 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Parça adı veya kodu yazın..."
+                                    value={partSearchTerm}
+                                    onChange={(e) => {
+                                        setPartSearchTerm(e.target.value);
+                                        setIsPartDropdownOpen(true);
+                                        if(e.target.value === '') setStartFormData(prev => ({...prev, selectedPartId: ''}));
+                                    }}
+                                    onClick={() => setIsPartDropdownOpen(true)}
+                                />
+                                <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                                <ChevronDown 
+                                    className="absolute right-3 top-3.5 text-gray-400 w-5 h-5 cursor-pointer hover:text-gray-600" 
+                                    onClick={() => setIsPartDropdownOpen(!isPartDropdownOpen)}
+                                />
+                            </div>
+
+                            {isPartDropdownOpen && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                                    {filteredParts.length > 0 ? (
+                                        filteredParts.map(part => (
+                                            <div 
+                                                key={part.id} 
+                                                onClick={() => handleSelectPart(part)}
+                                                className="p-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
+                                            >
+                                                <div className="font-bold text-gray-800 dark:text-white">{part.partName}</div>
+                                                {part.orderNumber && <div className="text-xs text-gray-500">{part.orderNumber}</div>}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="p-4 text-center text-gray-500 text-sm">
+                                            Sonuç bulunamadı. <br/>
+                                            <span className="text-xs">Yeni parça tanımlamak için Sorumluya başvurun.</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Hedeflenen Adet</label>
+                            <input 
+                                type="number" 
+                                className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                                value={startFormData.targetQuantity} 
+                                onChange={e => setStartFormData({...startFormData, targetQuantity: e.target.value})} 
+                                placeholder="Örn: 500" 
+                            />
+                        </div>
+                        
+                        <button onClick={handleStartJob} className="w-full py-3 mt-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transform active:scale-95 transition">
+                            BAŞLAT
+                        </button>
+                    </div>
+                </div>
+            </SimpleModal>
+
+            {/* --- MODAL: AKTİF İŞİ DÜZENLE --- */}
+            <SimpleModal isOpen={isEditJobModalOpen} onClose={() => setIsEditJobModalOpen(false)} title="İş Bilgilerini Düzenle">
                 <div className="space-y-4">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded text-sm text-blue-800 dark:text-blue-200">
+                        <strong>Parça:</strong> {selectedJob?.partName}
+                    </div>
                     <div>
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">İş Emri Numarası</label>
                         <input 
                             type="text" 
-                            className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
-                            value={startFormData.orderNumber} 
-                            onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} 
-                            placeholder="Örn: 2024-105" 
+                            className="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                            value={editFormData.orderNumber} 
+                            onChange={e => setEditFormData({...editFormData, orderNumber: e.target.value})}
                         />
                     </div>
-                    
-                    {/* --- ARAMA ÖZELLİKLİ PARÇA SEÇİMİ --- */}
-                    <div className="relative">
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Parça Seçimi</label>
-                        <div className="relative">
-                            <input 
-                                type="text"
-                                className="w-full p-3 pl-10 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Parça adı veya kodu yazın..."
-                                value={partSearchTerm}
-                                onChange={(e) => {
-                                    setPartSearchTerm(e.target.value);
-                                    setIsPartDropdownOpen(true);
-                                    if(e.target.value === '') setStartFormData({...startFormData, selectedPartId: ''});
-                                }}
-                                onClick={() => setIsPartDropdownOpen(true)}
-                            />
-                            <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
-                            <ChevronDown 
-                                className="absolute right-3 top-3.5 text-gray-400 w-5 h-5 cursor-pointer hover:text-gray-600" 
-                                onClick={() => setIsPartDropdownOpen(!isPartDropdownOpen)}
-                            />
-                        </div>
-
-                        {isPartDropdownOpen && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                                {filteredParts.length > 0 ? (
-                                    filteredParts.map(part => (
-                                        <div 
-                                            key={part.id} 
-                                            onClick={() => handleSelectPart(part)}
-                                            className="p-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
-                                        >
-                                            <div className="font-bold text-gray-800 dark:text-white">{part.partName}</div>
-                                            {part.orderNumber && <div className="text-xs text-gray-500">{part.orderNumber}</div>}
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="p-4 text-center text-gray-500 text-sm">
-                                        Sonuç bulunamadı. <br/>
-                                        <span className="text-xs">Yeni parça tanımlamak için Sorumluya başvurun.</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
                     <div>
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Hedeflenen Adet</label>
                         <input 
                             type="number" 
-                            className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
-                            value={startFormData.targetQuantity} 
-                            onChange={e => setStartFormData({...startFormData, targetQuantity: e.target.value})} 
-                            placeholder="Örn: 500" 
+                            className="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                            value={editFormData.targetQuantity} 
+                            onChange={e => setEditFormData({...editFormData, targetQuantity: e.target.value})}
                         />
                     </div>
-                    
-                    <button onClick={handleStartJob} className="w-full py-3 mt-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transform active:scale-95 transition">
-                        BAŞLAT
+                    <button onClick={handleSaveJobEdit} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg">
+                        GÜNCELLE
                     </button>
                 </div>
             </SimpleModal>
@@ -489,7 +632,7 @@ const CncLatheDashboard = ({ db, loggedInUser }) => {
                 <div className="space-y-4">
                     <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-100 dark:border-yellow-800 text-center">
                         <div className="text-sm text-yellow-800 dark:text-yellow-200">İş Emri</div>
-                        <div className="text-xl font-black text-gray-900 dark:text-white">{selectedJob?.orderNumber}</div>
+                        <div className="text-xl font-black text-gray-900 dark:text-white">{selectedJob?.orderNumber || '---'}</div>
                         <div className="text-sm text-gray-500 mt-1">{selectedJob?.partName}</div>
                     </div>
                     <div>
