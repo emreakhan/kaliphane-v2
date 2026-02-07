@@ -61,8 +61,9 @@ import CncPartManager from './pages/CncPartManager.js';
 import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; 
 import CncInspectionReport from './pages/CncInspectionReport.js'; 
 import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; 
-// YENİ EKLENEN PLANLAMA SAYFASI (Cnclathe olarak adlandırıldı)
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
+// YENİ EKLENEN TAKVİM SAYFASI
+import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -105,7 +106,7 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
-    // Seed Data
+    // Seed Data (Bu kısmı kısaltıyorum)
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -212,11 +213,11 @@ const App = () => {
         };
     }, [userId, seedInitialData]); 
     
+    // --- VERİ ÇEKME ---
     useEffect(() => {
         if (!db || !userId || !loggedInUser) return;
         setIsProjectsLoading(true);
 
-        // 1. DİNLEYİCİ: KALIP PROJELERİ (projects - KUTU A)
         const unsubscribeProjects = onSnapshot(query(collection(db, PROJECT_COLLECTION)), (snapshot) => {
             const cleanData = [];
             snapshot.docs.forEach(d => {
@@ -225,12 +226,10 @@ const App = () => {
                     cleanData.push({ id: d.id, ...data });
                 }
             });
-            
             setProjects(cleanData); 
             setIsProjectsLoading(false);
         });
 
-        // 2. DİNLEYİCİ: CNC TORNA İŞLERİ (cncJobs - KUTU B)
         const unsubscribeCncJobs = onSnapshot(query(collection(db, CNC_LATHE_JOBS_COLLECTION)), (snapshot) => {
             setCncJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
@@ -407,7 +406,8 @@ const App = () => {
         // 2. CNC Torna Sorumlusu: SADECE CNC YÖNETİMİNİ GÖRÜR
         if (isCncLatheSup) {
             return [
-                { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, // <-- YENİ EKLENDİ
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -569,8 +569,6 @@ const App = () => {
                     : <Navigate to="/" replace />
                 } />
 
-                {/* Parça Yönetimi ve SPC Analiz gibi diğer sayfalar için de cncJobs eklenebilir, 
-                    ancak onlar şu an db üzerinden direkt çekiyor olabilir. İleride props'a geçilebilir. */}
                 <Route path="/cnc-part-manager" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncPartManager db={db} />
@@ -599,6 +597,13 @@ const App = () => {
                 <Route path="/cnc-lathe-planning" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* --- YENİ EKLENEN TAKVİM ROUTE --- */}
+                <Route path="/cnc-lathe-calendar" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncLatheCalendarPage cncJobs={cncJobs} /> 
                     : <Navigate to="/" replace />
                 } />
 

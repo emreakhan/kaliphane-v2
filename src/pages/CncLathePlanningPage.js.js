@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Clock, Save, Plus, Factory, GripVertical, Trash2, 
-    MoreVertical, Search, X, Edit2, Calculator, Box, Activity 
+    MoreVertical, Search, X, Edit2, Calculator, Box, Activity,
+    ArrowUp, ArrowDown
 } from 'lucide-react';
 import { 
-    doc, updateDoc, addDoc, deleteDoc, collection, onSnapshot, query, orderBy 
+    doc, updateDoc, addDoc, deleteDoc, collection, onSnapshot, query, orderBy, getDocs, where 
 } from '../config/firebase.js';
 import { 
     CNC_LATHE_JOBS_COLLECTION, CNC_LATHE_MACHINES, CNC_PARTS_COLLECTION 
@@ -15,23 +16,17 @@ import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 const CncLathePlanningPage = ({ db, cncJobs }) => {
     // --- STATE'LER ---
-    const [parts, setParts] = useState([]); // Kayıtlı Parça Listesi
-    const [isModalOpen, setIsModalOpen] = useState(false); // Yeni Ekleme Penceresi
-    const [searchTerm, setSearchTerm] = useState(''); // Parça Arama
-    const [showPartList, setShowPartList] = useState(false); // Parça Listesi Açık mı?
+    const [parts, setParts] = useState([]); 
+    const [isModalOpen, setIsModalOpen] = useState(false); 
+    const [searchTerm, setSearchTerm] = useState(''); 
+    const [showPartList, setShowPartList] = useState(false); 
     
-    // Form Verisi
     const [selectedPart, setSelectedPart] = useState(null);
     const [targetQuantity, setTargetQuantity] = useState('');
     const [operatorNote, setOperatorNote] = useState('');
 
-    // Kart Menü Yönetimi
     const [activeMenuJobId, setActiveMenuJobId] = useState(null);
-    
-    // Düzenleme Modu
     const [editingJob, setEditingJob] = useState(null); 
-
-    // Sürüklenen İşin ID'si
     const [draggedJobId, setDraggedJobId] = useState(null);
 
     // --- 1. PARÇA LİSTESİNİ ÇEKME ---
@@ -44,6 +39,33 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         });
         return () => unsubscribe();
     }, [db]);
+
+    // --- SIRALAMA FONKSİYONLARI (YENİ) ---
+    const handleMoveJob = async (job, direction) => {
+        // Bu makinedeki tüm işleri çek ve sıraya diz
+        const machineJobs = cncJobs
+            .filter(j => j.machine === job.machine && j.status !== 'COMPLETED')
+            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+        const currentIndex = machineJobs.findIndex(j => j.id === job.id);
+        if (currentIndex === -1) return;
+
+        // Yukarı taşıma
+        if (direction === 'up' && currentIndex > 0) {
+            const prevJob = machineJobs[currentIndex - 1];
+            // Yer değiştir
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, job.id), { orderIndex: currentIndex - 1 });
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, prevJob.id), { orderIndex: currentIndex });
+        }
+
+        // Aşağı taşıma
+        if (direction === 'down' && currentIndex < machineJobs.length - 1) {
+            const nextJob = machineJobs[currentIndex + 1];
+            // Yer değiştir
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, job.id), { orderIndex: currentIndex + 1 });
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, nextJob.id), { orderIndex: currentIndex });
+        }
+    };
 
     // --- 2. YENİ İŞ EKLEME ---
     const handleAddJob = async () => {
@@ -66,7 +88,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 machine: '',       
                 assignedOperator: '',
                 createdAt: getCurrentDateTimeString(),
-                producedQuantity: 0
+                producedQuantity: 0,
+                orderIndex: 9999 // Havuza düşenler en sona
             });
             
             resetForm();
@@ -118,19 +141,12 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
 
     // --- SÜRÜKLE & BIRAK ---
     const onDragStart = (e, jobId) => {
-        // State güncellemesini erteleyerek ghost image sorununu çöz
-        setTimeout(() => {
-            setDraggedJobId(jobId);
-        }, 0);
-        
+        setTimeout(() => { setDraggedJobId(jobId); }, 0);
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", jobId);
     };
 
-    const onDragEnd = (e) => {
-        setDraggedJobId(null);
-    };
-
+    const onDragEnd = (e) => { setDraggedJobId(null); };
     const onDragOver = (e) => { e.preventDefault(); };
 
     const onDrop = async (e, targetMachine) => {
@@ -140,36 +156,40 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         if (!droppedJobId) return;
 
         try {
+            // Hedef makinedeki mevcut iş sayısını bul (Sıraya eklemek için)
+            const existingJobsInMachine = cncJobs.filter(j => j.machine === targetMachine && j.status !== 'COMPLETED');
+            const newIndex = existingJobsInMachine.length; // En sona ekle
+
             const jobRef = doc(db, CNC_LATHE_JOBS_COLLECTION, droppedJobId);
             await updateDoc(jobRef, {
                 machine: targetMachine || '',
-                // Eğer makineye atandıysa ASSIGNED, havuza atıldıysa PLANNED
-                // Not: Eğer iş zaten RUNNING ise durumu değiştirmiyoruz, makinesi değişse bile çalışıyor kalsın mı?
-                // Genelde çalışan iş taşınmaz ama taşınırsa ASSIGNED'a dönerse durmuş gibi olur.
-                // Basitlik için: Makine varsa ASSIGNED yapıyoruz (Operatör tekrar başlatmalı).
-                status: targetMachine ? 'ASSIGNED' : 'PLANNED' 
+                status: targetMachine ? 'ASSIGNED' : 'PLANNED',
+                orderIndex: newIndex // Yeni sıra numarası ata
             });
         } catch (error) { console.error("Taşıma hatası:", error); }
         
         setDraggedJobId(null);
     };
 
-    // --- FİLTRELER (GÜNCELLENDİ) ---
-    
-    // 1. ADIM: Tamamlanmış (COMPLETED) işleri listeden tamamen çıkar.
-    // Sadece 'PLANNED', 'ASSIGNED' veya 'RUNNING' olanlar görünsün.
+    // --- FİLTRELER ---
     const activeCncJobs = useMemo(() => {
         if(!cncJobs) return [];
         return cncJobs.filter(job => job.status !== 'COMPLETED');
     }, [cncJobs]);
 
     const unassignedJobs = activeCncJobs.filter(j => !j.machine || j.machine === '');
-    const getJobsForMachine = (machineName) => activeCncJobs.filter(j => j.machine === machineName);
+    
+    // İşleri Sıralı Getir (orderIndex'e göre)
+    const getJobsForMachine = (machineName) => {
+        return activeCncJobs
+            .filter(j => j.machine === machineName)
+            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    };
     
     const filteredParts = parts.filter(p => p.partName.toLowerCase().includes(searchTerm.toLowerCase()));
 
     // --- KART BİLEŞENİ ---
-    const JobCard = ({ job }) => {
+    const JobCard = ({ job, index, isAssigned }) => {
         const isRunning = job.status === 'RUNNING';
 
         return (
@@ -184,26 +204,44 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     }
                 `}
             >
-                {/* Çalışıyor Göstergesi */}
                 {isRunning && (
                     <div className="absolute -top-2 -right-2 bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center shadow-sm animate-pulse z-10">
                         <Activity className="w-3 h-3 mr-1" /> ÇALIŞIYOR
                     </div>
                 )}
 
-                {/* Üst Kısım: İsim ve Menü */}
                 <div className="flex justify-between items-start">
-                    <div className="flex items-center">
-                        <GripVertical className={`w-4 h-4 mr-2 cursor-grab ${isRunning ? 'text-green-600' : 'text-gray-400'}`} />
-                        <div>
-                            <h4 className="font-bold text-gray-800 dark:text-white text-sm">{job.partName}</h4>
+                    <div className="flex items-center w-full">
+                        {/* Sıra Numarası Rozeti */}
+                        {isAssigned && (
+                            <span className="mr-2 flex-shrink-0 w-6 h-6 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full flex items-center justify-center text-xs font-bold">
+                                {index + 1}
+                            </span>
+                        )}
+                        
+                        <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-gray-800 dark:text-white text-sm truncate" title={job.partName}>
+                                {job.partName}
+                            </h4>
                             {job.cycleTime && (
                                 <span className="text-[10px] text-gray-400 block">{job.cycleTime} sn/ad</span>
                             )}
                         </div>
                     </div>
                     
-                    <div className="relative">
+                    <div className="relative flex items-center">
+                        {/* SIRALAMA BUTONLARI (Sadece makineye atanmışsa göster) */}
+                        {isAssigned && !isRunning && (
+                            <div className="flex flex-col mr-2 opacity-50 group-hover:opacity-100 transition">
+                                <button onClick={() => handleMoveJob(job, 'up')} className="p-0.5 hover:bg-blue-100 rounded text-blue-600" title="Yukarı Taşı">
+                                    <ArrowUp className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => handleMoveJob(job, 'down')} className="p-0.5 hover:bg-blue-100 rounded text-blue-600" title="Aşağı Taşı">
+                                    <ArrowDown className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+
                         <button 
                             onClick={() => setActiveMenuJobId(activeMenuJobId === job.id ? null : job.id)}
                             className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition"
@@ -233,8 +271,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     </div>
                 </div>
                 
-                {/* Orta Kısım: Adet ve Süre */}
-                <div className="mt-3 flex justify-between items-center text-xs">
+                <div className="mt-2 flex justify-between items-center text-xs">
                     {editingJob?.id === job.id ? (
                         <div className="flex items-center space-x-1 animate-in fade-in">
                             <input 
@@ -278,10 +315,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
     return (
         <div className="p-6 h-[calc(100vh-80px)] flex flex-col md:flex-row gap-6 bg-gray-100 dark:bg-gray-900">
             
-            {/* --- SOL KOLON: PLANLAMA HAVUZU --- */}
+            {/* SOL: PLANLAMA HAVUZU */}
             <div className="w-full md:w-1/3 flex flex-col gap-4">
-                
-                {/* YENİ İŞ EKLEME BUTONU */}
                 <button 
                     onClick={() => setIsModalOpen(true)}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl shadow-lg flex items-center justify-center transition transform hover:scale-[1.02] active:scale-95"
@@ -293,7 +328,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     </div>
                 </button>
 
-                {/* BEKLEYENLER LİSTESİ */}
                 <div 
                     className="flex-1 bg-gray-200 dark:bg-gray-800/50 rounded-xl p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 flex flex-col overflow-hidden"
                     onDragOver={onDragOver}
@@ -310,17 +344,19 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                 <p className="text-sm">Havuz boş.</p>
                             </div>
                         )}
-                        {unassignedJobs.map(job => (
-                            <JobCard key={job.id} job={job} />
+                        {unassignedJobs.map((job, idx) => (
+                            <JobCard key={job.id} job={job} index={idx} isAssigned={false} />
                         ))}
                     </div>
                 </div>
             </div>
 
-            {/* --- SAĞ KOLON: TEZGAHLAR --- */}
+            {/* SAĞ: TEZGAHLAR */}
             <div className="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {CNC_LATHE_MACHINES.map(machineName => {
                     const jobs = getJobsForMachine(machineName);
+                    // Sıra numaralarını veritabanında doğru tutmak için her render'da index kullanıyoruz
+                    // (Anlık görünüm için)
                     const machineTotalHours = jobs.reduce((acc, job) => acc + (parseFloat(job.estimatedTotalHours) || 0), 0);
 
                     return (
@@ -351,8 +387,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                         <p className="text-xs">İş Sürükleyin</p>
                                     </div>
                                 ) : (
-                                    jobs.map(job => (
-                                        <JobCard key={job.id} job={job} />
+                                    jobs.map((job, idx) => (
+                                        <JobCard key={job.id} job={job} index={idx} isAssigned={true} />
                                     ))
                                 )}
                             </div>
@@ -361,11 +397,11 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 })}
             </div>
 
-            {/* --- MODAL: YENİ İŞ EKLEME --- */}
+            {/* MODAL (YENİ İŞ) - Değişiklik yok, önceki kodun aynısı... */}
+            {/* Kısaltmak için burayı aynen koruduğunu varsayıyorum, sadece yukarıdaki mantık değişti */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                        {/* Modal Header */}
                         <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
                             <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
                                 <Plus className="w-5 h-5 mr-2 text-blue-600" />
@@ -375,11 +411,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                 <X className="w-5 h-5 text-gray-500" />
                             </button>
                         </div>
-
-                        {/* Modal Body */}
                         <div className="p-5 flex-1 overflow-y-auto space-y-5" style={{ minHeight: '300px' }}>
-                            
-                            {/* 1. Parça Seçimi - Dropdown */}
                             <div className="relative">
                                 <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Parça Seçimi</label>
                                 <div className="relative">
@@ -397,8 +429,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                         }}
                                     />
                                 </div>
-                                
-                                {/* AÇILIR LİSTE (Dropdown) */}
                                 {showPartList && (
                                     <div className="absolute top-full left-0 right-0 mt-1 border border-gray-200 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto bg-white dark:bg-gray-800 shadow-xl z-50">
                                         {filteredParts.length === 0 ? (
@@ -422,8 +452,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                     </div>
                                 )}
                             </div>
-
-                            {/* 2. Adet ve Hesaplama */}
                             {selectedPart && (
                                 <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2">
                                     <div>
@@ -447,8 +475,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                     </div>
                                 </div>
                             )}
-
-                            {/* 3. Not */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Operatör Notu (Opsiyonel)</label>
                                 <input 
@@ -460,8 +486,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                 />
                             </div>
                         </div>
-
-                        {/* Modal Footer */}
                         <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-end gap-3">
                             <button 
                                 onClick={resetForm}
@@ -480,7 +504,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     </div>
                 </div>
             )}
-
         </div>
     );
 };
