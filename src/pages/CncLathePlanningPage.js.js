@@ -40,28 +40,29 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         return () => unsubscribe();
     }, [db]);
 
-    // --- SIRALAMA FONKSİYONLARI (YENİ) ---
+    // --- SIRALAMA FONKSİYONLARI ---
     const handleMoveJob = async (job, direction) => {
-        // Bu makinedeki tüm işleri çek ve sıraya diz
-        const machineJobs = cncJobs
-            .filter(j => j.machine === job.machine && j.status !== 'COMPLETED')
+        const isPoolJob = !job.machine || job.machine === '';
+
+        const relevantJobs = cncJobs
+            .filter(j => j.status !== 'COMPLETED')
+            .filter(j => {
+                if (isPoolJob) return !j.machine || j.machine === ''; 
+                return j.machine === job.machine; 
+            })
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
-        const currentIndex = machineJobs.findIndex(j => j.id === job.id);
+        const currentIndex = relevantJobs.findIndex(j => j.id === job.id);
         if (currentIndex === -1) return;
 
-        // Yukarı taşıma
         if (direction === 'up' && currentIndex > 0) {
-            const prevJob = machineJobs[currentIndex - 1];
-            // Yer değiştir
+            const prevJob = relevantJobs[currentIndex - 1];
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, job.id), { orderIndex: currentIndex - 1 });
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, prevJob.id), { orderIndex: currentIndex });
         }
 
-        // Aşağı taşıma
-        if (direction === 'down' && currentIndex < machineJobs.length - 1) {
-            const nextJob = machineJobs[currentIndex + 1];
-            // Yer değiştir
+        if (direction === 'down' && currentIndex < relevantJobs.length - 1) {
+            const nextJob = relevantJobs[currentIndex + 1];
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, job.id), { orderIndex: currentIndex + 1 });
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, nextJob.id), { orderIndex: currentIndex });
         }
@@ -76,6 +77,11 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         const totalHours = (totalSeconds / 3600).toFixed(1);
 
         try {
+            const poolJobs = cncJobs.filter(j => (!j.machine || j.machine === '') && j.status !== 'COMPLETED');
+            const maxOrderIndex = poolJobs.length > 0 
+                ? Math.max(...poolJobs.map(j => j.orderIndex || 0)) 
+                : 0;
+
             await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), {
                 partName: selectedPart.partName,
                 partId: selectedPart.id,
@@ -89,7 +95,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 assignedOperator: '',
                 createdAt: getCurrentDateTimeString(),
                 producedQuantity: 0,
-                orderIndex: 9999 // Havuza düşenler en sona
+                orderIndex: maxOrderIndex + 1 
             });
             
             resetForm();
@@ -156,15 +162,19 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         if (!droppedJobId) return;
 
         try {
-            // Hedef makinedeki mevcut iş sayısını bul (Sıraya eklemek için)
-            const existingJobsInMachine = cncJobs.filter(j => j.machine === targetMachine && j.status !== 'COMPLETED');
-            const newIndex = existingJobsInMachine.length; // En sona ekle
+            const existingJobsInMachine = cncJobs
+                .filter(j => j.machine === targetMachine && j.status !== 'COMPLETED')
+                .sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                
+            const newIndex = existingJobsInMachine.length > 0 
+                ? (existingJobsInMachine[existingJobsInMachine.length - 1].orderIndex || 0) + 1 
+                : 0;
 
             const jobRef = doc(db, CNC_LATHE_JOBS_COLLECTION, droppedJobId);
             await updateDoc(jobRef, {
                 machine: targetMachine || '',
                 status: targetMachine ? 'ASSIGNED' : 'PLANNED',
-                orderIndex: newIndex // Yeni sıra numarası ata
+                orderIndex: newIndex
             });
         } catch (error) { console.error("Taşıma hatası:", error); }
         
@@ -177,9 +187,12 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
         return cncJobs.filter(job => job.status !== 'COMPLETED');
     }, [cncJobs]);
 
-    const unassignedJobs = activeCncJobs.filter(j => !j.machine || j.machine === '');
+    const unassignedJobs = useMemo(() => {
+        return activeCncJobs
+            .filter(j => !j.machine || j.machine === '')
+            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    }, [activeCncJobs]);
     
-    // İşleri Sıralı Getir (orderIndex'e göre)
     const getJobsForMachine = (machineName) => {
         return activeCncJobs
             .filter(j => j.machine === machineName)
@@ -188,7 +201,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
     
     const filteredParts = parts.filter(p => p.partName.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    // --- KART BİLEŞENİ ---
+    // --- KART BİLEŞENİ (GÜNCELLENDİ: ADET KUTUSU BÜYÜTÜLDÜ) ---
     const JobCard = ({ job, index, isAssigned }) => {
         const isRunning = job.status === 'RUNNING';
 
@@ -213,11 +226,13 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 <div className="flex justify-between items-start">
                     <div className="flex items-center w-full">
                         {/* Sıra Numarası Rozeti */}
-                        {isAssigned && (
-                            <span className="mr-2 flex-shrink-0 w-6 h-6 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full flex items-center justify-center text-xs font-bold">
-                                {index + 1}
-                            </span>
-                        )}
+                        <span className={`mr-2 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                            !isAssigned 
+                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200' 
+                                : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
+                        }`}>
+                            {index + 1}
+                        </span>
                         
                         <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-gray-800 dark:text-white text-sm truncate" title={job.partName}>
@@ -230,8 +245,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     </div>
                     
                     <div className="relative flex items-center">
-                        {/* SIRALAMA BUTONLARI (Sadece makineye atanmışsa göster) */}
-                        {isAssigned && !isRunning && (
+                        {/* SIRALAMA BUTONLARI */}
+                        {!isRunning && (
                             <div className="flex flex-col mr-2 opacity-50 group-hover:opacity-100 transition">
                                 <button onClick={() => handleMoveJob(job, 'up')} className="p-0.5 hover:bg-blue-100 rounded text-blue-600" title="Yukarı Taşı">
                                     <ArrowUp className="w-4 h-4" />
@@ -271,23 +286,29 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                     </div>
                 </div>
                 
-                <div className="mt-2 flex justify-between items-center text-xs">
+                <div className="mt-3 flex justify-between items-center text-xs">
                     {editingJob?.id === job.id ? (
                         <div className="flex items-center space-x-1 animate-in fade-in">
                             <input 
                                 type="number" 
-                                className="w-16 p-1 border rounded text-xs text-center dark:bg-gray-600 dark:text-white"
+                                className="w-20 p-2 border rounded text-sm text-center dark:bg-gray-600 dark:text-white"
                                 value={editingJob.quantity}
                                 onChange={(e) => setEditingJob({...editingJob, quantity: e.target.value})}
                                 autoFocus
                             />
-                            <button onClick={saveEdit} className="p-1 bg-green-500 text-white rounded"><Save className="w-3 h-3"/></button>
-                            <button onClick={() => setEditingJob(null)} className="p-1 bg-gray-400 text-white rounded"><X className="w-3 h-3"/></button>
+                            <button onClick={saveEdit} className="p-2 bg-green-500 text-white rounded"><Save className="w-4 h-4"/></button>
+                            <button onClick={() => setEditingJob(null)} className="p-2 bg-gray-400 text-white rounded"><X className="w-4 h-4"/></button>
                         </div>
                     ) : (
-                        <span className={`px-2 py-0.5 rounded font-mono font-bold ${isRunning ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'}`}>
+                        // --- GÜNCELLENEN KISIM: ADET KUTUSU BÜYÜTÜLDÜ ---
+                        <span className={`px-3 py-1 rounded-md font-mono text-base font-black tracking-wide shadow-sm 
+                            ${isRunning 
+                                ? 'bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100' 
+                                : 'bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-100'
+                            }`}>
                             {job.targetQuantity} Adet
                         </span>
+                        // ------------------------------------------------
                     )}
 
                     {job.estimatedTotalHours && (
@@ -337,6 +358,11 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                         <span>PLANLANACAK İŞLER</span>
                         <span className="bg-gray-300 dark:bg-gray-700 text-xs px-2 py-1 rounded-full">{unassignedJobs.length}</span>
                     </h3>
+                    
+                    <div className="text-[10px] text-gray-500 mb-2 italic">
+                        * Listeyi yukarı/aşağı oklarıyla aciliyet sırasına göre düzenleyebilirsiniz.
+                    </div>
+
                     <div className="overflow-y-auto flex-1 pr-2 space-y-2">
                         {unassignedJobs.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-40 text-gray-400">
@@ -355,8 +381,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
             <div className="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {CNC_LATHE_MACHINES.map(machineName => {
                     const jobs = getJobsForMachine(machineName);
-                    // Sıra numaralarını veritabanında doğru tutmak için her render'da index kullanıyoruz
-                    // (Anlık görünüm için)
                     const machineTotalHours = jobs.reduce((acc, job) => acc + (parseFloat(job.estimatedTotalHours) || 0), 0);
 
                     return (
@@ -397,8 +421,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 })}
             </div>
 
-            {/* MODAL (YENİ İŞ) - Değişiklik yok, önceki kodun aynısı... */}
-            {/* Kısaltmak için burayı aynen koruduğunu varsayıyorum, sadece yukarıdaki mantık değişti */}
+            {/* MODAL */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
