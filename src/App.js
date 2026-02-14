@@ -30,7 +30,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck
 } from 'lucide-react';
 
 // Sayfalar
@@ -54,6 +54,9 @@ import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
 import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
 import MoldMaintenancePage from './pages/MoldMaintenancePage.js'; 
 
+// --- YENİ EKLENEN SAYFA ---
+import MoldTrialReportsPage from './pages/MoldTrialReportsPage.js';
+
 // --- CNC TORNA & SPC SAYFALARI ---
 import CncLatheDashboard from './pages/CncLatheDashboard.js';
 import CncLatheHistoryPage from './pages/CncLatheHistoryPage.js';
@@ -62,7 +65,6 @@ import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js';
 import CncInspectionReport from './pages/CncInspectionReport.js'; 
 import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; 
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
-// YENİ EKLENEN TAKVİM SAYFASI
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 
 // Bileşenler
@@ -213,7 +215,6 @@ const App = () => {
         };
     }, [userId, seedInitialData]); 
     
-    // --- VERİ ÇEKME ---
     useEffect(() => {
         if (!db || !userId || !loggedInUser) return;
         setIsProjectsLoading(true);
@@ -407,7 +408,7 @@ const App = () => {
         if (isCncLatheSup) {
             return [
                 { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, // <-- YENİ EKLENDİ
+                { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -436,8 +437,13 @@ const App = () => {
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
             
-            // --- CNC TORNA MENÜSÜ BURADAN KALDIRILDI ---
-            // Admin dahil kimse menüde görmeyecek.
+            // --- YENİ EKLENEN SAYFA (MENU) ---
+            { 
+                path: '/mold-trial-reports', 
+                label: 'Kalıp Deneme Raporları', 
+                icon: ClipboardCheck, 
+                roles: rolesExceptToolRoomAndCnc // Torna ve Takımhane hariç herkes görebilir
+            },
 
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
 
@@ -543,6 +549,9 @@ const App = () => {
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
                 
+                {/* YENİ ROUTE: KALIP DENEME RAPORLARI */}
+                <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
+
                 {/* YENİ ROUTE'LAR */}
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
@@ -554,9 +563,7 @@ const App = () => {
 
                 <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
 
-                {/* --- CNC TORNA & SPC SAYFALARI (SADECE TORNA EKİBİ İÇİN) --- */}
-                {/* DİKKAT: ARTIK BU SAYFALARA "cncJobs" PROPU GÖNDERİLİYOR */}
-                
+                {/* --- CNC TORNA & SPC SAYFALARI --- */}
                 <Route path="/cnc-torna" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
@@ -593,14 +600,12 @@ const App = () => {
                     : <Navigate to="/" replace />
                 } />
 
-                {/* --- YENİ EKLENEN İŞ PLANLAMA ROUTE --- */}
                 <Route path="/cnc-lathe-planning" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
                     : <Navigate to="/" replace />
                 } />
 
-                {/* --- YENİ EKLENEN TAKVİM ROUTE --- */}
                 <Route path="/cnc-lathe-calendar" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheCalendarPage cncJobs={cncJobs} /> 
