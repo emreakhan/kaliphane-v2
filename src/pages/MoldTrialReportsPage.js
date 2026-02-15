@@ -1,12 +1,17 @@
 // src/pages/MoldTrialReportsPage.js
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Search, Activity, Camera, Save, 
     Thermometer, Gauge, Clock, 
     CheckCircle, FileText, Trash2,
-    Image as ImageIcon, Plus, PlayCircle
+    Image as ImageIcon, Plus, PlayCircle,
+    X, ChevronLeft, ChevronRight, // Galeri ikonları
+    Edit3, Type, Circle as CircleIcon, Check // Editör ikonları
 } from 'lucide-react';
+import { 
+    collection, addDoc, query, where, limit, orderBy, onSnapshot, updateDoc, doc 
+} from '../config/firebase.js'; 
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 // --- SABİTLER ---
@@ -16,21 +21,41 @@ const DEFECT_TYPES = [
     'Eksik Baskı (Short Shot)', 'İtici İzi', 'Akış İzi (Flow Mark)', 
     'Ölçü Hatası', 'Çarpılma (Warpage)', 'Yüzey Hatası'
 ];
+const MOLD_TRIAL_REPORTS_COLLECTION = 'mold_trial_reports';
 
 const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     // --- STATE'LER ---
     const [selectedMold, setSelectedMold] = useState(null);
-    const [listFilter, setListFilter] = useState('TRIALS'); // 'TRIALS' | 'ALL'
+    const [listFilter, setListFilter] = useState('TRIALS'); 
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('PARAMS'); // 'PARAMS' | 'GALLERY' | 'RESULT'
+    const [activeTab, setActiveTab] = useState('PARAMS'); 
+    const [isSaving, setIsSaving] = useState(false);
     
-    // Dosya Yükleme Referansı
-    const fileInputRef = useRef(null);
+    // VERİ YÖNETİMİ (YENİ EKLENDİ: Tüm fazları tutmak için)
+    const [reports, setReports] = useState([]); 
 
-    // Form Verileri
-    const [trialData, setTrialData] = useState({
-        trialCode: '',
-        phase: 'T0',
+    // GALERİ (LIGHTBOX) STATE'İ
+    const [lightboxIndex, setLightboxIndex] = useState(null); 
+
+    // GÖRSEL DÜZENLEME STATE'LERİ
+    const [isEditing, setIsEditing] = useState(false);
+    const [editTool, setEditTool] = useState('PEN'); // PEN, CIRCLE, TEXT
+    const [drawingColor, setDrawingColor] = useState('#ef4444'); // Varsayılan Kırmızı
+
+    // Refler
+    const fileInputRef = useRef(null);
+    const canvasRef = useRef(null);
+    
+    // Çizim Mantığı İçin Refler
+    const isDrawing = useRef(false);
+    const startPos = useRef({ x: 0, y: 0 });
+    const snapshot = useRef(null);
+
+    // Form Verileri (Varsayılan Boş Hali - Fonksiyonlaştırıldı)
+    const getInitialTrialData = (phase = 'T0') => ({
+        id: null, // Veritabanı ID'si (Yeni kayıt ise null)
+        trialCode: `TRY-${new Date().getFullYear()}-${Math.floor(Math.random()*10000)}`,
+        phase: phase,
         date: getCurrentDateTimeString(),
         machine: '',
         material: '',
@@ -43,7 +68,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         times: { cooling: '', cycle: '' },
         
         // Medya (Foto/Video)
-        media: [], // { id, url, type, file }
+        media: [], // { id, url (base64), type }
 
         // Sonuçlar
         defects: [],
@@ -51,11 +76,67 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         notes: ''
     });
 
-    // Mock Geçmiş Denemeler
-    const [history, setHistory] = useState([
-        { id: 1, phase: 'T0', date: '2024-01-15', result: 'REVISION' },
-        { id: 2, phase: 'T1', date: '2024-02-01', result: 'WAITING' }
-    ]);
+    const [trialData, setTrialData] = useState(getInitialTrialData());
+
+    // Mock Geçmiş Denemeler (Artık reports state'inden dinamik gelecek, ama UI bozulmasın diye tutuyoruz)
+    // const [history, setHistory] = ... (Aşağıda render kısmında reports kullanılacak)
+
+    // --- VERİ ÇEKME (PERSISTENCE - GÜNCELLENDİ) ---
+    useEffect(() => {
+        if (!selectedMold || !db) return;
+
+        // Seçilen kalıp için TÜM raporları (bütün fazları) çek
+        const q = query(
+            collection(db, MOLD_TRIAL_REPORTS_COLLECTION),
+            where('moldId', '==', selectedMold.id),
+            orderBy('createdAt', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setReports(fetchedReports);
+        }, (error) => {
+            console.error("Veri çekme hatası:", error);
+        });
+
+        return () => unsubscribe();
+    }, [selectedMold, db]);
+
+    // Kalıp değiştiğinde veya raporlar yüklendiğinde varsayılan formu (En sonuncuyu) aç
+    useEffect(() => {
+        if (selectedMold) {
+            if (reports.length > 0) {
+                // Eğer form henüz boşsa (kullanıcı bir şey yazmamışsa) en son raporu yükle
+                if (!trialData.id && trialData.machine === '') {
+                    setTrialData({ ...reports[0] });
+                }
+            } else {
+                // Hiç rapor yoksa T0 boş form aç
+                if (!trialData.id && trialData.machine === '') {
+                    setTrialData(getInitialTrialData('T0'));
+                }
+            }
+        }
+    }, [selectedMold, reports]);
+
+    // --- FAZ DEĞİŞTİRME MANTIĞI (YENİ) ---
+    const handlePhaseChange = (newPhase) => {
+        // 1. Bu faz için veritabanında kayıtlı bir rapor var mı?
+        const existingReport = reports.find(r => r.phase === newPhase);
+
+        if (existingReport) {
+            // Varsa onu yükle
+            setTrialData({ ...existingReport });
+        } else {
+            // Yoksa TEMİZ bir form aç (Kalıp ID'leri korunur)
+            setTrialData({
+                ...getInitialTrialData(newPhase),
+                moldId: selectedMold.id, 
+                moldName: selectedMold.moldName,
+                projectCode: selectedMold.projectCode
+            });
+        }
+    };
 
     // --- FİLTRELEME MANTIĞI ---
     const filteredMolds = useMemo(() => {
@@ -91,18 +172,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         return filtered;
     }, [projects, listFilter, searchTerm]);
 
-    // --- FONKSİYONLAR ---
+    // --- TEMEL FONKSİYONLAR ---
     const handleMoldSelect = (mold) => {
         setSelectedMold(mold);
-        setTrialData({
-            ...trialData,
-            trialCode: `TRY-${new Date().getFullYear()}-${Math.floor(Math.random()*1000)}`,
-            machine: '',
-            material: '',
-            media: [],
-            defects: [],
-            result: 'WAITING'
-        });
+        setReports([]); // Önceki kalıbın raporlarını temizle
+        setTrialData(getInitialTrialData('T0')); // Formu sıfırla
     };
 
     const toggleDefect = (defect) => {
@@ -115,23 +189,31 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         });
     };
 
-    // --- DOSYA YÜKLEME FONKSİYONLARI ---
-    
-    // 1. Butona basınca gizli input'u tetikle
+    // --- DOSYA YÜKLEME (BASE64) ---
     const handleTriggerFileUpload = () => {
         fileInputRef.current.click();
     };
 
-    // 2. Dosya seçilince çalışır
-    const handleFileChange = (event) => {
+    const convertToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    };
+
+    const handleFileChange = async (event) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
 
-        const newMediaItems = files.map(file => ({
-            id: Date.now() + Math.random(), // Geçici benzersiz ID
-            url: URL.createObjectURL(file), // Önizleme için tarayıcı URL'i oluştur
-            type: file.type.startsWith('video') ? 'video' : 'image',
-            file: file // Gerçek dosya (Firebase'e yüklemek için saklanır)
+        const newMediaItems = await Promise.all(files.map(async (file) => {
+            const base64 = await convertToBase64(file);
+            return {
+                id: Date.now() + Math.random(),
+                url: base64, 
+                type: file.type.startsWith('video') ? 'video' : 'image'
+            };
         }));
 
         setTrialData(prev => ({
@@ -139,30 +221,168 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             media: [...prev.media, ...newMediaItems]
         }));
 
-        // Input'u temizle ki aynı dosyayı tekrar seçebilsin
-        event.target.value = '';
+        event.target.value = ''; 
     };
 
-    // 3. Dosya silme
     const handleRemoveMedia = (id) => {
         setTrialData(prev => ({
             ...prev,
             media: prev.media.filter(item => item.id !== id)
         }));
+        if (lightboxIndex !== null) setLightboxIndex(null);
     };
 
+    // --- GÖRSEL DÜZENLEME (CANVAS MANTIĞI) ---
+    
+    const handleStartEditing = () => {
+        setIsEditing(true);
+        setTimeout(loadImageToCanvas, 50);
+    };
+
+    const loadImageToCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas || lightboxIndex === null) return;
+        
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.src = trialData.media[lightboxIndex].url;
+        img.onload = () => {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            ctx.drawImage(img, 0, 0);
+        };
+    };
+
+    const getCanvasPos = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+    };
+
+    const startDrawing = (e) => {
+        if (!isEditing) return;
+        
+        if (editTool === 'TEXT') {
+            const pos = getCanvasPos(e);
+            const text = prompt("Notunuzu girin:", "");
+            if (text) {
+                const ctx = canvasRef.current.getContext('2d');
+                ctx.font = "bold 40px Arial";
+                ctx.fillStyle = drawingColor;
+                ctx.fillText(text, pos.x, pos.y);
+            }
+            return;
+        }
+
+        isDrawing.current = true;
+        const pos = getCanvasPos(e);
+        startPos.current = pos;
+        
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.strokeStyle = drawingColor;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        
+        if (editTool === 'CIRCLE') {
+            snapshot.current = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        }
+    };
+
+    const draw = (e) => {
+        if (!isDrawing.current) return;
+        const ctx = canvasRef.current.getContext('2d');
+        const pos = getCanvasPos(e);
+
+        if (editTool === 'PEN') {
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        } else if (editTool === 'CIRCLE') {
+            ctx.putImageData(snapshot.current, 0, 0);
+            ctx.beginPath();
+            const radius = Math.sqrt(Math.pow(pos.x - startPos.current.x, 2) + Math.pow(pos.y - startPos.current.y, 2));
+            ctx.arc(startPos.current.x, startPos.current.y, radius, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+    };
+
+    const stopDrawing = () => {
+        isDrawing.current = false;
+    };
+
+    const handleSaveEdit = () => {
+        const canvas = canvasRef.current;
+        const newDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        
+        const newMedia = [...trialData.media];
+        newMedia[lightboxIndex] = {
+            ...newMedia[lightboxIndex],
+            url: newDataUrl
+        };
+        setTrialData({ ...trialData, media: newMedia });
+        setIsEditing(false);
+    };
+
+    // --- GALERİ NAVİGASYONU ---
+    const handleNextMedia = (e) => {
+        if(e) e.stopPropagation();
+        if (trialData.media.length > 0) {
+            setLightboxIndex((prev) => (prev + 1) % trialData.media.length);
+        }
+    };
+
+    const handlePrevMedia = (e) => {
+        if(e) e.stopPropagation();
+        if (trialData.media.length > 0) {
+            setLightboxIndex((prev) => (prev - 1 + trialData.media.length) % trialData.media.length);
+        }
+    };
+
+    // --- KAYDETME (FIRESTORE - GÜNCELLENDİ) ---
     const handleSaveReport = async () => {
         if (!selectedMold) return;
+        setIsSaving(true);
         
-        console.log("Rapor Kaydediliyor (Simülasyon):", {
-            moldId: selectedMold.id,
-            moldName: selectedMold.moldName,
-            reporter: loggedInUser.name,
-            mediaCount: trialData.media.length, // Yüklenecek dosya sayısı
-            data: trialData
-        });
+        try {
+            const safeProjectCode = selectedMold.projectCode || '';
 
-        alert("Deneme raporu başarıyla kaydedildi! (Görseller sisteme yüklendi)");
+            const reportData = {
+                ...trialData,
+                moldId: selectedMold.id,
+                moldName: selectedMold.moldName || '',
+                projectCode: safeProjectCode,
+                reporter: loggedInUser?.name || 'Bilinmeyen',
+                savedAt: getCurrentDateTimeString()
+            };
+
+            // EĞER BU FAZ İÇİN ID VARSA (UPDATE)
+            if (trialData.id) {
+                await updateDoc(doc(db, MOLD_TRIAL_REPORTS_COLLECTION, trialData.id), reportData);
+                alert(`${trialData.phase} fazı başarıyla güncellendi!`);
+            } 
+            // EĞER YOKSA (CREATE)
+            else {
+                const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), {
+                    ...reportData,
+                    createdAt: new Date().toISOString()
+                });
+                // Yeni ID'yi state'e kaydet
+                setTrialData(prev => ({ ...prev, id: docRef.id }));
+                alert(`${trialData.phase} fazı başarıyla oluşturuldu!`);
+            }
+        } catch (error) {
+            console.error("Hata:", error);
+            alert("Kaydetme sırasında bir hata oluştu: " + error.message);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     // --- RENDER BİLEŞENLERİ ---
@@ -191,6 +411,124 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     return (
         <div className="flex h-[calc(100vh-100px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans">
             
+            {/* LIGHTBOX (MODAL) */}
+            {lightboxIndex !== null && trialData.media[lightboxIndex] && (
+                <div 
+                    className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-0 backdrop-blur-sm animate-in fade-in duration-200"
+                >
+                    {/* Üst Araç Çubuğu (Toolbar) */}
+                    <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-50">
+                        
+                        {/* Sol: Düzenleme Butonları */}
+                        <div className="flex gap-2">
+                            {trialData.media[lightboxIndex].type === 'image' && (
+                                !isEditing ? (
+                                    <button 
+                                        onClick={handleStartEditing}
+                                        className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-bold shadow-lg transition"
+                                    >
+                                        <Edit3 className="w-4 h-4 mr-2" /> Düzenle
+                                    </button>
+                                ) : (
+                                    <div className="flex items-center gap-2 animate-in slide-in-from-top-5">
+                                        <div className="flex bg-gray-800 rounded-full p-1 border border-gray-600">
+                                            <button onClick={() => setEditTool('PEN')} className={`p-2 rounded-full transition ${editTool === 'PEN' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Kalem"><Edit3 className="w-4 h-4"/></button>
+                                            <button onClick={() => setEditTool('CIRCLE')} className={`p-2 rounded-full transition ${editTool === 'CIRCLE' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Daire"><CircleIcon className="w-4 h-4"/></button>
+                                            <button onClick={() => setEditTool('TEXT')} className={`p-2 rounded-full transition ${editTool === 'TEXT' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Yazı"><Type className="w-4 h-4"/></button>
+                                        </div>
+                                        
+                                        <div className="flex bg-gray-800 rounded-full p-1 border border-gray-600 gap-1">
+                                            {['#ef4444', '#22c55e', '#eab308', '#3b82f6', '#ffffff'].map(color => (
+                                                <button 
+                                                    key={color} 
+                                                    onClick={() => setDrawingColor(color)}
+                                                    className={`w-6 h-6 rounded-full border-2 transition ${drawingColor === color ? 'border-white scale-110' : 'border-transparent'}`}
+                                                    style={{ backgroundColor: color }}
+                                                />
+                                            ))}
+                                        </div>
+
+                                        <button onClick={handleSaveEdit} className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full text-sm font-bold ml-2">
+                                            <Check className="w-4 h-4 mr-1" /> Kaydet
+                                        </button>
+                                        <button onClick={() => setIsEditing(false)} className="flex items-center px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-full text-sm font-bold">
+                                            <X className="w-4 h-4 mr-1" /> İptal
+                                        </button>
+                                    </div>
+                                )
+                            )}
+                        </div>
+
+                        {/* Sağ: Kapatma */}
+                        <button 
+                            onClick={() => { setLightboxIndex(null); setIsEditing(false); }}
+                            className="text-white hover:text-red-500 transition p-2 bg-white/10 rounded-full hover:bg-white/20"
+                        >
+                            <X className="w-8 h-8" />
+                        </button>
+                    </div>
+
+                    {/* Orta: İçerik */}
+                    <div className="flex-1 flex items-center justify-center w-full h-full p-4 overflow-hidden relative" onClick={() => !isEditing && setLightboxIndex(null)}>
+                        {/* Sol Ok */}
+                        {!isEditing && (
+                            <button 
+                                onClick={handlePrevMedia}
+                                className="absolute left-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-4 bg-black/20 rounded-full hover:bg-black/50"
+                            >
+                                <ChevronLeft className="w-12 h-12" />
+                            </button>
+                        )}
+
+                        {/* Medya */}
+                        <div className="relative max-w-full max-h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                            {isEditing ? (
+                                <canvas 
+                                    ref={canvasRef}
+                                    onMouseDown={startDrawing}
+                                    onMouseMove={draw}
+                                    onMouseUp={stopDrawing}
+                                    onMouseLeave={stopDrawing}
+                                    className="max-w-full max-h-[85vh] object-contain cursor-crosshair shadow-2xl border border-gray-700 bg-black"
+                                />
+                            ) : (
+                                trialData.media[lightboxIndex].type === 'image' ? (
+                                    <img 
+                                        src={trialData.media[lightboxIndex].url} 
+                                        alt="Büyük Boyut" 
+                                        className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-gray-800"
+                                    />
+                                ) : (
+                                    <video 
+                                        src={trialData.media[lightboxIndex].url} 
+                                        controls 
+                                        autoPlay
+                                        className="max-w-full max-h-[85vh] rounded-lg shadow-2xl border border-gray-800"
+                                    />
+                                )
+                            )}
+                        </div>
+
+                        {/* Sağ Ok */}
+                        {!isEditing && (
+                            <button 
+                                onClick={handleNextMedia}
+                                className="absolute right-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-4 bg-black/20 rounded-full hover:bg-black/50"
+                            >
+                                <ChevronRight className="w-12 h-12" />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Alt Bilgi */}
+                    {!isEditing && (
+                        <div className="absolute bottom-8 text-white/70 text-sm font-mono bg-black/50 px-4 py-1 rounded-full pointer-events-none">
+                            {lightboxIndex + 1} / {trialData.media.length}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* SOL PANEL: KALIP LİSTESİ */}
             <div className="w-1/4 min-w-[300px] bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -254,14 +592,23 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <p className="text-sm text-gray-500 mt-1">Müşteri: {selectedMold.customerName || 'Belirtilmemiş'}</p>
                                 </div>
                                 <div className="flex gap-2">
-                                    {history.map(h => (
-                                        <button key={h.id} className={`px-3 py-1 text-xs font-bold rounded border ${h.phase === trialData.phase ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}>
-                                            {h.phase}
-                                        </button>
-                                    ))}
-                                    <button className="px-3 py-1 text-xs font-bold bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
-                                        + YENİ
-                                    </button>
+                                    {/* FAZ BUTONLARI (GÜNCELLENDİ) */}
+                                    {TRIAL_PHASES.map(phase => {
+                                        // Bu faz veritabanında var mı?
+                                        const hasReport = reports.some(r => r.phase === phase);
+                                        return (
+                                            <button 
+                                                key={phase} 
+                                                onClick={() => handlePhaseChange(phase)}
+                                                className={`px-3 py-1 text-xs font-bold rounded border transition 
+                                                    ${trialData.phase === phase ? 'bg-blue-600 text-white border-blue-600 scale-105 shadow-md' : 
+                                                    hasReport ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 
+                                                    'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}
+                                            >
+                                                {phase} {hasReport && '✓'}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -271,7 +618,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <select 
                                         className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white"
                                         value={trialData.phase}
-                                        onChange={(e) => setTrialData({...trialData, phase: e.target.value})}
+                                        onChange={(e) => handlePhaseChange(e.target.value)} // BURASI GÜNCELLENDİ
                                     >
                                         {TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}
                                     </select>
@@ -341,15 +688,15 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                                         <h3 className="text-sm font-bold text-red-600 mb-3 flex items-center"><Thermometer className="w-4 h-4 mr-2"/> Sıcaklıklar (°C)</h3>
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div><label className="text-xs text-gray-500">Nozzle (Meme)</label><input type="number" className="w-full p-2 border rounded" placeholder="240" /></div>
-                                            <div><label className="text-xs text-gray-500">Zone 1 (Ön)</label><input type="number" className="w-full p-2 border rounded" placeholder="235" /></div>
-                                            <div><label className="text-xs text-gray-500">Zone 2 (Orta)</label><input type="number" className="w-full p-2 border rounded" placeholder="230" /></div>
-                                            <div><label className="text-xs text-gray-500">Zone 3 (Arka)</label><input type="number" className="w-full p-2 border rounded" placeholder="225" /></div>
+                                            <div><label className="text-xs text-gray-500">Nozzle (Meme)</label><input type="number" className="w-full p-2 border rounded" placeholder="240" value={trialData.temps.nozzle} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, nozzle: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Zone 1 (Ön)</label><input type="number" className="w-full p-2 border rounded" placeholder="235" value={trialData.temps.zone1} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, zone1: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Zone 2 (Orta)</label><input type="number" className="w-full p-2 border rounded" placeholder="230" value={trialData.temps.zone2} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, zone2: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Zone 3 (Arka)</label><input type="number" className="w-full p-2 border rounded" placeholder="225" value={trialData.temps.zone3} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, zone3: e.target.value}})} /></div>
                                             <div className="col-span-2 border-t pt-2 mt-1">
                                                 <label className="text-xs text-blue-500 font-bold">Kalıp Şartlandırıcı</label>
                                                 <div className="flex gap-2 mt-1">
-                                                    <input type="number" className="w-full p-2 border rounded" placeholder="Sabit: 60" />
-                                                    <input type="number" className="w-full p-2 border rounded" placeholder="Hareketli: 60" />
+                                                    <input type="number" className="w-full p-2 border rounded" placeholder="Sabit: 60" value={trialData.temps.moldFixed} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, moldFixed: e.target.value}})} />
+                                                    <input type="number" className="w-full p-2 border rounded" placeholder="Hareketli: 60" value={trialData.temps.moldMoving} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, moldMoving: e.target.value}})} />
                                                 </div>
                                             </div>
                                         </div>
@@ -359,13 +706,13 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                                         <h3 className="text-sm font-bold text-blue-600 mb-3 flex items-center"><Gauge className="w-4 h-4 mr-2"/> Basınçlar (Bar)</h3>
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div><label className="text-xs text-gray-500">Enjeksiyon Basıncı</label><input type="number" className="w-full p-2 border rounded" /></div>
-                                            <div><label className="text-xs text-gray-500">Geri Basınç</label><input type="number" className="w-full p-2 border rounded" /></div>
+                                            <div><label className="text-xs text-gray-500">Enjeksiyon Basıncı</label><input type="number" className="w-full p-2 border rounded" value={trialData.pressures.injection} onChange={e => setTrialData({...trialData, pressures: {...trialData.pressures, injection: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Geri Basınç</label><input type="number" className="w-full p-2 border rounded" value={trialData.pressures.backPressure} onChange={e => setTrialData({...trialData, pressures: {...trialData.pressures, backPressure: e.target.value}})} /></div>
                                             <div className="col-span-2 bg-blue-50 p-2 rounded border border-blue-100">
                                                 <label className="text-xs text-blue-700 font-bold block mb-1">Ütüleme (Holding)</label>
                                                 <div className="flex gap-2">
-                                                    <input type="number" className="w-full p-2 border rounded text-xs" placeholder="Basınç (Bar)" />
-                                                    <input type="number" className="w-full p-2 border rounded text-xs" placeholder="Süre (sn)" />
+                                                    <input type="number" className="w-full p-2 border rounded text-xs" placeholder="Basınç (Bar)" value={trialData.pressures.holding} onChange={e => setTrialData({...trialData, pressures: {...trialData.pressures, holding: e.target.value}})} />
+                                                    <input type="number" className="w-full p-2 border rounded text-xs" placeholder="Süre (sn)" value={trialData.pressures.holdingTime} onChange={e => setTrialData({...trialData, pressures: {...trialData.pressures, holdingTime: e.target.value}})} />
                                                 </div>
                                             </div>
                                         </div>
@@ -375,9 +722,9 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                                         <h3 className="text-sm font-bold text-green-600 mb-3 flex items-center"><Activity className="w-4 h-4 mr-2"/> Hız ve Pozisyon</h3>
                                         <div className="space-y-3">
-                                            <div><label className="text-xs text-gray-500">Enjeksiyon Hızı (mm/s)</label><input type="number" className="w-full p-2 border rounded" /></div>
-                                            <div><label className="text-xs text-gray-500">Geçiş Noktası (Switch Point - mm)</label><input type="number" className="w-full p-2 border rounded" /></div>
-                                            <div><label className="text-xs text-gray-500">Yastık (Cushion - mm)</label><input type="number" className="w-full p-2 border rounded" /></div>
+                                            <div><label className="text-xs text-gray-500">Enjeksiyon Hızı (mm/s)</label><input type="number" className="w-full p-2 border rounded" value={trialData.speeds.injectionSpeed} onChange={e => setTrialData({...trialData, speeds: {...trialData.speeds, injectionSpeed: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Geçiş Noktası (Switch Point - mm)</label><input type="number" className="w-full p-2 border rounded" value={trialData.speeds.switchPoint} onChange={e => setTrialData({...trialData, speeds: {...trialData.speeds, switchPoint: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Yastık (Cushion - mm)</label><input type="number" className="w-full p-2 border rounded" value={trialData.speeds.cushion} onChange={e => setTrialData({...trialData, speeds: {...trialData.speeds, cushion: e.target.value}})} /></div>
                                         </div>
                                     </div>
 
@@ -385,14 +732,14 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                                         <h3 className="text-sm font-bold text-purple-600 mb-3 flex items-center"><Clock className="w-4 h-4 mr-2"/> Zamanlar (sn)</h3>
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div><label className="text-xs text-gray-500">Soğuma Zamanı</label><input type="number" className="w-full p-2 border rounded font-mono" /></div>
-                                            <div><label className="text-xs text-gray-500">Toplam Çevrim</label><input type="number" className="w-full p-2 border rounded font-mono font-bold" /></div>
+                                            <div><label className="text-xs text-gray-500">Soğuma Zamanı</label><input type="number" className="w-full p-2 border rounded font-mono" value={trialData.times.cooling} onChange={e => setTrialData({...trialData, times: {...trialData.times, cooling: e.target.value}})} /></div>
+                                            <div><label className="text-xs text-gray-500">Toplam Çevrim</label><input type="number" className="w-full p-2 border rounded font-mono font-bold" value={trialData.times.cycle} onChange={e => setTrialData({...trialData, times: {...trialData.times, cycle: e.target.value}})} /></div>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {/* B. GÖRSEL GALERİ SEKMESİ (DÜZELTİLDİ: ARTIK ÇALIŞIYOR) */}
+                            {/* B. GÖRSEL GALERİ SEKMESİ */}
                             {activeTab === 'GALLERY' && (
                                 <div className="space-y-6">
                                     {/* Gizli Input */}
@@ -421,12 +768,17 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                     {/* Önizleme Galerisi */}
                                     {trialData.media.length > 0 && (
                                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-in fade-in">
-                                            {trialData.media.map(media => (
-                                                <div key={media.id} className="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black aspect-square">
+                                            {trialData.media.map((media, index) => (
+                                                <div 
+                                                    key={media.id} 
+                                                    onClick={() => setLightboxIndex(index)} // TIKLAYINCA AÇILACAK
+                                                    className="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black aspect-square cursor-zoom-in hover:brightness-110 transition"
+                                                >
                                                     {/* Silme Butonu */}
                                                     <button 
-                                                        onClick={() => handleRemoveMedia(media.id)}
-                                                        className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition z-10"
+                                                        onClick={(e) => { e.stopPropagation(); handleRemoveMedia(media.id); }}
+                                                        className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-full shadow-md z-20 cursor-pointer transition-transform hover:scale-110 opacity-0 group-hover:opacity-100"
+                                                        title="Sil"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
@@ -513,9 +865,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             </div>
                             <button 
                                 onClick={handleSaveReport}
-                                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95"
+                                disabled={isSaving}
+                                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <Save className="w-5 h-5 mr-2" /> RAPORU KAYDET
+                                <Save className="w-5 h-5 mr-2" /> 
+                                {isSaving ? 'Kaydediliyor...' : 'RAPORU KAYDET'}
                             </button>
                         </div>
                     </>
