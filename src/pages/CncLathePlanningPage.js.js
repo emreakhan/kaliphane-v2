@@ -7,7 +7,7 @@ import {
     ArrowUp, ArrowDown
 } from 'lucide-react';
 import { 
-    doc, updateDoc, addDoc, deleteDoc, collection, onSnapshot, query, orderBy, getDocs, where 
+    doc, updateDoc, addDoc, deleteDoc, collection, onSnapshot, query, orderBy
 } from '../config/firebase.js';
 import { 
     CNC_LATHE_JOBS_COLLECTION, CNC_LATHE_MACHINES, CNC_PARTS_COLLECTION 
@@ -83,7 +83,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 : 0;
 
             await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), {
-                partName: selectedPart.partName,
+                partName: selectedPart.partName || '',
+                orderNumber: selectedPart.orderNumber || '', // Stok/Resim No kaydediliyor
                 partId: selectedPart.id,
                 targetQuantity: parseInt(targetQuantity),
                 cycleTime: cycleTime,
@@ -199,11 +200,23 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
     };
     
-    const filteredParts = parts.filter(p => p.partName.toLowerCase().includes(searchTerm.toLowerCase()));
+    // Arama yaparken Stok/Resim No (orderNumber) ve Parça Adını dikkate al
+    const filteredParts = parts.filter(p => 
+        (p.orderNumber && p.orderNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.partName && p.partName.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
 
-    // --- KART BİLEŞENİ (GÜNCELLENDİ: ADET KUTUSU BÜYÜTÜLDÜ) ---
+    // --- KART BİLEŞENİ ---
     const JobCard = ({ job, index, isAssigned }) => {
         const isRunning = job.status === 'RUNNING';
+
+        // Olası eski kayıtlarda orderNumber olmayabilir, parts listesinden id ile bulup çekiyoruz.
+        const relatedPart = parts.find(p => p.id === job.partId) || {};
+        const displayOrderNumber = job.orderNumber || relatedPart.orderNumber;
+        const displayPartName = job.partName || relatedPart.partName;
+
+        // Kartın başlığında Stok/Resim No görünecek, yoksa mecbur parça adı
+        const displayTitle = displayOrderNumber || displayPartName || 'İsimsiz Parça';
 
         return (
             <div 
@@ -224,7 +237,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                 )}
 
                 <div className="flex justify-between items-start">
-                    <div className="flex items-center w-full">
+                    <div className="flex items-center w-full pr-6">
                         {/* Sıra Numarası Rozeti */}
                         <span className={`mr-2 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                             !isAssigned 
@@ -235,11 +248,13 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                         </span>
                         
                         <div className="flex-1 min-w-0">
-                            <h4 className="font-bold text-gray-800 dark:text-white text-sm truncate" title={job.partName}>
-                                {job.partName}
+                            {/* ANA BAŞLIK: Stok / Resim No */}
+                            <h4 className="font-bold text-gray-800 dark:text-white text-sm truncate" title={displayTitle}>
+                                {displayTitle}
                             </h4>
-                            {job.cycleTime && (
-                                <span className="text-[10px] text-gray-400 block">{job.cycleTime} sn/ad</span>
+                            {/* ALT BİLGİ: Parça Adı */}
+                            {displayOrderNumber && displayPartName && (
+                                <span className="text-[10px] text-gray-500 block truncate">{displayPartName}</span>
                             )}
                         </div>
                     </div>
@@ -300,7 +315,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                             <button onClick={() => setEditingJob(null)} className="p-2 bg-gray-400 text-white rounded"><X className="w-4 h-4"/></button>
                         </div>
                     ) : (
-                        // --- GÜNCELLENEN KISIM: ADET KUTUSU BÜYÜTÜLDÜ ---
                         <span className={`px-3 py-1 rounded-md font-mono text-base font-black tracking-wide shadow-sm 
                             ${isRunning 
                                 ? 'bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100' 
@@ -308,7 +322,6 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                             }`}>
                             {job.targetQuantity} Adet
                         </span>
-                        // ------------------------------------------------
                     )}
 
                     {job.estimatedTotalHours && (
@@ -441,8 +454,8 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                     <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
                                     <input 
                                         type="text" 
-                                        placeholder="Parça adı veya kodu ara..." 
-                                        className="w-full pl-10 p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Stok/Resim No veya Parça adı ara..." 
+                                        className="w-full pl-10 p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none uppercase"
                                         value={searchTerm}
                                         onFocus={() => setShowPartList(true)}
                                         onChange={(e) => {
@@ -462,12 +475,15 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                                     key={part.id}
                                                     onClick={() => {
                                                         setSelectedPart(part);
-                                                        setSearchTerm(part.partName); 
+                                                        setSearchTerm(part.orderNumber || part.partName); 
                                                         setShowPartList(false); 
                                                     }}
                                                     className={`p-2.5 text-sm cursor-pointer border-b last:border-0 hover:bg-blue-50 dark:hover:bg-gray-600 flex justify-between items-center transition ${selectedPart?.id === part.id ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300 border-gray-100 dark:border-gray-700'}`}
                                                 >
-                                                    <span>{part.partName}</span>
+                                                    <span className="font-medium">
+                                                        {part.orderNumber ? <span className="font-bold mr-1">{part.orderNumber}</span> : null} 
+                                                        <span className="text-xs opacity-80">({part.partName})</span>
+                                                    </span>
                                                     {part.cycleTime && <span className="text-xs opacity-70 bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded border">{part.cycleTime} sn</span>}
                                                 </div>
                                             ))

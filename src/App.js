@@ -30,7 +30,7 @@ import { getCurrentDateTimeString } from './utils/dateUtils.js';
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database
 } from 'lucide-react';
 
 // Sayfalar
@@ -66,6 +66,9 @@ import CncInspectionReport from './pages/CncInspectionReport.js';
 import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; 
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
+
+// YENİ EKLENEN HAMMADDE SAYFASI
+import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
 
 // Bileşenler
 import NavItem from './components/Shared/NavItem.js';
@@ -241,7 +244,6 @@ const App = () => {
         };
     }, [userId, loggedInUser]);
 
-    // --- TEZGAH TERMİNAL İŞLEM YÖNETİMİ (GÜNCELLENDİ: NET SÜRE HESABI) ---
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -258,15 +260,9 @@ const App = () => {
         const currentOp = currentTask.operations[opIndex];
         let updatedOp = { ...currentOp };
         const now = getCurrentDateTimeString();
-        const nowTime = new Date().getTime(); // Hesaplama için milisaniye
 
         if (operatorName) {
             updatedOp.machineOperatorName = operatorName;
-        }
-
-        // Eğer accumulatedRunTime (Birikmiş Çalışma Süresi) yoksa başlat
-        if (updatedOp.accumulatedRunTime === undefined) {
-            updatedOp.accumulatedRunTime = 0;
         }
 
         if (actionType === 'START_SETUP') {
@@ -278,38 +274,19 @@ const App = () => {
         else if (actionType === 'START_PRODUCTION') {
             updatedOp.isSettingUp = false;
             updatedOp.productionStartTime = now;
-            updatedOp.lastRunStartTime = nowTime; // Çalışma sayacını başlat
             updatedOp.isOperatorFinished = false;
         } 
         else if (actionType === 'PAUSE_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
-            // Eğer makine çalışıyorsa, geçen süreyi kumbaraya ekle
-            if (updatedOp.lastRunStartTime) {
-                const runDuration = nowTime - updatedOp.lastRunStartTime;
-                updatedOp.accumulatedRunTime = (updatedOp.accumulatedRunTime || 0) + runDuration;
-                updatedOp.lastRunStartTime = null; // Sayacı durdur
-            }
         }
         else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
-            updatedOp.lastRunStartTime = nowTime; // Sayacı tekrar başlat
         }
         else if (actionType === 'FINISH_JOB') { 
-            updatedOp.status = OPERATION_STATUS.PAUSED; // Bittiğinde duraklatıldı olarak işaretlenir
+            updatedOp.status = OPERATION_STATUS.PAUSED;
             updatedOp.isOperatorFinished = true; 
             updatedOp.progressPercentage = 99; 
             updatedOp.isSettingUp = false;
-            
-            // Eğer bitirmeden önce çalışıyorsa, son parçayı da kumbaraya ekle
-            if (updatedOp.lastRunStartTime) {
-                const runDuration = nowTime - updatedOp.lastRunStartTime;
-                updatedOp.accumulatedRunTime = (updatedOp.accumulatedRunTime || 0) + runDuration;
-                updatedOp.lastRunStartTime = null;
-            }
-
-            // Toplam net süreyi dakika olarak kaydet (İsteğe bağlı gösterim için)
-            const totalMinutes = Math.floor(updatedOp.accumulatedRunTime / 60000);
-            updatedOp.actualProcessingTimeMinutes = totalMinutes;
         }
 
         const newOps = [...currentTask.operations];
@@ -418,16 +395,6 @@ const App = () => {
         const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU];
         const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; 
         
-        // Kısıtlı Roller (CNC Torna Ekibi ve Takımhane)
-        const restrictedRoles = [
-            ROLES.CNC_TORNA_OPERATORU, 
-            ROLES.CNC_TORNA_SORUMLUSU, 
-            ROLES.TAKIMHANE_SORUMLUSU
-        ];
-
-        // Bu rollerin dışındakiler (Yönetici, Tasarımcı vb.) yeni sayfayı görebilir
-        const canSeeTrialReports = !restrictedRoles.includes(loggedInUser.role);
-
         // YETKİ KONTROLLERİ
         const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
         const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
@@ -444,6 +411,8 @@ const App = () => {
         if (isCncLatheSup) {
             return [
                 { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
+                // YENİ EKLENEN SAYFA: Sadece CNC Sorumlusunda Görünür
+                { path: '/cnc-raw-material', label: 'Hammadde Planlama', icon: Database, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -456,7 +425,9 @@ const App = () => {
 
         // 3. Diğer Roller (ADMIN DAHİL): Standart menü. CNC Torna Yok.
         const rolesExceptToolRoomAndCnc = allLoginRoles.filter(r => 
-            !restrictedRoles.includes(r)
+            r !== ROLES.TAKIMHANE_SORUMLUSU && 
+            r !== ROLES.CNC_TORNA_OPERATORU && 
+            r !== ROLES.CNC_TORNA_SORUMLUSU
         );
         
         const finalBaseItems = [
@@ -472,12 +443,12 @@ const App = () => {
             },
             
             // --- YENİ EKLENEN SAYFA (MENU) ---
-            ...(canSeeTrialReports ? [{ 
+            { 
                 path: '/mold-trial-reports', 
                 label: 'Kalıp Deneme Raporları', 
                 icon: ClipboardCheck, 
                 roles: rolesExceptToolRoomAndCnc 
-            }] : []),
+            },
 
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
 
@@ -637,6 +608,13 @@ const App = () => {
                 <Route path="/cnc-lathe-planning" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
+                    : <Navigate to="/" replace />
+                } />
+
+                {/* YENİ ROUTE: HAMMADDE PLANLAMA (Sadece CNC Torna Sorumlusu İçin) */}
+                <Route path="/cnc-raw-material" element={
+                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    ? <CncLatheRawMaterialPlanningPage db={db} /> 
                     : <Navigate to="/" replace />
                 } />
 
