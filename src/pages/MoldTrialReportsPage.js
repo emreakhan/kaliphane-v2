@@ -179,14 +179,54 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         });
     };
 
-    // --- DOSYA YÜKLEME ---
+    // --- DOSYA YÜKLEME VE SIKIŞTIRMA (TABLET/TELEFON HATASINI ÇÖZEN KISIM) ---
     const handleTriggerFileUpload = () => fileInputRef.current.click();
 
-    const convertToBase64 = (file) => {
+    // YENİ: Firebase boyut sınırına takılmamak için resmi yüklemeden önce küçültür
+    const compressAndConvertToBase64 = (file) => {
         return new Promise((resolve, reject) => {
+            if (file.type.startsWith('video/')) {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+                return;
+            }
+
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 1200; // Maksimum genişlik
+                    const MAX_HEIGHT = 1200; // Maksimum yükseklik
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Kaliteyi %70'e düşür (Gözle fark edilmez ama boyutu çok düşürür)
+                    const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                    resolve(compressedBase64);
+                };
+            };
             reader.onerror = error => reject(error);
         });
     };
@@ -195,7 +235,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
         const newMediaItems = await Promise.all(files.map(async (file) => {
-            const base64 = await convertToBase64(file);
+            const base64 = await compressAndConvertToBase64(file); // SIKIŞTIRMA KULLANILIYOR
             return {
                 id: Date.now() + Math.random(),
                 url: base64, 
@@ -215,7 +255,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handleQuickNoteImageUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
-        const base64 = await convertToBase64(file);
+        const base64 = await compressAndConvertToBase64(file); // SIKIŞTIRMA KULLANILIYOR
         setNewQuickNoteImage(base64);
         event.target.value = '';
     };
@@ -438,7 +478,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     );
 
     return (
-        // TABLET UYUMLU LAYOUT DÜZENLEMESİ: flex-col md:flex-row
         <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans">
             
             {/* NOT GÖRSELİ ÖNİZLEME MODALI (TAM EKRAN LIGHTBOX) */}
@@ -496,7 +535,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             )}
 
             {/* SOL PANEL (TABLETTE GENİŞLİK AYARI VE MOBİLDE GİZLEME MANTIĞI) */}
-            {/* Tablet ve üzerinde yan tarafta sabit dursun (w-72), mobilde üstte kalsın */}
             <div className="w-full md:w-72 lg:w-1/4 min-w-[300px] shrink-0 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col h-1/3 md:h-full">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center"><Activity className="w-5 h-5 mr-2 text-blue-600" /> Deneme Listesi</h2>
