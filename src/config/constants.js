@@ -40,6 +40,7 @@ export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activity
 export const ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
+    CAM_SORUMLUSU: 'CAM Sorumlusu', // --- YENİ EKLENEN ROL ---
     SUPERVISOR: 'Kalıphane Yetkilisi',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
@@ -148,7 +149,7 @@ export const OPERATION_TYPES = {
     TEXTURE: 'DESEN',
     WELDING: 'KAYNAK',
     MANUAL_LATHING: 'MANUEL TORNA',
-    MANUAL_MILLING: 'MANUEL FREZE',
+    MANUEL_MILLING: 'MANUEL FREZE',
     DRILLING: 'DELİK DELME'
 };
 
@@ -207,4 +208,4 @@ export const mapTaskStatusToMoldStatus = (taskStatus) => {
         case OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW: return MOLD_STATUS.MOLD_ASSEMBLY; 
         default: return MOLD_STATUS.WAITING;
     }
-};
+}

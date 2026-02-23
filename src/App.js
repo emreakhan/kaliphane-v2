@@ -111,7 +111,7 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
-    // Seed Data (Bu kısmı kısaltıyorum)
+    // Seed Data 
     const getMoldStatusFromTasksForSeed = (tasks) => {
         if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
         const allOps = tasks.flatMap(t => t.operations || []);
@@ -149,6 +149,8 @@ const App = () => {
                 { id: 'person-admin', name: 'Ayşe Hanım (Yönetici)', role: PERSONNEL_ROLES.ADMIN, createdAt: getCurrentDateTimeString(), username: 'admin', password: '123' },
                 { id: 'person-cam1', name: 'Emre Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'emre', password: '123' },
                 { id: 'person-cam2', name: 'Can Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'can', password: '123' },
+                // --- YENİ EKLENEN CAM SORUMLUSU ROLÜ ---
+                { id: 'person-cam-sorumlu', name: 'Murat Bey (CAM Sorumlusu)', role: 'CAM Sorumlusu', createdAt: getCurrentDateTimeString(), username: 'murat', password: '123' },
                 { id: 'person-sup1', name: 'Fatma Hanım (Yetkili)', role: PERSONNEL_ROLES.SUPERVISOR, createdAt: getCurrentDateTimeString(), username: 'fatma', password: '123' },
                 { id: 'person-takim1', name: 'Ahmet Usta (Takımhane)', role: PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU, createdAt: getCurrentDateTimeString(), username: 'ahmet', password: '123' }, 
                 { id: 'person-machine1', name: 'Ali Yılmaz', role: PERSONNEL_ROLES.MACHINE_OPERATOR, createdAt: getCurrentDateTimeString(), username: null, password: null },
@@ -388,7 +390,9 @@ const App = () => {
     // --- NAVİGASYON ---
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
-        const allLoginRoles = Object.values(ROLES);
+        
+        // DÜZELTME: Sabitlerdeki rollere ek olarak "CAM Sorumlusu" rolünü eksiksiz dahil ediyoruz
+        const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
         
         // Rol Grupları
         const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU];
@@ -411,7 +415,6 @@ const App = () => {
         if (isCncLatheSup) {
             return [
                 { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                // YENİ EKLENEN SAYFA: Sadece CNC Sorumlusunda Görünür
                 { path: '/cnc-raw-material', label: 'Hammadde Planlama', icon: Database, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
                 { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -442,7 +445,7 @@ const App = () => {
                 roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
             },
             
-            // --- YENİ EKLENEN SAYFA (MENU) ---
+            // --- KALIP DENEME RAPORLARI ---
             { 
                 path: '/mold-trial-reports', 
                 label: 'Kalıp Deneme Raporları', 
@@ -462,12 +465,13 @@ const App = () => {
             { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
 
-            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR] },
+            // DÜZELTME: CAM Operatörü ve CAM Sorumlusu yetkileri eklendi
+            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { 
                 path: '/cam-job-entry', 
                 label: 'Proje ve İş Ekleme', 
                 icon: Briefcase, 
-                roles: [ROLES.CAM_OPERATOR] 
+                roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] 
             },
 
             { 
