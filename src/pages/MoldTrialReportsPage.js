@@ -41,7 +41,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
     // GALERİ (LIGHTBOX) STATE'İ
     const [lightboxIndex, setLightboxIndex] = useState(null); 
-    const [previewImage, setPreviewImage] = useState(null); // Not görseli önizleme
+    const [previewImage, setPreviewImage] = useState(null); 
 
     // GÖRSEL DÜZENLEME STATE'LERİ
     const [isEditing, setIsEditing] = useState(false);
@@ -162,11 +162,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         return filtered;
     }, [projects, listFilter, searchTerm]);
 
-    // --- TEMEL FONKSİYONLAR ---
     const handleMoldSelect = (mold) => {
         setSelectedMold(mold);
         setReports([]); 
         setTrialData(getInitialTrialData('T0')); 
+        setActiveTab('QUICK_NOTES'); 
     };
 
     const toggleDefect = (defect) => {
@@ -179,10 +179,9 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         });
     };
 
-    // --- DOSYA YÜKLEME VE SIKIŞTIRMA (TABLET/TELEFON HATASINI ÇÖZEN KISIM) ---
+    // --- DOSYA YÜKLEME VE SIKIŞTIRMA ---
     const handleTriggerFileUpload = () => fileInputRef.current.click();
 
-    // YENİ: Firebase boyut sınırına takılmamak için resmi yüklemeden önce küçültür
     const compressAndConvertToBase64 = (file) => {
         return new Promise((resolve, reject) => {
             if (file.type.startsWith('video/')) {
@@ -200,8 +199,8 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 img.src = event.target.result;
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1200; // Maksimum genişlik
-                    const MAX_HEIGHT = 1200; // Maksimum yükseklik
+                    const MAX_WIDTH = 1200; 
+                    const MAX_HEIGHT = 1200; 
                     let width = img.width;
                     let height = img.height;
 
@@ -222,7 +221,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Kaliteyi %70'e düşür (Gözle fark edilmez ama boyutu çok düşürür)
                     const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
                     resolve(compressedBase64);
                 };
@@ -235,7 +233,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
         const newMediaItems = await Promise.all(files.map(async (file) => {
-            const base64 = await compressAndConvertToBase64(file); // SIKIŞTIRMA KULLANILIYOR
+            const base64 = await compressAndConvertToBase64(file);
             return {
                 id: Date.now() + Math.random(),
                 url: base64, 
@@ -251,16 +249,65 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         if (lightboxIndex !== null) setLightboxIndex(null);
     };
 
-    // --- HIZLI NOT & YORUM İŞLEMLERİ ---
+    // --- KAYDETME MANTIĞI (SESSİZ VEYA UYARILI) ---
+    const saveTrialDataToDB = async (dataToSave, silent = false) => {
+        if (!selectedMold) return;
+        setIsSaving(true);
+        try {
+            const safeProjectCode = selectedMold.projectCode || '';
+            const reportData = {
+                ...dataToSave,
+                moldId: selectedMold.id,
+                moldName: selectedMold.moldName || '',
+                projectCode: safeProjectCode,
+                reporter: loggedInUser?.name || 'Bilinmeyen',
+                savedAt: getCurrentDateTimeString()
+            };
+
+            let docId = dataToSave.id;
+            if (docId) {
+                await updateDoc(doc(db, MOLD_TRIAL_REPORTS_COLLECTION, docId), reportData);
+            } else {
+                const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), {
+                    ...reportData,
+                    createdAt: new Date().toISOString()
+                });
+                docId = docRef.id;
+                setTrialData(prev => ({ ...prev, id: docId }));
+            }
+
+            let newStatus = selectedMold.status;
+            if (dataToSave.result === 'APPROVED') newStatus = 'ONAY';
+            else if (dataToSave.result === 'REJECTED') newStatus = 'RET';
+            else if (dataToSave.result === 'REVISION') newStatus = 'TASHİH';
+            else if (dataToSave.result === 'WAITING') newStatus = 'DENEME';
+
+            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), {
+                status: newStatus
+            });
+
+            if (!silent) {
+                alert(`${dataToSave.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
+            }
+
+        } catch (error) {
+            console.error("Hata:", error);
+            if (!silent) alert("Hata: " + error.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // --- HIZLI NOT & YORUM İŞLEMLERİ (OTOMATİK SESSİZ KAYIT) ---
     const handleQuickNoteImageUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
-        const base64 = await compressAndConvertToBase64(file); // SIKIŞTIRMA KULLANILIYOR
+        const base64 = await compressAndConvertToBase64(file);
         setNewQuickNoteImage(base64);
         event.target.value = '';
     };
 
-    const handleAddQuickNote = () => {
+    const handleAddQuickNote = async () => {
         if (!newQuickNoteText && !newQuickNoteImage) return;
         const newNote = {
             id: Date.now(),
@@ -270,12 +317,14 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             createdAt: getCurrentDateTimeString(),
             createdBy: loggedInUser?.name || 'Anonim'
         };
-        setTrialData(prev => ({
-            ...prev,
-            quickNotes: [newNote, ...(prev.quickNotes || [])] 
-        }));
+        const updatedData = {
+            ...trialData,
+            quickNotes: [newNote, ...(trialData.quickNotes || [])] 
+        };
+        setTrialData(updatedData);
         setNewQuickNoteText('');
         setNewQuickNoteImage(null);
+        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
     };
 
     const handleStartCommenting = (noteId) => {
@@ -283,11 +332,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         setCommentText('');
     };
 
-    const handleSubmitComment = (noteId) => {
+    const handleSubmitComment = async (noteId) => {
         if (!commentText.trim()) return;
-        setTrialData(prev => ({
-            ...prev,
-            quickNotes: prev.quickNotes.map(note => {
+        const updatedData = {
+            ...trialData,
+            quickNotes: trialData.quickNotes.map(note => {
                 if (note.id === noteId) {
                     return {
                         ...note,
@@ -301,9 +350,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 }
                 return note;
             })
-        }));
+        };
+        setTrialData(updatedData);
         setCommentingNoteId(null);
         setCommentText('');
+        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
     };
 
     const handleCancelComment = () => {
@@ -311,12 +362,22 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         setCommentText('');
     };
     
-    const handleDeleteQuickNote = (noteId) => {
+    const handleDeleteQuickNote = async (noteId) => {
+        // DÜZELTME: Yanlışlıkla basılmayı engellemek için silme işlemi öncesi onay istenir.
         if(!window.confirm("Bu notu silmek istediğinize emin misiniz?")) return;
-        setTrialData(prev => ({
-            ...prev,
-            quickNotes: prev.quickNotes.filter(n => n.id !== noteId)
-        }));
+        
+        const updatedData = {
+            ...trialData,
+            quickNotes: trialData.quickNotes.filter(n => n.id !== noteId)
+        };
+        setTrialData(updatedData);
+        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
+    };
+
+    const handleResultChange = async (newResult) => {
+        const updatedData = { ...trialData, result: newResult };
+        setTrialData(updatedData);
+        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
     };
 
     // --- GÖRSEL DÜZENLEME ---
@@ -408,51 +469,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         if (trialData.media.length > 0) setLightboxIndex((prev) => (prev - 1 + trialData.media.length) % trialData.media.length);
     };
 
-    // --- KAYDETME ---
-    const handleSaveReport = async () => {
-        if (!selectedMold) return;
-        setIsSaving(true);
-        try {
-            const safeProjectCode = selectedMold.projectCode || '';
-            const reportData = {
-                ...trialData,
-                moldId: selectedMold.id,
-                moldName: selectedMold.moldName || '',
-                projectCode: safeProjectCode,
-                reporter: loggedInUser?.name || 'Bilinmeyen',
-                savedAt: getCurrentDateTimeString()
-            };
-
-            if (trialData.id) {
-                await updateDoc(doc(db, MOLD_TRIAL_REPORTS_COLLECTION, trialData.id), reportData);
-            } else {
-                const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), {
-                    ...reportData,
-                    createdAt: new Date().toISOString()
-                });
-                setTrialData(prev => ({ ...prev, id: docRef.id }));
-            }
-
-            let newStatus = selectedMold.status;
-            if (trialData.result === 'APPROVED') newStatus = 'ONAY';
-            else if (trialData.result === 'REJECTED') newStatus = 'RET';
-            else if (trialData.result === 'REVISION') newStatus = 'TASHİH';
-            else if (trialData.result === 'WAITING') newStatus = 'DENEME';
-
-            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), {
-                status: newStatus
-            });
-
-            alert(`${trialData.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
-
-        } catch (error) {
-            console.error("Hata:", error);
-            alert("Hata: " + error.message);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
     // --- RENDER BİLEŞENLERİ ---
     const MoldListItem = ({ mold }) => (
         <div 
@@ -480,7 +496,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     return (
         <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans">
             
-            {/* NOT GÖRSELİ ÖNİZLEME MODALI (TAM EKRAN LIGHTBOX) */}
             {previewImage && (
                 <div 
                     className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in"
@@ -491,7 +506,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 </div>
             )}
 
-            {/* LIGHTBOX & EDİTÖR (Galeri İçin) */}
             {lightboxIndex !== null && trialData.media[lightboxIndex] && (
                 <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-0 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-50">
@@ -534,7 +548,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 </div>
             )}
 
-            {/* SOL PANEL (TABLETTE GENİŞLİK AYARI VE MOBİLDE GİZLEME MANTIĞI) */}
+            {/* SOL PANEL */}
             <div className="w-full md:w-72 lg:w-1/4 min-w-[300px] shrink-0 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col h-1/3 md:h-full">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center"><Activity className="w-5 h-5 mr-2 text-blue-600" /> Deneme Listesi</h2>
@@ -555,12 +569,15 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             <div className="flex-1 min-w-0 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden h-2/3 md:h-full">
                 {selectedMold ? (
                     <>
-                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                            <div className="flex justify-between items-start mb-4">
+                        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 transition-all duration-300">
+                            <div className={`flex justify-between items-start ${activeTab !== 'QUICK_NOTES' ? 'mb-4' : ''}`}>
                                 <div>
                                     <h1 className="text-2xl font-black text-gray-800 dark:text-white flex items-center">
                                         {selectedMold.moldName}
                                         <span className="ml-3 text-sm font-normal text-gray-500 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">{selectedMold.projectCode}</span>
+                                        {activeTab === 'QUICK_NOTES' && (
+                                            <span className="ml-3 text-xs font-bold text-blue-800 bg-blue-100 px-2 py-1 rounded">Faz: {trialData.phase}</span>
+                                        )}
                                     </h1>
                                     <div className="flex items-center mt-1 space-x-2">
                                         <p className="text-sm text-gray-500">Müşteri: {selectedMold.customerName || 'Belirtilmemiş'}</p>
@@ -569,49 +586,55 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                         </Link>
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
-                                    {TRIAL_PHASES.map(phase => {
-                                        const hasReport = reports.some(r => r.phase === phase);
-                                        return (
-                                            <button key={phase} onClick={() => handlePhaseChange(phase)} className={`px-3 py-1 text-xs font-bold rounded border transition ${trialData.phase === phase ? 'bg-blue-600 text-white border-blue-600 scale-105 shadow-md' : hasReport ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>{phase} {hasReport && '✓'}</button>
-                                        );
-                                    })}
+                                
+                                {activeTab !== 'QUICK_NOTES' && (
+                                    <div className="flex gap-2 animate-in fade-in">
+                                        {TRIAL_PHASES.map(phase => {
+                                            const hasReport = reports.some(r => r.phase === phase);
+                                            return (
+                                                <button key={phase} onClick={() => handlePhaseChange(phase)} className={`px-3 py-1 text-xs font-bold rounded border transition ${trialData.phase === phase ? 'bg-blue-600 text-white border-blue-600 scale-105 shadow-md' : hasReport ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>{phase} {hasReport && '✓'}</button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {activeTab !== 'QUICK_NOTES' && (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2 fade-in">
+                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Deneme Fazı</label><select className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.phase} onChange={(e) => handlePhaseChange(e.target.value)}>{TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Makine</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} /></div>
+                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Hammadde</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.material} onChange={(e) => setTrialData({...trialData, material: e.target.value})} /></div>
+                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Göz</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.cavity} onChange={(e) => setTrialData({...trialData, cavity: e.target.value})} /></div>
                                 </div>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Deneme Fazı</label><select className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.phase} onChange={(e) => handlePhaseChange(e.target.value)}>{TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
-                                <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Makine</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Hammadde</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.material} onChange={(e) => setTrialData({...trialData, material: e.target.value})} /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Göz</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.cavity} onChange={(e) => setTrialData({...trialData, cavity: e.target.value})} /></div>
-                            </div>
+                            )}
                         </div>
 
-                        {/* YATAY KAYDIRILABİLİR TAB MENÜSÜ */}
                         <div className="flex border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 overflow-x-auto">
-                            <button onClick={() => setActiveTab('QUICK_NOTES')} className={`py-3 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'QUICK_NOTES' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500'}`}><MessageSquare className="w-4 h-4 mr-2" /> Rapor</button>
-                            <button onClick={() => setActiveTab('PARAMS')} className={`py-3 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'PARAMS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Gauge className="w-4 h-4 mr-2" /> Parametreler</button>
-                            <button onClick={() => setActiveTab('GALLERY')} className={`py-3 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'GALLERY' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Camera className="w-4 h-4 mr-2" /> Görseller</button>
-                            <button onClick={() => setActiveTab('RESULT')} className={`py-3 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'RESULT' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4 mr-2" /> Sonuç</button>
+                            <button onClick={() => setActiveTab('QUICK_NOTES')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'QUICK_NOTES' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500'}`}><MessageSquare className="w-4 h-4 mr-2" /> Rapor</button>
+                            <button onClick={() => setActiveTab('PARAMS')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'PARAMS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Gauge className="w-4 h-4 mr-2" /> Parametreler</button>
+                            <button onClick={() => setActiveTab('GALLERY')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'GALLERY' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Camera className="w-4 h-4 mr-2" /> Görseller</button>
+                            <button onClick={() => setActiveTab('RESULT')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'RESULT' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4 mr-2" /> Sonuç</button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 dark:bg-gray-900/50">
                             
                             {activeTab === 'QUICK_NOTES' && (
                                 <div className="space-y-6 animate-in fade-in">
-                                    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-orange-200 dark:border-gray-700">
-                                        <div className="mb-6 border-b pb-4 dark:border-gray-700">
-                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-3">Kalıp Durumu (Onay/Ret)</h3>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => setTrialData({...trialData, result: 'APPROVED'})} className={`flex-1 py-3 rounded-xl border-2 font-bold flex items-center justify-center transition ${trialData.result === 'APPROVED' ? 'bg-green-600 border-green-600 text-white' : 'border-green-200 text-green-600 hover:bg-green-50'}`}><ThumbsUp className="w-5 h-5 mr-2" /> ONAYLA</button>
-                                                <button onClick={() => setTrialData({...trialData, result: 'REJECTED'})} className={`flex-1 py-3 rounded-xl border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REJECTED' ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-600 hover:bg-red-50'}`}><ThumbsDown className="w-5 h-5 mr-2" /> REDDET</button>
-                                                <button onClick={() => setTrialData({...trialData, result: 'REVISION'})} className={`flex-1 py-3 rounded-xl border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REVISION' ? 'bg-orange-500 border-orange-500 text-white' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}><AlertTriangle className="w-5 h-5 mr-2" /> TASHİH</button>
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-orange-200 dark:border-gray-700">
+                                        <div className="mb-4 border-b pb-3 dark:border-gray-700">
+                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-2">Kalıp Durumu (Onay/Ret)</h3>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleResultChange('APPROVED')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'APPROVED' ? 'bg-green-600 border-green-600 text-white' : 'border-green-200 text-green-600 hover:bg-green-50'}`}><ThumbsUp className="w-4 h-4 mr-1.5" /> ONAYLA</button>
+                                                <button onClick={() => handleResultChange('REJECTED')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REJECTED' ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-600 hover:bg-red-50'}`}><ThumbsDown className="w-4 h-4 mr-1.5" /> REDDET</button>
+                                                <button onClick={() => handleResultChange('REVISION')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REVISION' ? 'bg-orange-500 border-orange-500 text-white' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}><AlertTriangle className="w-4 h-4 mr-1.5" /> TASHİH</button>
                                             </div>
                                         </div>
-                                        <h3 className="text-sm font-bold text-orange-600 mb-3 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Notlar</h3>
-                                        <div className="flex gap-3">
+                                        
+                                        <h3 className="text-sm font-bold text-orange-600 mb-2 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Notlar</h3>
+                                        <div className="flex gap-2">
                                             <input type="file" ref={quickNoteFileInputRef} className="hidden" accept="image/*" onChange={handleQuickNoteImageUpload} />
-                                            <button onClick={() => quickNoteFileInputRef.current.click()} className="p-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300">{newQuickNoteImage ? <img src={newQuickNoteImage} className="w-8 h-8 object-cover rounded" alt="secilen" /> : <Camera className="w-6 h-6" />}</button>
-                                            <div className="flex-1 flex gap-2"><input type="text" className="flex-1 p-3 border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} /><button onClick={handleAddQuickNote} className="px-4 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold">Ekle</button></div>
+                                            <button onClick={() => quickNoteFileInputRef.current.click()} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300">{newQuickNoteImage ? <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" /> : <Camera className="w-5 h-5" />}</button>
+                                            <div className="flex-1 flex gap-2"><input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} /><button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Ekle</button></div>
                                         </div>
                                     </div>
                                     <div className="space-y-4">
@@ -702,10 +725,15 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             )}
                         </div>
 
-                        <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center">
-                            <div className="text-xs text-gray-500">Raporlayan: <strong>{loggedInUser.name}</strong></div>
-                            <button onClick={handleSaveReport} disabled={isSaving} className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition disabled:opacity-50"><Save className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'RAPORU KAYDET'}</button>
-                        </div>
+                        {/* ALT PANEL: RAPOR SEKMESİNDE İKEN GİZLENİR */}
+                        {activeTab !== 'QUICK_NOTES' && (
+                            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
+                                <div className="text-xs text-gray-500">Raporlayan: <strong>{loggedInUser?.name}</strong></div>
+                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition disabled:opacity-50">
+                                    <Save className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'RAPORU KAYDET'}
+                                </button>
+                            </div>
+                        )}
                     </>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-gray-400"><FileText className="w-20 h-20 mb-4 opacity-30" /><p className="text-lg">Soldaki listeden bir kalıp seçin.</p></div>
