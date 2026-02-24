@@ -124,8 +124,8 @@ const MoldDetailPage = ({
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
     
-    // YENİ: CAM Operatörlerini Filtrele
-    const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR), [personnel]);
+    // DÜZELTME: CAM Operatörleri ve CAM Sorumlularını Filtrele
+    const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR || p.role === PERSONNEL_ROLES.CAM_SORUMLUSU), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
     const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
@@ -462,7 +462,8 @@ const MoldDetailPage = ({
         if (!isOpen || !data) return null;
         const { mold, task, operation } = data;
         
-        if (type === 'assign' && loggedInUser.role === ROLES.CAM_OPERATOR && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
+        // DÜZELTME: CAM Operatörü ve CAM Sorumlusu için "Ata / Devam Et" yetkisi (AssignOperationModal)
+        if (type === 'assign' && (loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
             return <AssignOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} loggedInUser={loggedInUser} onSubmit={handleUpdateOperation} projects={projects} personnel={personnel} machines={machines} />;
         }
         if (type === 'review' && (loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) {
@@ -828,17 +829,22 @@ const MoldDetailPage = ({
                                                                     </button>
                                                                 )}
                                                                 
-                                                                {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.NOT_STARTED && (
+                                                                {/* DÜZELTME: CAM Sorumlusu İçin Ata Butonu */}
+                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.NOT_STARTED && (
                                                                     <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
                                                                 )}
-                                                                {loggedInUser.role === ROLES.CAM_OPERATOR && operation.status === OPERATION_STATUS.PAUSED && (
+                                                                
+                                                                {/* DÜZELTME: CAM Sorumlusu İçin Devam Et Butonu */}
+                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.PAUSED && (
                                                                     <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
                                                                 )}
+                                                                
                                                                 {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
                                                                     <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
                                                                 )}
                                                                 
-                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || isAdmin) && 
+                                                                {/* DÜZELTME: CAM Sorumlusu İçin Hata Bildir Butonu */}
+                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU || isAdmin) && 
                                                                  (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
                                                                     <button 
                                                                         onClick={() => handleOpenModal('report_issue', mold, task, operation)}
