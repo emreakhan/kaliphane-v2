@@ -149,7 +149,6 @@ const App = () => {
                 { id: 'person-admin', name: 'Ayşe Hanım (Yönetici)', role: PERSONNEL_ROLES.ADMIN, createdAt: getCurrentDateTimeString(), username: 'admin', password: '123' },
                 { id: 'person-cam1', name: 'Emre Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'emre', password: '123' },
                 { id: 'person-cam2', name: 'Can Bey (CAM)', role: PERSONNEL_ROLES.CAM_OPERATOR, createdAt: getCurrentDateTimeString(), username: 'can', password: '123' },
-                // --- YENİ EKLENEN CAM SORUMLUSU ROLÜ ---
                 { id: 'person-cam-sorumlu', name: 'Murat Bey (CAM Sorumlusu)', role: 'CAM Sorumlusu', createdAt: getCurrentDateTimeString(), username: 'murat', password: '123' },
                 { id: 'person-sup1', name: 'Fatma Hanım (Yetkili)', role: PERSONNEL_ROLES.SUPERVISOR, createdAt: getCurrentDateTimeString(), username: 'fatma', password: '123' },
                 { id: 'person-takim1', name: 'Ahmet Usta (Takımhane)', role: PERSONNEL_ROLES.TAKIMHANE_SORUMLUSU, createdAt: getCurrentDateTimeString(), username: 'ahmet', password: '123' }, 
@@ -280,9 +279,21 @@ const App = () => {
         } 
         else if (actionType === 'PAUSE_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
+            // DURAKLATMA BAŞLANGIÇ TARİHİNİ KAYDET
+            updatedOp.lastPausedAt = now;
         }
         else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
+            // DURAKLATMADAN ÇIKILDI, GEÇMİŞE EKLE
+            if (updatedOp.lastPausedAt) {
+                const pauseHistory = updatedOp.pauseHistory || [];
+                pauseHistory.push({
+                    pausedAt: updatedOp.lastPausedAt,
+                    resumedAt: now
+                });
+                updatedOp.pauseHistory = pauseHistory;
+                updatedOp.lastPausedAt = null; // Sıfırla
+            }
         }
         else if (actionType === 'FINISH_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
@@ -338,6 +349,10 @@ const App = () => {
         const currentOp = currentTask.operations[opIndex];
         const newHistoryEntry = { id: Date.now(), reason, description, reportedBy: loggedInUser.name, date: getCurrentDateTimeString(), previousProgress: currentOp.progressPercentage };
         const updatedOp = { ...currentOp, status: OPERATION_STATUS.NOT_STARTED, progressPercentage: 0, reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry] };
+        
+        // Hata bildirilince duraklama sayacını sıfırla
+        updatedOp.lastPausedAt = null; 
+
         const newOps = [...currentTask.operations];
         newOps[opIndex] = updatedOp;
         const newTasks = [...currentProject.tasks];
@@ -354,12 +369,42 @@ const App = () => {
         const currentTask = currentProject.tasks[taskIndex];
         const operationIndex = currentTask.operations.findIndex(op => op.id === updatedOperationData.id);
         if (operationIndex === -1) return;
+
+        const oldOperation = currentTask.operations[operationIndex];
+        const now = getCurrentDateTimeString();
+
+        // --- MERKEZİ DURAKLATMA / DEVAM ETTİRME KONTROLÜ (SİHİRLİ DOKUNUŞ) ---
+        // 1. Operasyon DURAKLATILIYORSA (ve henüz lastPausedAt eklenmemişse)
+        if (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED) {
+            if (!updatedOperationData.lastPausedAt) {
+                updatedOperationData.lastPausedAt = now;
+            }
+        } 
+        // 2. Operasyon DEVAM ETTİRİLİYORSA (ve daha önce modalda işlenmemişse)
+        else if (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS) {
+            // lastPausedAt varsa ve updatedOperationData içinde henüz null yapılmamışsa:
+            if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
+                const pauseHistory = updatedOperationData.pauseHistory || oldOperation.pauseHistory || [];
+                pauseHistory.push({
+                    pausedAt: oldOperation.lastPausedAt,
+                    resumedAt: now
+                });
+                updatedOperationData.pauseHistory = pauseHistory;
+                updatedOperationData.lastPausedAt = null; // Sayacı sıfırla
+            }
+        }
+
         const newOperations = [...currentTask.operations];
         newOperations[operationIndex] = updatedOperationData;
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
-        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } 
-        catch (e) { console.error("Hata:", e); }
+        
+        try { 
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
+        } 
+        catch (e) { 
+            console.error("Hata:", e); 
+        }
     }, [projects]);
 
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
@@ -391,7 +436,6 @@ const App = () => {
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
         
-        // DÜZELTME: Sabitlerdeki rollere ek olarak "CAM Sorumlusu" rolünü eksiksiz dahil ediyoruz
         const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
         
         // Rol Grupları
@@ -465,7 +509,6 @@ const App = () => {
             { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
 
-            // DÜZELTME: CAM Operatörü ve CAM Sorumlusu yetkileri eklendi
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { 
                 path: '/cam-job-entry', 
@@ -545,7 +588,6 @@ const App = () => {
             </header>
 
             <Routes>
-                {/* --- ANA SAYFA YÖNLENDİRMESİ --- */}
                 <Route path="/" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <Navigate to="/cnc-torna" replace /> 
@@ -557,71 +599,54 @@ const App = () => {
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
-                
-                {/* YENİ ROUTE: KALIP DENEME RAPORLARI */}
                 <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
-
-                {/* YENİ ROUTE'LAR */}
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
-                
-                {/* RAPORLAR */}
                 <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                 <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
-
                 <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
 
-                {/* --- CNC TORNA & SPC SAYFALARI --- */}
                 <Route path="/cnc-torna" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-torna-history" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> 
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-part-manager" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncPartManager db={db} />
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-spc-analysis" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncSpcAnalysisPage db={db} />
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-inspection-report" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncInspectionReport db={db} />
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/operator-performance" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-lathe-planning" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
                     : <Navigate to="/" replace />
                 } />
-
-                {/* YENİ ROUTE: HAMMADDE PLANLAMA (Sadece CNC Torna Sorumlusu İçin) */}
                 <Route path="/cnc-raw-material" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheRawMaterialPlanningPage db={db} /> 
                     : <Navigate to="/" replace />
                 } />
-
                 <Route path="/cnc-lathe-calendar" element={
                     (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <CncLatheCalendarPage cncJobs={cncJobs} /> 
@@ -629,23 +654,16 @@ const App = () => {
                 } />
 
                 <Route path="/admin" element={<AdminDashboard 
-                    db={db} 
-                    projects={projects} 
-                    setProjects={setProjects} 
-                    personnel={personnel} 
-                    setPersonnel={setPersonnel} 
-                    machines={machines} 
-                    setMachines={setMachines} 
-                    handleDeleteMold={handleDeleteMold} 
-                    handleUpdateMold={handleUpdateMold} 
+                    db={db} projects={projects} setProjects={setProjects} 
+                    personnel={personnel} setPersonnel={setPersonnel} 
+                    machines={machines} setMachines={setMachines} 
+                    handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} 
                     loggedInUser={loggedInUser} 
                 />} />
-
                 <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                 <Route path="/history" element={<HistoryPage projects={projects} />} />
                 <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
-                
                 <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
 
                 <Route path="/mold/:moldId" element={

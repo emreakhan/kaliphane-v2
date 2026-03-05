@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2 
+    User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2, Clock 
 } from 'lucide-react'; 
 
 // Sabitler ve Koleksiyon Adresleri
@@ -36,6 +36,53 @@ import ReportIssueModal from '../components/Modals/ReportIssueModal.js';
 import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
+
+// --- YENİ: SÜRE HESAPLAMA YARDIMCILARI ---
+const calculateDurationText = (startStr, endStr) => {
+    if (!startStr) return "Hesaplanamıyor";
+    const start = new Date(startStr);
+    const end = endStr ? new Date(endStr) : new Date(); // endStr yoksa şu anki zamanı al (canlı sayaç için)
+    const diffMs = Math.max(0, end - start);
+    
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    let res = [];
+    if (diffDays > 0) res.push(`${diffDays} gün`);
+    if (diffHours > 0) res.push(`${diffHours} saat`);
+    if (diffMins > 0 || res.length === 0) res.push(`${diffMins} dk`);
+
+    return res.join(', ');
+};
+
+const calculateTotalPauseDuration = (pauseHistory, lastPausedAt) => {
+    let totalMs = 0;
+    if (pauseHistory && pauseHistory.length > 0) {
+        pauseHistory.forEach(ph => {
+            if (ph.pausedAt && ph.resumedAt) {
+                totalMs += Math.max(0, new Date(ph.resumedAt) - new Date(ph.pausedAt));
+            }
+        });
+    }
+    if (lastPausedAt) {
+        totalMs += Math.max(0, new Date() - new Date(lastPausedAt)); // Şu an hala duraklatılmışsa, bugüne kadar olanı ekle
+    }
+
+    if (totalMs === 0) return "0 dk";
+
+    const diffDays = Math.floor(totalMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((totalMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMins = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    let res = [];
+    if (diffDays > 0) res.push(`${diffDays} gün`);
+    if (diffHours > 0) res.push(`${diffHours} saat`);
+    if (diffMins > 0 || res.length === 0) res.push(`${diffMins} dk`);
+
+    return res.join(', ');
+};
+// ----------------------------------------
 
 // --- HESAPLAMA FONKSİYONU ---
 const getTaskSummary = (operations) => {
@@ -111,7 +158,7 @@ const MoldDetailPage = ({
     handleUpdateProductImageUrl,
     handleUpdateProjectManager,
     handleUpdateMoldDesigner,
-    handleUpdateCamResponsible, // YENİ: CAM Sorumlusu Güncelleme Prop'u
+    handleUpdateCamResponsible,
     db 
 }) => {
     
@@ -124,15 +171,12 @@ const MoldDetailPage = ({
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
     
-    // DÜZELTME: CAM Operatörleri ve CAM Sorumlularını Filtrele
     const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR || p.role === PERSONNEL_ROLES.CAM_SORUMLUSU), [personnel]);
 
     const [localTrialReportUrl, setLocalTrialReportUrl] = useState('');
     const [localProductImageUrl, setLocalProductImageUrl] = useState(''); 
     const [localProjectManager, setLocalProjectManager] = useState('');
     const [localMoldDesigner, setLocalMoldDesigner] = useState('');
-    
-    // YENİ: Yerel CAM Sorumlusu State'i
     const [localCamResponsible, setLocalCamResponsible] = useState('');
 
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
@@ -155,7 +199,6 @@ const MoldDetailPage = ({
     const [criticalNote, setCriticalNote] = useState('');
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
 
-    // YENİ: PDF Yükleme Durumu (Hangi task için yüklendiğini tutar)
     const [uploadingPdfTaskId, setUploadingPdfTaskId] = useState(null);
 
     // --- EFFECT'LER ---
@@ -165,7 +208,7 @@ const MoldDetailPage = ({
             setLocalProductImageUrl(mold.productImageUrl || '');
             setLocalProjectManager(mold.projectManager || '');
             setLocalMoldDesigner(mold.moldDesigner || '');
-            setLocalCamResponsible(mold.camResponsible || ''); // YENİ: State güncelleme
+            setLocalCamResponsible(mold.camResponsible || ''); 
             setLocalDeadline(mold.moldDeadline || '');
             setLocalPriority(mold.priority || '');
         }
@@ -184,6 +227,13 @@ const MoldDetailPage = ({
         return () => unsub();
     }, [db, mold?.id]);
     
+    // YENİ SAYFA CANLI SAYACI (Duraklatılan sürelerin saniye saniye artması için)
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        const interval = setInterval(() => setTick(t => t + 1), 60000); // Dakikada bir UI'ı güncelle
+        return () => clearInterval(interval);
+    }, []);
+
     // --- ERKEN RETURN ---
     if (!mold) {
         return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
@@ -191,15 +241,11 @@ const MoldDetailPage = ({
 
     // --- HANDLER FONKSİYONLARI ---
 
-    // YENİ: OPERASYON SİLME FONKSİYONU
     const handleDeleteOperation = async (task, operationId) => {
         if (!window.confirm("Bu operasyonu silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
 
         try {
-            // Operasyonu listeden çıkar
             const updatedOperations = task.operations.filter(op => op.id !== operationId);
-            
-            // Görev listesini güncelle
             const updatedTasks = mold.tasks.map(t => {
                 if (t.id === task.id) {
                     return { ...t, operations: updatedOperations };
@@ -207,18 +253,14 @@ const MoldDetailPage = ({
                 return t;
             });
 
-            // Veritabanına kaydet
             const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
             await updateDoc(moldRef, { tasks: updatedTasks });
-
-            // alert("Operasyon başarıyla silindi."); // İstersen açabilirsin
         } catch (error) {
             console.error("Operasyon silme hatası:", error);
             alert("Silme işlemi sırasında bir hata oluştu.");
         }
     };
 
-    // YENİ: Teknik Resim Yükleme
     const handlePdfUpload = async (e, task) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -240,7 +282,6 @@ const MoldDetailPage = ({
             await uploadBytes(storageRef, file);
             const downloadURL = await getDownloadURL(storageRef);
 
-            // Task'i güncelle
             const updatedTasks = mold.tasks.map(t => {
                 if (t.id === task.id) {
                     return { ...t, technicalDrawingUrl: downloadURL };
@@ -260,7 +301,6 @@ const MoldDetailPage = ({
         }
     };
 
-    // YENİ: Teknik Resim Silme
     const handleDeletePdf = async (task) => {
         if (!window.confirm("Bu teknik resmi silmek istediğinize emin misiniz?")) return;
 
@@ -268,7 +308,7 @@ const MoldDetailPage = ({
             const updatedTasks = mold.tasks.map(t => {
                 if (t.id === task.id) {
                     const newTask = { ...t };
-                    delete newTask.technicalDrawingUrl; // Alanı sil
+                    delete newTask.technicalDrawingUrl;
                     return newTask;
                 }
                 return t;
@@ -367,7 +407,6 @@ const MoldDetailPage = ({
     const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
     const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
-    // Teknik Resim Yetkisi (Admin, Proje Sorumlusu, Tasarımcı)
     const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
     const openCriticalModal = (task) => {
@@ -437,11 +476,9 @@ const MoldDetailPage = ({
         handleUpdateMoldDesigner(mold.id, newDesigner);
     };
 
-    // YENİ: CAM Sorumlusu Değişikliği
     const handleCamResponsibleChange = (e) => {
         const newResponsible = e.target.value;
         setLocalCamResponsible(newResponsible);
-        // Bu fonksiyonu App.js'den prop olarak bekliyoruz
         if(handleUpdateCamResponsible) {
             handleUpdateCamResponsible(mold.id, newResponsible);
         }
@@ -462,7 +499,6 @@ const MoldDetailPage = ({
         if (!isOpen || !data) return null;
         const { mold, task, operation } = data;
         
-        // DÜZELTME: CAM Operatörü ve CAM Sorumlusu için "Ata / Devam Et" yetkisi (AssignOperationModal)
         if (type === 'assign' && (loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && (operation.status === OPERATION_STATUS.NOT_STARTED || operation.status === OPERATION_STATUS.PAUSED)) {
             return <AssignOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} loggedInUser={loggedInUser} onSubmit={handleUpdateOperation} projects={projects} personnel={personnel} machines={machines} />;
         }
@@ -789,99 +825,132 @@ const MoldDetailPage = ({
                                         {/* ----------------------------------------- */}
 
                                         <div className="space-y-3">
-                                            {(task.operations || []).map(operation => (
-                                                <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
-                                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-                                                        <div className="flex-1 min-w-0 mb-2 md:mb-0">
-                                                            <div className="flex items-center">
-                                                                <p className="font-semibold text-blue-700 dark:text-blue-300 mr-2">Operasyon: {operation.type}</p>
-                                                                {operation.reworkHistory && operation.reworkHistory.length > 0 && (
-                                                                    <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded flex items-center">
-                                                                        <AlertTriangle className="w-3 h-3 mr-1" />
-                                                                        {operation.reworkHistory.length}. Hata Kaydı
-                                                                    </span>
-                                                                )}
+                                            {(task.operations || []).map(operation => {
+                                                
+                                                // YENİ: Duraklatma geçmişi var mı kontrol et
+                                                const hasPauseHistory = (operation.pauseHistory && operation.pauseHistory.length > 0) || operation.lastPausedAt;
+
+                                                return (
+                                                    <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
+                                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+                                                            <div className="flex-1 min-w-0 mb-2 md:mb-0">
+                                                                <div className="flex items-center">
+                                                                    <p className="font-semibold text-blue-700 dark:text-blue-300 mr-2">Operasyon: {operation.type}</p>
+                                                                    {operation.reworkHistory && operation.reworkHistory.length > 0 && (
+                                                                        <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded flex items-center">
+                                                                            <AlertTriangle className="w-3 h-3 mr-1" />
+                                                                            {operation.reworkHistory.length}. Hata Kaydı
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
+                                                                    <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
+                                                                    <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
+                                                                    <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
+                                                                    <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
+                                                                    <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
+                                                                    {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
+                                                                    {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
+                                                                    {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
+                                                                    {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-400">Yorum:</span> <span className="italic">"{operation.supervisorComment}"</span></div>}
+                                                                </div>
+                                                                <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
                                                             </div>
-                                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
-                                                                <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
-                                                                <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
-                                                                <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
-                                                                <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
-                                                                <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
-                                                                {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
-                                                                {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
-                                                                {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
-                                                                {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-400">Yorum:</span> <span className="italic">"{operation.supervisorComment}"</span></div>}
+
+                                                            <div className="flex flex-col gap-2 mt-2 md:mt-0">
+                                                                <div className="flex flex-col md:flex-row gap-2">
+                                                                    {isAdmin && (
+                                                                        <button 
+                                                                            onClick={() => handleDeleteOperation(task, operation.id)} 
+                                                                            className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition flex items-center justify-center"
+                                                                            title="Operasyonu Sil"
+                                                                        >
+                                                                            <Trash2 className="w-4 h-4" />
+                                                                        </button>
+                                                                    )}
+                                                                    
+                                                                    {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.NOT_STARTED && (
+                                                                        <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
+                                                                    )}
+                                                                    
+                                                                    {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.PAUSED && (
+                                                                        <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
+                                                                    )}
+                                                                    
+                                                                    {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
+                                                                        <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
+                                                                    )}
+                                                                    
+                                                                    {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU || isAdmin) && 
+                                                                    (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
+                                                                        <button 
+                                                                            onClick={() => handleOpenModal('report_issue', mold, task, operation)}
+                                                                            className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"
+                                                                            title="Hata Bildir ve Sıfırla"
+                                                                        >
+                                                                            <AlertTriangle className="w-4 h-4" />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
                                                         </div>
 
-                                                        <div className="flex flex-col gap-2 mt-2 md:mt-0">
-                                                            <div className="flex flex-col md:flex-row gap-2">
-                                                                {/* YENİ: SİLME BUTONU (SADECE YÖNETİCİ İÇİN) */}
-                                                                {isAdmin && (
-                                                                    <button 
-                                                                        onClick={() => handleDeleteOperation(task, operation.id)} 
-                                                                        className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition flex items-center justify-center"
-                                                                        title="Operasyonu Sil"
-                                                                    >
-                                                                        <Trash2 className="w-4 h-4" />
-                                                                    </button>
-                                                                )}
-                                                                
-                                                                {/* DÜZELTME: CAM Sorumlusu İçin Ata Butonu */}
-                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.NOT_STARTED && (
-                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
-                                                                )}
-                                                                
-                                                                {/* DÜZELTME: CAM Sorumlusu İçin Devam Et Butonu */}
-                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.PAUSED && (
-                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
-                                                                )}
-                                                                
-                                                                {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
-                                                                    <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
-                                                                )}
-                                                                
-                                                                {/* DÜZELTME: CAM Sorumlusu İçin Hata Bildir Butonu */}
-                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU || isAdmin) && 
-                                                                 (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
-                                                                    <button 
-                                                                        onClick={() => handleOpenModal('report_issue', mold, task, operation)}
-                                                                        className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"
-                                                                        title="Hata Bildir ve Sıfırla"
-                                                                    >
-                                                                        <AlertTriangle className="w-4 h-4" />
-                                                                    </button>
-                                                                )}
+                                                        {/* --- YENİ: DURAKLATMA GEÇMİŞİ PANELE EKLENİYOR --- */}
+                                                        {hasPauseHistory && (
+                                                            <div className="mt-3 pt-3 border-t border-orange-100 dark:border-orange-900/30">
+                                                                <p className="text-xs font-bold text-orange-800 dark:text-orange-300 mb-2 flex items-center">
+                                                                    <Clock className="w-3 h-3 mr-1" /> 
+                                                                    Duraklatma Geçmişi (Toplam Bekleme: {calculateTotalPauseDuration(operation.pauseHistory, operation.lastPausedAt)})
+                                                                </p>
+                                                                <div className="space-y-2">
+                                                                    {/* Tamamlanmış duraklatmalar */}
+                                                                    {operation.pauseHistory && operation.pauseHistory.map((ph, idx) => (
+                                                                        <div key={idx} className="bg-orange-50 dark:bg-orange-900/10 p-2 rounded text-xs border border-orange-100 dark:border-orange-900/30">
+                                                                            <div className="flex justify-between text-orange-800 dark:text-orange-400 font-medium">
+                                                                                <span>{formatDateTime(ph.pausedAt)} - {formatDateTime(ph.resumedAt)}</span>
+                                                                                <span className="font-bold">{calculateDurationText(ph.pausedAt, ph.resumedAt)}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                    {/* Halen devam eden duraklatma (varsa) */}
+                                                                    {operation.lastPausedAt && (
+                                                                        <div className="bg-orange-100 dark:bg-orange-900/20 p-2 rounded text-xs border border-orange-300 dark:border-orange-700 animate-pulse-slow">
+                                                                            <div className="flex justify-between text-orange-800 dark:text-orange-300 font-medium">
+                                                                                <span>{formatDateTime(operation.lastPausedAt)} - Şu an devam ediyor...</span>
+                                                                                <span className="font-bold text-red-600 dark:text-red-400">{calculateDurationText(operation.lastPausedAt, null)}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        </div>
+                                                        )}
+                                                        {/* ------------------------------------------------ */}
+
+                                                        {operation.reworkHistory && operation.reworkHistory.length > 0 && (
+                                                            <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-900/30">
+                                                                <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-2">⚠️ Hata ve Yeniden İşleme Geçmişi:</p>
+                                                                <div className="space-y-2">
+                                                                    {operation.reworkHistory.map((history) => (
+                                                                        <div key={history.id} className="bg-red-50 dark:bg-red-900/10 p-2 rounded text-xs border border-red-100 dark:border-red-900/30">
+                                                                            <div className="flex justify-between text-red-700 dark:text-red-400 font-semibold">
+                                                                                <span>{history.reason}</span>
+                                                                                <span>{formatDateTime(history.date)}</span>
+                                                                            </div>
+                                                                            <div className="text-gray-600 dark:text-gray-400 mt-1">
+                                                                                {history.description}
+                                                                            </div>
+                                                                            <div className="text-gray-500 dark:text-gray-500 mt-1 italic">
+                                                                                Bildiren: {history.reportedBy} (Sıfırlanan İlerleme: %{history.previousProgress})
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        
                                                     </div>
-
-                                                    {operation.reworkHistory && operation.reworkHistory.length > 0 && (
-                                                        <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-900/30">
-                                                            <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-2">⚠️ Hata ve Yeniden İşleme Geçmişi:</p>
-                                                            <div className="space-y-2">
-                                                                {operation.reworkHistory.map((history) => (
-                                                                    <div key={history.id} className="bg-red-50 dark:bg-red-900/10 p-2 rounded text-xs border border-red-100 dark:border-red-900/30">
-                                                                        <div className="flex justify-between text-red-700 dark:text-red-400 font-semibold">
-                                                                            <span>{history.reason}</span>
-                                                                            <span>{formatDateTime(history.date)}</span>
-                                                                        </div>
-                                                                        <div className="text-gray-600 dark:text-gray-400 mt-1">
-                                                                            {history.description}
-                                                                        </div>
-                                                                        <div className="text-gray-500 dark:text-gray-500 mt-1 italic">
-                                                                            Bildiren: {history.reportedBy} (Sıfırlanan İlerleme: %{history.previousProgress})
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}

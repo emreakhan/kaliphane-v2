@@ -166,17 +166,29 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
 
     const handleSave = () => {
         const isResuming = operation && operation.status === OPERATION_STATUS.PAUSED;
+        const now = getCurrentDateTimeString();
 
-        const updatedOperation = {
+        let updatedOperation = {
             ...operation,
             status: OPERATION_STATUS.IN_PROGRESS,
             assignedOperator: loggedInUser.name,
             machineName: machine,
             machineOperatorName: operator,
-            startDate: isResuming ? operation.startDate : getCurrentDateTimeString(), 
+            startDate: isResuming ? operation.startDate : now, 
             estimatedDueDate: dueDate,
             reworkHistory: operation.reworkHistory || []
         };
+
+        // EĞER DURAKLATILMIŞ BİR İŞİ DEVAM ETTİRİYORSA TARİHÇEYE EKLE
+        if (isResuming && updatedOperation.lastPausedAt) {
+            const pauseHistory = updatedOperation.pauseHistory || [];
+            pauseHistory.push({
+                pausedAt: updatedOperation.lastPausedAt,
+                resumedAt: now
+            });
+            updatedOperation.pauseHistory = pauseHistory;
+            updatedOperation.lastPausedAt = null; // Sıfırla
+        }
         
         if (task.isCritical) {
             console.log(`Kritik parça onayı alındı. Operatör: ${loggedInUser.name}, Parça: ${task.taskName}`);
