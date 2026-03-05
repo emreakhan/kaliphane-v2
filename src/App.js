@@ -279,12 +279,10 @@ const App = () => {
         } 
         else if (actionType === 'PAUSE_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
-            // DURAKLATMA BAŞLANGIÇ TARİHİNİ KAYDET
             updatedOp.lastPausedAt = now;
         }
         else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
-            // DURAKLATMADAN ÇIKILDI, GEÇMİŞE EKLE
             if (updatedOp.lastPausedAt) {
                 const pauseHistory = updatedOp.pauseHistory || [];
                 pauseHistory.push({
@@ -292,7 +290,7 @@ const App = () => {
                     resumedAt: now
                 });
                 updatedOp.pauseHistory = pauseHistory;
-                updatedOp.lastPausedAt = null; // Sıfırla
+                updatedOp.lastPausedAt = null; 
             }
         }
         else if (actionType === 'FINISH_JOB') { 
@@ -350,7 +348,6 @@ const App = () => {
         const newHistoryEntry = { id: Date.now(), reason, description, reportedBy: loggedInUser.name, date: getCurrentDateTimeString(), previousProgress: currentOp.progressPercentage };
         const updatedOp = { ...currentOp, status: OPERATION_STATUS.NOT_STARTED, progressPercentage: 0, reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry] };
         
-        // Hata bildirilince duraklama sayacını sıfırla
         updatedOp.lastPausedAt = null; 
 
         const newOps = [...currentTask.operations];
@@ -373,16 +370,12 @@ const App = () => {
         const oldOperation = currentTask.operations[operationIndex];
         const now = getCurrentDateTimeString();
 
-        // --- MERKEZİ DURAKLATMA / DEVAM ETTİRME KONTROLÜ (SİHİRLİ DOKUNUŞ) ---
-        // 1. Operasyon DURAKLATILIYORSA (ve henüz lastPausedAt eklenmemişse)
         if (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED) {
             if (!updatedOperationData.lastPausedAt) {
                 updatedOperationData.lastPausedAt = now;
             }
         } 
-        // 2. Operasyon DEVAM ETTİRİLİYORSA (ve daha önce modalda işlenmemişse)
         else if (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS) {
-            // lastPausedAt varsa ve updatedOperationData içinde henüz null yapılmamışsa:
             if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
                 const pauseHistory = updatedOperationData.pauseHistory || oldOperation.pauseHistory || [];
                 pauseHistory.push({
@@ -390,7 +383,7 @@ const App = () => {
                     resumedAt: now
                 });
                 updatedOperationData.pauseHistory = pauseHistory;
-                updatedOperationData.lastPausedAt = null; // Sayacı sıfırla
+                updatedOperationData.lastPausedAt = null; 
             }
         }
 
@@ -406,6 +399,49 @@ const App = () => {
             console.error("Hata:", e); 
         }
     }, [projects]);
+
+    // --- YENİ EKLENEN FONKSİYON: OPERATÖR DEĞİŞTİRME VE PUANLAMA ---
+    const handleChangeMachineOperator = useCallback(async (moldId, taskId, opId, newOperatorName, rating, comment) => {
+        if (!db) return;
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+        const currentTask = currentProject.tasks[taskIndex];
+        const operationIndex = currentTask.operations.findIndex(op => op.id === opId);
+        if (operationIndex === -1) return;
+
+        const currentOp = currentTask.operations[operationIndex];
+        const oldOperatorName = currentOp.machineOperatorName;
+        
+        // Önceki operatörün geçmişini oluştur
+        const newHistoryRecord = {
+            operatorName: oldOperatorName,
+            rating: rating,
+            comment: comment || '',
+            changedAt: getCurrentDateTimeString(),
+            changedBy: loggedInUser.name
+        };
+
+        const updatedOp = { 
+            ...currentOp, 
+            machineOperatorName: newOperatorName,
+            operatorHistory: currentOp.operatorHistory ? [...currentOp.operatorHistory, newHistoryRecord] : [newHistoryRecord]
+        };
+
+        const newOperations = [...currentTask.operations];
+        newOperations[operationIndex] = updatedOp;
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
+
+        try { 
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
+        } 
+        catch (e) { 
+            console.error("Operatör değiştirme hatası:", e); 
+        }
+    }, [projects, loggedInUser]);
+    // ---------------------------------------------------------------
 
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
         if (!db) return;
@@ -595,7 +631,17 @@ const App = () => {
                 } />
 
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
-                <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} personnel={personnel} machines={machines} />} />
+                
+                {/* --- CAM DASHBOARD ROUTE GÜNCELLENDİ --- */}
+                <Route path="/cam" element={<CamDashboard 
+                    loggedInUser={loggedInUser} 
+                    projects={projects} 
+                    handleUpdateOperation={handleUpdateOperation} 
+                    handleChangeMachineOperator={handleChangeMachineOperator} // YENİ EKLENDİ
+                    personnel={personnel} 
+                    machines={machines} 
+                />} />
+                
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />

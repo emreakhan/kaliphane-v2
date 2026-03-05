@@ -1,9 +1,10 @@
 // src/pages/CamDashboard.js
 
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom'; // YENİ EKLENDİ
 
 // İkonlar
-import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock } from 'lucide-react'; 
+import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink } from 'lucide-react'; // ExternalLink YENİ EKLENDİ
 
 // Sabitler
 import { OPERATION_STATUS } from '../config/constants.js';
@@ -16,9 +17,10 @@ import { getStatusClasses } from '../utils/styleUtils.js';
 import ProgressUpdateModal from '../components/Modals/ProgressUpdateModal.js';
 import CamReviewMachineOpModal from '../components/Modals/CamReviewMachineOpModal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js'; 
+import ChangeOperatorModal from '../components/Modals/ChangeOperatorModal.js';
 
 
-const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel, machines }) => {
+const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleChangeMachineOperator, personnel, machines }) => {
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
     
     // Hangi kalıbın detayının açık olduğunu tutan state
@@ -84,8 +86,13 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
         setModalState({ isOpen: true, type: 'resume', data: { mold, task, operation } });
     };
 
+    const handleChangeOperatorClick = (moldId, moldName, taskId, taskName, operation) => {
+        const mold = { id: moldId, moldName };
+        const task = { id: taskId, taskName };
+        setModalState({ isOpen: true, type: 'change_operator', data: { mold, task, operation } });
+    };
+
     const handleNeedsMachineOpReview = (operationWithProgress) => {
-        // Değerlendirme modalını aç
         setModalState(prevState => ({
             isOpen: true,
             type: 'cam_review',
@@ -100,7 +107,6 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
     const handleProgressSubmit = async (moldId, taskId, updatedOperation) => {
         let finalOperation = { ...updatedOperation };
 
-        // Eğer %100 olduysa durumu direkt TAMAMLANDI yap
         if (finalOperation.progressPercentage === 100) {
             finalOperation.status = OPERATION_STATUS.COMPLETED;
             if (!finalOperation.finishDate) {
@@ -109,6 +115,11 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
         }
 
         await handleUpdateOperation(moldId, taskId, finalOperation);
+        handleCloseModal();
+    };
+
+    const handleSubmitChangeOperator = async (moldId, taskId, opId, newOperatorName, rating, comment) => {
+        await handleChangeMachineOperator(moldId, taskId, opId, newOperatorName, rating, comment);
         handleCloseModal();
     };
 
@@ -139,21 +150,32 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
                                 {/* --- KALIP KARTI BAŞLIĞI --- */}
                                 <div 
                                     onClick={() => toggleExpand(group.moldInfo.id)}
-                                    className={`p-4 cursor-pointer flex justify-between items-center ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                    className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
                                 >
-                                    <div className="flex items-center space-x-4">
-                                        <div className={`p-3 rounded-full ${activeCount > 0 ? 'bg-blue-100 text-blue-600 animate-pulse' : 'bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-300'}`}>
+                                    <div className="flex items-center space-x-4 flex-1">
+                                        <div className={`p-3 rounded-full flex-shrink-0 ${activeCount > 0 ? 'bg-blue-100 text-blue-600 animate-pulse' : 'bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-300'}`}>
                                             <Box className="w-6 h-6" />
                                         </div>
-                                        <div>
-                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">{group.moldInfo.name}</h3>
-                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
+                                                {/* --- YENİ: KALIP DETAYINA GİT BUTONU --- */}
+                                                <Link 
+                                                    to={`/mold/${group.moldInfo.id}`} 
+                                                    onClick={(e) => e.stopPropagation()} // Akordiyonun açılıp kapanmasını engelle
+                                                    className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition"
+                                                    title="Kalıp Detay Sayfasına Git"
+                                                >
+                                                    Detaya Git <ExternalLink className="w-3 h-3 ml-1" />
+                                                </Link>
+                                            </div>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
                                                 {group.moldInfo.customer} • <span className="text-blue-600 dark:text-blue-400">{group.operations.length} Parça İşleniyor</span>
                                             </p>
                                         </div>
                                     </div>
                                     
-                                    <div className="flex items-center space-x-4">
+                                    <div className="flex items-center space-x-4 flex-shrink-0">
                                         {activeCount > 0 && (
                                             <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full dark:bg-green-900 dark:text-green-200 flex items-center">
                                                 <Clock className="w-3 h-3 mr-1" /> Aktif Çalışıyor
@@ -196,12 +218,21 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
                                                     </span>
                                                     
                                                     {op.status === OPERATION_STATUS.IN_PROGRESS && (
-                                                        <button
-                                                            onClick={() => handleProgressClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
-                                                            className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm"
-                                                        >
-                                                            <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
-                                                        </button>
+                                                        <div className="w-full flex flex-col gap-2">
+                                                            <button
+                                                                onClick={() => handleProgressClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
+                                                                className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm"
+                                                            >
+                                                                <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
+                                                            </button>
+                                                            
+                                                            <button
+                                                                onClick={() => handleChangeOperatorClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
+                                                                className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm"
+                                                            >
+                                                                <Users className="w-4 h-4 mr-1"/> Operatör Değiştir
+                                                            </button>
+                                                        </div>
                                                     )}
 
                                                     {op.status === OPERATION_STATUS.PAUSED && (
@@ -259,6 +290,18 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, personnel
                     projects={projects}
                     personnel={personnel}
                     machines={machines}
+                />
+            )}
+
+            {isOpen && type === 'change_operator' && (
+                <ChangeOperatorModal
+                    isOpen={isOpen}
+                    onClose={handleCloseModal}
+                    mold={mold}
+                    task={task}
+                    operation={operation}
+                    personnel={personnel}
+                    onSubmit={handleSubmitChangeOperator}
                 />
             )}
         </div>
