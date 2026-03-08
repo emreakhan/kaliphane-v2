@@ -1,10 +1,10 @@
 // src/pages/CamDashboard.js
 
 import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom'; // YENİ EKLENDİ
+import { Link } from 'react-router-dom';
 
 // İkonlar
-import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink } from 'lucide-react'; // ExternalLink YENİ EKLENDİ
+import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink } from 'lucide-react'; 
 
 // Sabitler
 import { OPERATION_STATUS } from '../config/constants.js';
@@ -104,7 +104,8 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
         setModalState({ isOpen: false, type: null, data: null });
     };
     
-    const handleProgressSubmit = async (moldId, taskId, updatedOperation) => {
+    // --- DÜZELTME BURADA: actionType ve pauseReason eklendi ---
+    const handleProgressSubmit = async (moldId, taskId, updatedOperation, actionType = null, pauseReason = null) => {
         let finalOperation = { ...updatedOperation };
 
         if (finalOperation.progressPercentage === 100) {
@@ -114,9 +115,11 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
             }
         }
 
-        await handleUpdateOperation(moldId, taskId, finalOperation);
+        // Parametreler eksiksiz olarak ana fonksiyona (App.js'e) iletiliyor
+        await handleUpdateOperation(moldId, taskId, finalOperation, actionType, pauseReason);
         handleCloseModal();
     };
+    // -------------------------------------------------------------
 
     const handleSubmitChangeOperator = async (moldId, taskId, opId, newOperatorName, rating, comment) => {
         await handleChangeMachineOperator(moldId, taskId, opId, newOperatorName, rating, comment);
@@ -159,10 +162,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
-                                                {/* --- YENİ: KALIP DETAYINA GİT BUTONU --- */}
                                                 <Link 
                                                     to={`/mold/${group.moldInfo.id}`} 
-                                                    onClick={(e) => e.stopPropagation()} // Akordiyonun açılıp kapanmasını engelle
+                                                    onClick={(e) => e.stopPropagation()} 
                                                     className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition"
                                                     title="Kalıp Detay Sayfasına Git"
                                                 >
@@ -262,7 +264,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                     mold={mold}
                     task={task}
                     operation={operation}
-                    onSubmit={handleProgressSubmit}
+                    onSubmit={handleProgressSubmit} // Artık 5 parametreyi de taşıyor
                     onNeedsMachineOpReview={handleNeedsMachineOpReview}
                 />
             )}

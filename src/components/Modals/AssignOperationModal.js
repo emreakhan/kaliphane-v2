@@ -6,17 +6,15 @@ import { PERSONNEL_ROLES, OPERATION_STATUS } from '../../config/constants.js';
 import { getCurrentDateTimeString } from '../../utils/dateUtils.js';
 import Modal from './Modal.js';
 
-// --- YENİ: ARAMALI VE SIRALI SEÇİM BİLEŞENİ ---
+// --- ARAMALI VE SIRALI SEÇİM BİLEŞENİ ---
 const SearchableSelect = ({ label, options, value, onChange, placeholder, error }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
 
-    // Dışarıdan value değişirse (örn: modal açıldığında) inputu güncelle
     useEffect(() => {
         setFilter(value || '');
     }, [value]);
 
-    // Listeyi filtrele
     const filteredOptions = options.filter(opt => 
         opt.toLowerCase().includes(filter.toLowerCase())
     );
@@ -52,10 +50,7 @@ const SearchableSelect = ({ label, options, value, onChange, placeholder, error 
             
             {isOpen && filteredOptions.length > 0 && (
                 <>
-                    {/* Dışarı tıklamayı yakalamak için görünmez katman */}
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}></div>
-                    
-                    {/* Açılır Liste */}
                     <ul className="absolute z-20 w-full mt-1 max-h-48 overflow-y-auto bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl">
                         {filteredOptions.map((opt, idx) => (
                             <li 
@@ -89,22 +84,20 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
 
     const today = new Date().toISOString().split('T')[0];
 
-    // --- GÜNCELLENEN: SIRALAMA MANTIĞI ---
     const machineOperators = useMemo(() => 
         personnel
             .filter(p => p.role === PERSONNEL_ROLES.MACHINE_OPERATOR)
             .map(p => p.name)
-            .sort((a, b) => a.localeCompare(b, 'tr')), // A-Z Sıralama
+            .sort((a, b) => a.localeCompare(b, 'tr')), 
         [personnel]
     );
 
     const availableMachines = useMemo(() => 
         machines
             .map(m => m.name)
-            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })), // Doğal Sıralama (K-1, K-2, K-10)
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })), 
         [machines]
     );
-    // --------------------------------------
 
     useEffect(() => {
         if (isOpen) {
@@ -129,7 +122,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
         }
     }, [isOpen, operation]);
 
-    // YENİ: Parametre artık direkt string alıyor
     const handleMachineChange = (selectedMachine) => {
         setMachine(selectedMachine);
         
@@ -179,16 +171,19 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             reworkHistory: operation.reworkHistory || []
         };
 
-        // EĞER DURAKLATILMIŞ BİR İŞİ DEVAM ETTİRİYORSA TARİHÇEYE EKLE
+        // --- DEĞİŞİKLİK BURADA: NEDENİ (REASON) DE KAYDEDİYORUZ ---
         if (isResuming && updatedOperation.lastPausedAt) {
             const pauseHistory = updatedOperation.pauseHistory || [];
             pauseHistory.push({
                 pausedAt: updatedOperation.lastPausedAt,
-                resumedAt: now
+                resumedAt: now,
+                reason: updatedOperation.lastPauseReason || 'Belirtilmedi' // Nedeni eksiksiz aktarıyoruz
             });
             updatedOperation.pauseHistory = pauseHistory;
-            updatedOperation.lastPausedAt = null; // Sıfırla
+            updatedOperation.lastPausedAt = null; 
+            updatedOperation.lastPauseReason = null; // Sıfırla ki bir sonraki duraklatmada eskisini almasın
         }
+        // ---------------------------------------------------------
         
         if (task.isCritical) {
             console.log(`Kritik parça onayı alındı. Operatör: ${loggedInUser.name}, Parça: ${task.taskName}`);
@@ -237,7 +232,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
 
             <div className="space-y-4">
                 
-                {/* --- YENİ: ARAMALI TEZGAH SEÇİMİ --- */}
                 <SearchableSelect 
                     label="Atanacak Tezgah"
                     options={availableMachines}
@@ -247,7 +241,6 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
                     error={machineError}
                 />
 
-                {/* --- YENİ: ARAMALI OPERATÖR SEÇİMİ --- */}
                 <SearchableSelect 
                     label="Tezgah Operatörü"
                     options={machineOperators}

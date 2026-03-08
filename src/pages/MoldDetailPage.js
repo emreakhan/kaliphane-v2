@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
-    User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2, Clock 
+    User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2, Clock, HelpCircle 
 } from 'lucide-react'; 
 
 // Sabitler ve Koleksiyon Adresleri
@@ -37,7 +37,7 @@ import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
-// --- YENİ: SÜRE HESAPLAMA YARDIMCILARI ---
+// --- SÜRE HESAPLAMA YARDIMCILARI ---
 const calculateDurationText = (startStr, endStr) => {
     if (!startStr) return "Hesaplanamıyor";
     const start = new Date(startStr);
@@ -630,7 +630,6 @@ const MoldDetailPage = ({
                     mold.moldDesigner && <p className="text-sm dark:text-gray-300">Tasarım Sor.: <span className="font-semibold dark:text-white">{mold.moldDesigner}</span></p>
                 )}
 
-                {/* --- YENİ: CAM SORUMLUSU SEÇİMİ --- */}
                 {isAdmin ? (
                     <div className="flex items-center gap-2">
                         <label htmlFor="camResponsible" className="text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300">CAM Sorumlusu:</label>
@@ -650,13 +649,11 @@ const MoldDetailPage = ({
                     </div>
                 )}
 
-                {/* --- IMAGE UPLOAD AREA --- */}
                 {isManager && (
                     <div className="w-full border-t lg:col-span-3 dark:border-gray-700 pt-4 mt-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Ürün Görseli</label>
                         
                         <div className="flex items-center gap-2">
-                            {/* Upload Button */}
                             <label className={`flex items-center px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg cursor-pointer border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-800 transition ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 {isUploading ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
                                 <span className="text-xs font-bold">{isUploading ? 'Yükleniyor...' : 'Görsel Seç ve Yükle'}</span>
@@ -669,7 +666,6 @@ const MoldDetailPage = ({
                                 />
                             </label>
 
-                            {/* Delete Button */}
                             {mold.productImageUrl && (
                                 <button 
                                     onClick={handleRemoveImage}
@@ -681,13 +677,11 @@ const MoldDetailPage = ({
                             )}
                         </div>
                         
-                        {/* Info Text */}
                         <p className="text-[10px] text-gray-400 mt-1">
                             {mold.productImageUrl ? "✅ Görsel yüklü. Değiştirmek için yeni dosya seçin." : "⚠️ Henüz görsel yüklenmemiş."}
                         </p>
                     </div>
                 )}
-                {/* ------------------------------------- */}
              </div>
 
 
@@ -895,7 +889,7 @@ const MoldDetailPage = ({
                                                             </div>
                                                         </div>
 
-                                                        {/* --- YENİ: DURAKLATMA GEÇMİŞİ PANELE EKLENİYOR --- */}
+                                                        {/* --- DEĞİŞİKLİK BURADA: NEDEN (REASON) ALANI EKLENDİ --- */}
                                                         {hasPauseHistory && (
                                                             <div className="mt-3 pt-3 border-t border-orange-100 dark:border-orange-900/30">
                                                                 <p className="text-xs font-bold text-orange-800 dark:text-orange-300 mb-2 flex items-center">
@@ -910,6 +904,11 @@ const MoldDetailPage = ({
                                                                                 <span>{formatDateTime(ph.pausedAt)} - {formatDateTime(ph.resumedAt)}</span>
                                                                                 <span className="font-bold">{calculateDurationText(ph.pausedAt, ph.resumedAt)}</span>
                                                                             </div>
+                                                                            {/* NEDEN ALANI */}
+                                                                            <div className="mt-1 text-orange-600 dark:text-orange-300 flex items-start">
+                                                                                <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
+                                                                                <span className="italic">Neden: {ph.reason || 'Belirtilmedi'}</span>
+                                                                            </div>
                                                                         </div>
                                                                     ))}
                                                                     {/* Halen devam eden duraklatma (varsa) */}
@@ -918,6 +917,11 @@ const MoldDetailPage = ({
                                                                             <div className="flex justify-between text-orange-800 dark:text-orange-300 font-medium">
                                                                                 <span>{formatDateTime(operation.lastPausedAt)} - Şu an devam ediyor...</span>
                                                                                 <span className="font-bold text-red-600 dark:text-red-400">{calculateDurationText(operation.lastPausedAt, null)}</span>
+                                                                            </div>
+                                                                            {/* CANLI NEDEN ALANI */}
+                                                                            <div className="mt-1 text-orange-700 dark:text-orange-400 flex items-start font-medium">
+                                                                                <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
+                                                                                <span className="italic">Neden: {operation.lastPauseReason || 'Belirtilmedi'}</span>
                                                                             </div>
                                                                         </div>
                                                                     )}

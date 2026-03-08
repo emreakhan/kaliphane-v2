@@ -245,7 +245,7 @@ const App = () => {
         };
     }, [userId, loggedInUser]);
 
-    const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName) => {
+    const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         
@@ -280,6 +280,9 @@ const App = () => {
         else if (actionType === 'PAUSE_JOB') { 
             updatedOp.status = OPERATION_STATUS.PAUSED;
             updatedOp.lastPausedAt = now;
+            if (pauseReason) {
+                updatedOp.lastPauseReason = pauseReason;
+            }
         }
         else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
@@ -287,10 +290,13 @@ const App = () => {
                 const pauseHistory = updatedOp.pauseHistory || [];
                 pauseHistory.push({
                     pausedAt: updatedOp.lastPausedAt,
-                    resumedAt: now
+                    resumedAt: now,
+                    // DÜZELTME: Eski operasyondaki notu al, yoksa paramdan al, o da yoksa Belirtilmedi
+                    reason: currentOp.lastPauseReason || pauseReason || 'Belirtilmedi'
                 });
                 updatedOp.pauseHistory = pauseHistory;
                 updatedOp.lastPausedAt = null; 
+                updatedOp.lastPauseReason = null; // Sıfırla
             }
         }
         else if (actionType === 'FINISH_JOB') { 
@@ -349,6 +355,7 @@ const App = () => {
         const updatedOp = { ...currentOp, status: OPERATION_STATUS.NOT_STARTED, progressPercentage: 0, reworkHistory: currentOp.reworkHistory ? [...currentOp.reworkHistory, newHistoryEntry] : [newHistoryEntry] };
         
         updatedOp.lastPausedAt = null; 
+        updatedOp.lastPauseReason = null;
 
         const newOps = [...currentTask.operations];
         newOps[opIndex] = updatedOp;
@@ -357,7 +364,7 @@ const App = () => {
         await updateDoc(moldRef, { tasks: newTasks });
     }, [projects, loggedInUser]);
 
-    const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData) => {
+    const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData, actionType = null, pauseReason = null) => {
         if (!db) return;
         const currentProject = projects.find(p => p.id === moldId);
         if (!currentProject) return;
@@ -370,20 +377,26 @@ const App = () => {
         const oldOperation = currentTask.operations[operationIndex];
         const now = getCurrentDateTimeString();
 
-        if (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED) {
+        if (actionType === 'PAUSE_JOB' || (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED)) {
             if (!updatedOperationData.lastPausedAt) {
                 updatedOperationData.lastPausedAt = now;
             }
+            if (pauseReason) {
+                updatedOperationData.lastPauseReason = pauseReason;
+            }
         } 
-        else if (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS) {
+        else if (actionType === 'RESUME_JOB' || (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS)) {
             if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
                 const pauseHistory = updatedOperationData.pauseHistory || oldOperation.pauseHistory || [];
                 pauseHistory.push({
                     pausedAt: oldOperation.lastPausedAt,
-                    resumedAt: now
+                    resumedAt: now,
+                    // DÜZELTME BURADA: Eğer eski kayıtta bir neden varsa oradan çek, yoksa varsayılan yaz.
+                    reason: oldOperation.lastPauseReason || pauseReason || 'Belirtilmedi'
                 });
                 updatedOperationData.pauseHistory = pauseHistory;
                 updatedOperationData.lastPausedAt = null; 
+                updatedOperationData.lastPauseReason = null; // Sıfırla
             }
         }
 
@@ -400,7 +413,6 @@ const App = () => {
         }
     }, [projects]);
 
-    // --- YENİ EKLENEN FONKSİYON: OPERATÖR DEĞİŞTİRME VE PUANLAMA ---
     const handleChangeMachineOperator = useCallback(async (moldId, taskId, opId, newOperatorName, rating, comment) => {
         if (!db) return;
         const currentProject = projects.find(p => p.id === moldId);
@@ -414,7 +426,6 @@ const App = () => {
         const currentOp = currentTask.operations[operationIndex];
         const oldOperatorName = currentOp.machineOperatorName;
         
-        // Önceki operatörün geçmişini oluştur
         const newHistoryRecord = {
             operatorName: oldOperatorName,
             rating: rating,
@@ -441,7 +452,6 @@ const App = () => {
             console.error("Operatör değiştirme hatası:", e); 
         }
     }, [projects, loggedInUser]);
-    // ---------------------------------------------------------------
 
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
         if (!db) return;
@@ -474,16 +484,13 @@ const App = () => {
         
         const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
         
-        // Rol Grupları
         const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU];
         const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU];
         const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; 
         
-        // YETKİ KONTROLLERİ
         const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
         const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
 
-        // 1. CNC Torna Operatörü: SADECE KENDİ İŞİNİ GÖRÜR
         if (isCncLatheOp) {
             return [
                 { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_OPERATORU] },
@@ -491,7 +498,6 @@ const App = () => {
             ];
         }
 
-        // 2. CNC Torna Sorumlusu: SADECE CNC YÖNETİMİNİ GÖRÜR
         if (isCncLatheSup) {
             return [
                 { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
@@ -506,7 +512,6 @@ const App = () => {
             ];
         }
 
-        // 3. Diğer Roller (ADMIN DAHİL): Standart menü. CNC Torna Yok.
         const rolesExceptToolRoomAndCnc = allLoginRoles.filter(r => 
             r !== ROLES.TAKIMHANE_SORUMLUSU && 
             r !== ROLES.CNC_TORNA_OPERATORU && 
@@ -514,62 +519,23 @@ const App = () => {
         );
         
         const finalBaseItems = [
-            // Kalıp İmalat
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
-
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
-            { 
-                path: '/design-office', 
-                label: 'Tasarım Ofisi', 
-                icon: PenTool, 
-                roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] 
-            },
-            
-            // --- KALIP DENEME RAPORLARI ---
-            { 
-                path: '/mold-trial-reports', 
-                label: 'Kalıp Deneme Raporları', 
-                icon: ClipboardCheck, 
-                roles: rolesExceptToolRoomAndCnc 
-            },
-
+            { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
+            { path: '/mold-trial-reports', label: 'Kalıp Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
-
-            // Çalışan Parçalar
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
-            
-            // Takımhane Menüleri
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
             { path: '/tool-history', label: 'Geçmiş & Takip', icon: FileText, roles: canSeeTools },
             { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
-
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
-            { 
-                path: '/cam-job-entry', 
-                label: 'Proje ve İş Ekleme', 
-                icon: Briefcase, 
-                roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] 
-            },
-
-            { 
-                path: '/admin', 
-                label: 'Admin Paneli', 
-                icon: LayoutDashboard, 
-                roles: canSeeAdmin 
-            },
-
+            { path: '/cam-job-entry', label: 'Proje ve İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
+            { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: canSeeAdmin },
             { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
-            
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
-
-            { 
-                path: '/analysis', 
-                label: 'Analiz', 
-                icon: BarChart2, 
-                roles: canSeeAnalysis 
-            },
+            { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: canSeeAnalysis },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
@@ -632,12 +598,11 @@ const App = () => {
 
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
                 
-                {/* --- CAM DASHBOARD ROUTE GÜNCELLENDİ --- */}
                 <Route path="/cam" element={<CamDashboard 
                     loggedInUser={loggedInUser} 
                     projects={projects} 
                     handleUpdateOperation={handleUpdateOperation} 
-                    handleChangeMachineOperator={handleChangeMachineOperator} // YENİ EKLENDİ
+                    handleChangeMachineOperator={handleChangeMachineOperator}
                     personnel={personnel} 
                     machines={machines} 
                 />} />
