@@ -14,6 +14,9 @@ export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
 // [KUTU B] CNC TORNA İŞLERİ (Sadece Seri İmalat İşleri)
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 
+// [KUTU C] TASARIM OFİSİ İŞLERİ (Yeni - Kanban Havuzu İçin)
+export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
+
 // DİĞER ORTAK KOLEKSİYONLAR
 export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
@@ -40,14 +43,12 @@ export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activity
 export const ROLES = {
     ADMIN: 'Yönetici',
     CAM_OPERATOR: 'CAM Operatörü',
-    CAM_SORUMLUSU: 'CAM Sorumlusu', // --- YENİ EKLENEN ROL ---
+    CAM_SORUMLUSU: 'CAM Sorumlusu',
     SUPERVISOR: 'Kalıphane Yetkilisi',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
     
-    // --- DÜZELTME BURADA YAPILDI ---
-    // Eskiden 'Makine Operatörü' idi, şimdi veritabanıyla uyumlu hale getirildi.
     MACHINE_OPERATOR: 'Tezgah Operatörü', 
     
     // CNC TORNA EKİBİ
@@ -70,6 +71,15 @@ export const OPERATION_STATUS = {
     COMPLETED: 'TAMAMLANDI',
     SUPERVISOR_APPROVED: 'ONAYLANDI',
     SUPERVISOR_REJECTED: 'REDDEDİLDİ'
+};
+
+// --- YENİ EKLENEN: TASARIM İŞ DURUMLARI ---
+export const DESIGN_JOB_STATUS = {
+    POOL: 'HAVUZDA_BEKLIYOR',
+    ASSIGNED: 'ATANDI_BEKLIYOR',
+    IN_PROGRESS: 'ÇALIŞIYOR',
+    PAUSED: 'DURAKLATILDI',
+    COMPLETED: 'TAMAMLANDI'
 };
 
 export const TASK_STATUS = {
@@ -151,6 +161,17 @@ export const OPERATION_TYPES = {
     MANUAL_LATHING: 'MANUEL TORNA',
     MANUEL_MILLING: 'MANUEL FREZE',
     DRILLING: 'DELİK DELME'
+};
+
+// --- YENİ EKLENEN: TASARIM İŞ TÜRLERİ ---
+export const DESIGN_TASK_TYPES = {
+    CONCEPT: 'KONSEPT TASARIM',
+    DETAIL: 'DETAY TASARIM',
+    REVISION: 'REVİZYON',
+    ELECTRODE: 'ELEKTROT TASARIMI',
+    DRAWING: 'TEKNİK RESİM',
+    CAM_PREP: 'CAM HAZIRLIK',
+    OTHER: 'DİĞER'
 };
 
 export const ADDABLE_OPERATION_TYPES = {

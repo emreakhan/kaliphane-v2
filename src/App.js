@@ -17,6 +17,7 @@ import {
     PERSONNEL_ROLES, INVENTORY_COLLECTION,
     PROJECT_COLLECTION, // KUTU A (Kalıp)
     CNC_LATHE_JOBS_COLLECTION, // KUTU B (CNC Torna)
+    DESIGN_JOBS_COLLECTION, // KUTU C (Tasarım İşleri) 
     PERSONNEL_COLLECTION,
     MACHINES_COLLECTION,
     MOLD_NOTES_COLLECTION,
@@ -52,9 +53,9 @@ import ToolAssignmentPage from './pages/ToolAssignmentPage.js';
 import ToolHistoryPage from './pages/ToolHistoryPage.js';
 import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
 import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
-import MoldMaintenancePage from './pages/MoldMaintenancePage.js'; 
+import MoldMaintenancePage from './pages/MoldMaintenancePage.js';
 
-// --- YENİ EKLENEN SAYFA ---
+// --- YENİ EKLENEN SAYFALAR ---
 import MoldTrialReportsPage from './pages/MoldTrialReportsPage.js';
 
 // --- CNC TORNA & SPC SAYFALARI ---
@@ -63,11 +64,9 @@ import CncLatheHistoryPage from './pages/CncLatheHistoryPage.js';
 import CncPartManager from './pages/CncPartManager.js'; 
 import CncSpcAnalysisPage from './pages/CncSpcAnalysisPage.js'; 
 import CncInspectionReport from './pages/CncInspectionReport.js'; 
-import CncOperatorPerformance from './pages/CncOperatorPerformance.js'; 
+import CncOperatorPerformance from './pages/CncOperatorPerformance.js';
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
-
-// YENİ EKLENEN HAMMADDE SAYFASI
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
 
 // Bileşenler
@@ -82,12 +81,13 @@ const App = () => {
     const [isProjectsLoading, setIsProjectsLoading] = useState(true);
     
     // VERİ STATELERİ (AYRIŞTIRILMIŞ)
-    const [projects, setProjects] = useState([]); // SADECE Kalıphane İşleri (Kutu A)
-    const [cncJobs, setCncJobs] = useState([]);   // SADECE CNC Torna İşleri (Kutu B)
+    const [projects, setProjects] = useState([]); // Kutu A
+    const [cncJobs, setCncJobs] = useState([]);   // Kutu B
+    const [designJobs, setDesignJobs] = useState([]); // Kutu C 
     
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
-    const [tools, setTools] = useState([]); 
+    const [tools, setTools] = useState([]);
     
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
@@ -98,7 +98,7 @@ const App = () => {
             return null;
         }
     });
-    
+
     const navigate = useNavigate(); 
     const location = useLocation();
 
@@ -168,8 +168,8 @@ const App = () => {
                 await setDoc(doc(db, MACHINES_COLLECTION, machineId), { id: machineId, name: machine, createdAt: getCurrentDateTimeString() });
             }
         }
-    }, []); 
-    
+    }, []);
+
     useEffect(() => {
         try {
             const authenticate = async () => {
@@ -184,7 +184,7 @@ const App = () => {
              });
             return () => unsubscribe();
         } catch (error) { setLoading(false); }
-    }, []); 
+    }, []);
 
     useEffect(() => {
         if (!db || !userId) return;
@@ -239,12 +239,77 @@ const App = () => {
             setCncJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
+        const unsubscribeDesignJobs = onSnapshot(query(collection(db, DESIGN_JOBS_COLLECTION)), (snapshot) => {
+            setDesignJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         return () => {
             unsubscribeProjects();
             unsubscribeCncJobs();
+            unsubscribeDesignJobs(); 
         };
     }, [userId, loggedInUser]);
 
+    // --- "BELİRTİLMEDİ" HATASI İÇİN DÜZELTİLMİŞ FONKSİYON ---
+    const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData, actionType = null, pauseReason = null) => {
+        if (!db) return;
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+        const currentTask = currentProject.tasks[taskIndex];
+        const operationIndex = currentTask.operations.findIndex(op => op.id === updatedOperationData.id);
+        if (operationIndex === -1) return;
+
+        const oldOperation = currentTask.operations[operationIndex];
+        const now = getCurrentDateTimeString();
+
+        if (actionType === 'PAUSE_JOB' || (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED)) {
+            if (!updatedOperationData.lastPausedAt) {
+                updatedOperationData.lastPausedAt = now;
+            }
+            if (pauseReason) {
+                updatedOperationData.lastPauseReason = pauseReason;
+            }
+        } 
+        else if (actionType === 'RESUME_JOB' || (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS)) {
+            if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
+                
+                // DÜZELTME: Eski geçmişi alırken null/undefined hatasına karşı güvenli kopyalama
+                const pauseHistory = (oldOperation.pauseHistory && Array.isArray(oldOperation.pauseHistory)) 
+                    ? [...oldOperation.pauseHistory] 
+                    : [];
+
+                // Yeni duraklatma geçmişini listeye ekle
+                pauseHistory.push({
+                    pausedAt: oldOperation.lastPausedAt,
+                    resumedAt: now,
+                    // DÜZELTME: Eski notu her zaman koru. pauseReason Modal'dan geliyorsa onu kullan, 
+                    // gelmiyorsa (Devam Et butonu) eskisini koru, yoksa "Belirtilmedi" yap.
+                    reason: pauseReason || oldOperation.lastPauseReason || 'Belirtilmedi'
+                });
+                
+                updatedOperationData.pauseHistory = pauseHistory;
+                updatedOperationData.lastPausedAt = null; 
+                updatedOperationData.lastPauseReason = null; // Sıfırla
+            }
+        }
+
+        const newOperations = [...currentTask.operations];
+        newOperations[operationIndex] = updatedOperationData;
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
+        
+        try { 
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
+        } 
+        catch (e) { 
+            console.error("Hata:", e); 
+        }
+    }, [projects]);
+    // -------------------------------------------------------------
+
+    // --- (AYNI MANTIK) TERMINAL ACTION İÇİN DÜZELTİLMİŞ FONKSİYON ---
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -287,13 +352,16 @@ const App = () => {
         else if (actionType === 'RESUME_JOB') { 
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             if (updatedOp.lastPausedAt) {
-                const pauseHistory = updatedOp.pauseHistory || [];
+                const pauseHistory = (currentOp.pauseHistory && Array.isArray(currentOp.pauseHistory)) 
+                    ? [...currentOp.pauseHistory] 
+                    : [];
+
                 pauseHistory.push({
                     pausedAt: updatedOp.lastPausedAt,
                     resumedAt: now,
-                    // DÜZELTME: Eski operasyondaki notu al, yoksa paramdan al, o da yoksa Belirtilmedi
-                    reason: currentOp.lastPauseReason || pauseReason || 'Belirtilmedi'
+                    reason: pauseReason || currentOp.lastPauseReason || 'Belirtilmedi'
                 });
+
                 updatedOp.pauseHistory = pauseHistory;
                 updatedOp.lastPausedAt = null; 
                 updatedOp.lastPauseReason = null; // Sıfırla
@@ -317,6 +385,7 @@ const App = () => {
             console.error("Terminal işlemi hatası:", e);
         }
     }, [projects]);
+    // -------------------------------------------------------------
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
         if (!db) return;
@@ -338,8 +407,8 @@ const App = () => {
             const machineRef = doc(db, MACHINES_COLLECTION, machineId);
             await updateDoc(machineRef, { currentStatus: newStatus, statusReason: reason, statusStartTime: getCurrentDateTimeString() });
         } catch (e) { console.error("Tezgah durumu güncelleme hatası:", e); }
-    }, []); 
-    
+    }, []);
+
     const handleReportOperationIssue = useCallback(async (moldId, taskId, opId, reason, description) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -363,55 +432,6 @@ const App = () => {
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
         await updateDoc(moldRef, { tasks: newTasks });
     }, [projects, loggedInUser]);
-
-    const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData, actionType = null, pauseReason = null) => {
-        if (!db) return;
-        const currentProject = projects.find(p => p.id === moldId);
-        if (!currentProject) return;
-        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
-        if (taskIndex === -1) return;
-        const currentTask = currentProject.tasks[taskIndex];
-        const operationIndex = currentTask.operations.findIndex(op => op.id === updatedOperationData.id);
-        if (operationIndex === -1) return;
-
-        const oldOperation = currentTask.operations[operationIndex];
-        const now = getCurrentDateTimeString();
-
-        if (actionType === 'PAUSE_JOB' || (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED)) {
-            if (!updatedOperationData.lastPausedAt) {
-                updatedOperationData.lastPausedAt = now;
-            }
-            if (pauseReason) {
-                updatedOperationData.lastPauseReason = pauseReason;
-            }
-        } 
-        else if (actionType === 'RESUME_JOB' || (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS)) {
-            if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
-                const pauseHistory = updatedOperationData.pauseHistory || oldOperation.pauseHistory || [];
-                pauseHistory.push({
-                    pausedAt: oldOperation.lastPausedAt,
-                    resumedAt: now,
-                    // DÜZELTME BURADA: Eğer eski kayıtta bir neden varsa oradan çek, yoksa varsayılan yaz.
-                    reason: oldOperation.lastPauseReason || pauseReason || 'Belirtilmedi'
-                });
-                updatedOperationData.pauseHistory = pauseHistory;
-                updatedOperationData.lastPausedAt = null; 
-                updatedOperationData.lastPauseReason = null; // Sıfırla
-            }
-        }
-
-        const newOperations = [...currentTask.operations];
-        newOperations[operationIndex] = updatedOperationData;
-        const newTasks = [...currentProject.tasks];
-        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
-        
-        try { 
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
-        } 
-        catch (e) { 
-            console.error("Hata:", e); 
-        }
-    }, [projects]);
 
     const handleChangeMachineOperator = useCallback(async (moldId, taskId, opId, newOperatorName, rating, comment) => {
         if (!db) return;
@@ -446,10 +466,10 @@ const App = () => {
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
 
         try { 
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
+            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks });
         } 
         catch (e) { 
-            console.error("Operatör değiştirme hatası:", e); 
+            console.error("Operatör değiştirme hatası:", e);
         }
     }, [projects, loggedInUser]);
 
@@ -477,7 +497,7 @@ const App = () => {
     const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, []);
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
-    
+
     // --- NAVİGASYON ---
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
@@ -518,6 +538,7 @@ const App = () => {
             r !== ROLES.CNC_TORNA_SORUMLUSU
         );
         
+        // TASARIM PLANLAMA MENÜSÜ KALDIRILDI (Tasarım Ofisi içine gömülecek)
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
@@ -559,10 +580,12 @@ const App = () => {
             <header className="mb-8 border-b pb-4 dark:border-gray-700">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
                     <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white">Kalıphane İş Akışı Takibi</h1>
-                      <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+                    
+                    <div className="mt-4 sm:mt-0 flex items-center space-x-3">
                         <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
                          </span>
+         
                         <button
                             onClick={() => {
                                 setLoggedInUser(null); 
@@ -609,7 +632,9 @@ const App = () => {
                 
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
-                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
+                {/* --- DEĞİŞİKLİK BURADA: DESIGN_JOBS EKLENDİ --- */}
+                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
+                
                 <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
