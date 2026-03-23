@@ -6,7 +6,6 @@ import { PERSONNEL_ROLES, OPERATION_STATUS } from '../../config/constants.js';
 import { getCurrentDateTimeString } from '../../utils/dateUtils.js';
 import Modal from './Modal.js';
 
-// --- ARAMALI VE SIRALI SEÇİM BİLEŞENİ ---
 const SearchableSelect = ({ label, options, value, onChange, placeholder, error }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
@@ -167,29 +166,16 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             machineName: machine,
             machineOperatorName: operator,
             startDate: isResuming ? operation.startDate : now, 
-            estimatedDueDate: dueDate,
-            reworkHistory: operation.reworkHistory || []
+            estimatedDueDate: dueDate
+            // DÜZELTME: Buradan geçmişi ezme (silme) işlemini kaldırdık.
+            // İşlemi App.js'in ana mantığına bıraktık, neden (reason) hatasız işlenecek.
         };
-
-        // --- DEĞİŞİKLİK BURADA: NEDENİ (REASON) DE KAYDEDİYORUZ ---
-        if (isResuming && updatedOperation.lastPausedAt) {
-            const pauseHistory = updatedOperation.pauseHistory || [];
-            pauseHistory.push({
-                pausedAt: updatedOperation.lastPausedAt,
-                resumedAt: now,
-                reason: updatedOperation.lastPauseReason || 'Belirtilmedi' // Nedeni eksiksiz aktarıyoruz
-            });
-            updatedOperation.pauseHistory = pauseHistory;
-            updatedOperation.lastPausedAt = null; 
-            updatedOperation.lastPauseReason = null; // Sıfırla ki bir sonraki duraklatmada eskisini almasın
-        }
-        // ---------------------------------------------------------
         
         if (task.isCritical) {
             console.log(`Kritik parça onayı alındı. Operatör: ${loggedInUser.name}, Parça: ${task.taskName}`);
         }
 
-        onSubmit(mold.id, task.id, updatedOperation);
+        onSubmit(mold.id, task.id, updatedOperation, isResuming ? 'RESUME_JOB' : null);
         onClose();
     };
 
