@@ -1,20 +1,20 @@
 // src/pages/DesignOfficePage.js
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Activity, Layers, Briefcase, Calendar } from 'lucide-react'; // Calendar eklendi
+import { Activity, Layers, Briefcase, Calendar as CalendarIcon, TrendingUp } from 'lucide-react'; 
 import { ROLES } from '../config/constants.js'; 
 
-import DesignProjectsView from './DesignProjectsView.js';
 import DesignActivityLog from './DesignActivityLog.js';
 import DesignPlanningPage from './DesignPlanningPage.js';
 import DesignMyTasks from './DesignMyTasks.js';
-import DesignTimelinePage from './DesignTimelinePage.js'; // 5. YENİ SAYFAMIZ EKLENDİ
+import DesignTimelinePage from './DesignTimelinePage.js';
+import DesignPerformancePage from './DesignPerformancePage.js'; // 6. YENİ SAYFAMIZ EKLENDİ
 
 const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs }) => {
     const isDesigner = loggedInUser?.role === ROLES.KALIP_TASARIM_SORUMLUSU;
-    const [activeTab, setActiveTab] = useState(isDesigner ? 'MY_TASKS' : 'PROJECTS');
-
     const canSeePlanning = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU;
+
+    const [activeTab, setActiveTab] = useState(isDesigner ? 'MY_TASKS' : (canSeePlanning ? 'PLANNING' : 'LOGS'));
 
     return (
         <div className="p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
@@ -26,11 +26,11 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs })
                         Tasarım Ofisi Yönetimi
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-                        {activeTab === 'PROJECTS' && 'Kalıp projeleri ve üretim durumu.'}
-                        {activeTab === 'LOGS' && 'Günlük iş takibi ve personel performansı.'}
+                        {activeTab === 'LOGS' && 'Tasarım ekibinin günlük detaylı aktivite ve performans dökümü.'}
                         {activeTab === 'PLANNING' && 'Tasarım iş emri oluşturma ve sürükle-bırak personel atama.'}
                         {activeTab === 'MY_TASKS' && 'Bana atanan aktif görevler ve zaman takibi.'}
                         {activeTab === 'TIMELINE' && 'Tasarım ekibi genel zaman çizelgesi ve iş kuyruğu.'}
+                        {activeTab === 'PERFORMANCE' && 'Tasarım ekibinin hedeflenen saat ve termin uyum analizleri.'}
                     </p>
                 </div>
 
@@ -46,17 +46,6 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs })
                         }`}
                     >
                         <Briefcase className="w-4 h-4 mr-2" /> Görevlerim
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('PROJECTS')}
-                        className={`px-4 py-2 rounded-md text-sm font-bold flex items-center transition ${
-                            activeTab === 'PROJECTS'
-                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 shadow-sm'
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }`}
-                    >
-                        <LayoutDashboard className="w-4 h-4 mr-2" /> Projeler
                     </button>
 
                     {/* SADECE YÖNETİCİLER GÖREBİLİR */}
@@ -81,7 +70,19 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs })
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                                 }`}
                             >
-                                <Calendar className="w-4 h-4 mr-2" /> Takvim (Timeline)
+                                <CalendarIcon className="w-4 h-4 mr-2" /> Takvim (Timeline)
+                            </button>
+                            
+                            {/* YENİ EKLENEN PERFORMANS SEKME BUTONU */}
+                            <button
+                                onClick={() => setActiveTab('PERFORMANCE')}
+                                className={`px-4 py-2 rounded-md text-sm font-bold flex items-center transition ${
+                                    activeTab === 'PERFORMANCE'
+                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 shadow-sm'
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                }`}
+                            >
+                                <TrendingUp className="w-4 h-4 mr-2" /> Performans
                             </button>
                         </>
                     )}
@@ -94,7 +95,7 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs })
                             : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                         }`}
                     >
-                        <Activity className="w-4 h-4 mr-2" /> Günlük
+                        <Activity className="w-4 h-4 mr-2" /> Günlük (Log)
                     </button>
 
                 </div>
@@ -102,26 +103,26 @@ const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs })
 
             {/* İÇERİK ALANI */}
             <div className="min-h-[500px]">
-                
-                <div style={{ display: activeTab === 'PROJECTS' ? 'block' : 'none' }}>
-                    <DesignProjectsView projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} />
-                </div>
 
                 {activeTab === 'LOGS' && (
-                    <DesignActivityLog db={db} loggedInUser={loggedInUser} projects={projects} personnel={personnel} />
+                    <DesignActivityLog db={db} loggedInUser={loggedInUser} projects={projects} personnel={personnel} designJobs={designJobs} />
                 )}
 
                 {activeTab === 'PLANNING' && canSeePlanning && (
                     <DesignPlanningPage db={db} designJobs={designJobs} projects={projects} personnel={personnel} loggedInUser={loggedInUser} />
                 )}
 
-                {/* YENİ SEKME: TIMELINE */}
                 {activeTab === 'TIMELINE' && canSeePlanning && (
                     <DesignTimelinePage designJobs={designJobs} personnel={personnel} />
                 )}
 
                 {activeTab === 'MY_TASKS' && (
                     <DesignMyTasks db={db} designJobs={designJobs} projects={projects} loggedInUser={loggedInUser} />
+                )}
+
+                {/* YENİ PERFORMANS BİLEŞENİ ÇAĞRILIYOR */}
+                {activeTab === 'PERFORMANCE' && canSeePlanning && (
+                    <DesignPerformancePage designJobs={designJobs} personnel={personnel} />
                 )}
 
             </div>
