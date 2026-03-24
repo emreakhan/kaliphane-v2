@@ -21,7 +21,10 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
     const isAdmin = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU;
     
     const designers = useMemo(() => {
-        return personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU).map(p => p.name).sort((a,b) => a.localeCompare(b, 'tr'));
+        return personnel
+            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI)
+            .map(p => p.name)
+            .sort((a, b) => a.localeCompare(b, 'tr'));
     }, [personnel]);
 
     // Tarih seçici için string formatı (YYYY-MM-DD)

@@ -504,9 +504,9 @@ const App = () => {
         
         const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
         
-        const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.PROJE_SORUMLUSU];
-        const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU];
-        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU]; 
+        const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU];
+        const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI];
+        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU];
         
         const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
         const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
@@ -541,8 +541,8 @@ const App = () => {
         // TASARIM PLANLAMA MENÜSÜ KALDIRILDI (Tasarım Ofisi içine gömülecek)
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
-            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU] },
-            { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU] },
+            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
+            { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/mold-trial-reports', label: 'Kalıp Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },

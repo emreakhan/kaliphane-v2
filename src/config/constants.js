@@ -47,6 +47,7 @@ export const ROLES = {
     SUPERVISOR: 'Kalıphane Yetkilisi',
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
+    KALIP_TASARIM_YONETICISI: 'Kalıp Tasarım Yöneticisi',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
     
     MACHINE_OPERATOR: 'Tezgah Operatörü', 

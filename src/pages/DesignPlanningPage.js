@@ -31,7 +31,7 @@ const DesignPlanningPage = ({ db, designJobs, personnel, projects, loggedInUser 
 
     const designers = useMemo(() => {
         return personnel
-            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU)
+            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI)
             .map(p => p.name)
             .sort((a, b) => a.localeCompare(b, 'tr'));
     }, [personnel]);

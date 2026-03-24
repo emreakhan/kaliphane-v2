@@ -24,9 +24,9 @@ const formatHours = (hours) => {
 const DesignPerformancePage = ({ designJobs, personnel }) => {
     
     // Tasarımcıları filtrele
-    const designers = useMemo(() => {
+   const designers = useMemo(() => {
         return personnel
-            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU)
+            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI)
             .map(p => p.name)
             .sort((a, b) => a.localeCompare(b, 'tr'));
     }, [personnel]);

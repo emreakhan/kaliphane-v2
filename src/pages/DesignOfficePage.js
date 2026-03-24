@@ -11,8 +11,8 @@ import DesignTimelinePage from './DesignTimelinePage.js';
 import DesignPerformancePage from './DesignPerformancePage.js'; // 6. YENİ SAYFAMIZ EKLENDİ
 
 const DesignOfficePage = ({ projects, personnel, loggedInUser, db, designJobs }) => {
-    const isDesigner = loggedInUser?.role === ROLES.KALIP_TASARIM_SORUMLUSU;
-    const canSeePlanning = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU;
+    const isDesigner = loggedInUser?.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser?.role === ROLES.KALIP_TASARIM_YONETICISI;
+    const canSeePlanning = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU || loggedInUser?.role === ROLES.KALIP_TASARIM_YONETICISI;
 
     const [activeTab, setActiveTab] = useState(isDesigner ? 'MY_TASKS' : (canSeePlanning ? 'PLANNING' : 'LOGS'));
 
