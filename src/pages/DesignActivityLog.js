@@ -4,6 +4,16 @@ import React, { useState, useMemo } from 'react';
 import { UserCircle, Calendar as CalendarIcon, Clock, PenTool, PauseCircle, Activity, Search, Briefcase } from 'lucide-react';
 import { ROLES, PERSONNEL_ROLES } from '../config/constants.js';
 
+// TATİL VE MESAİ YARDIMCILARI
+const PUBLIC_HOLIDAYS = ["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-29"];
+const RELIGIOUS_HOLIDAYS_2026 = ["2026-03-20", "2026-03-21", "2026-03-22", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30"];
+
+const isHoliday = (date) => {
+    const mmdd = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const yyyymmdd = date.toISOString().split('T')[0];
+    return PUBLIC_HOLIDAYS.includes(mmdd) || RELIGIOUS_HOLIDAYS_2026.includes(yyyymmdd);
+};
+
 const formatDuration = (hours) => {
     if (!hours || isNaN(hours) || hours <= 0) return "0 Dk";
     const h = Math.floor(hours);
@@ -17,31 +27,56 @@ const formatTime = (dateObj) => {
     return dateObj.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 };
 
+// AKILLI SAYAÇ: Tek bir gün için mesai saatini kırpar.
+const calculateDailyDuration = (sTime, eTime, targetDate, autoPause) => {
+    const startOfDay = new Date(targetDate); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate); endOfDay.setHours(23, 59, 59, 999);
+
+    const clampedStart = sTime < startOfDay ? startOfDay : sTime;
+    const clampedEnd = eTime > endOfDay ? endOfDay : eTime;
+
+    if (clampedStart >= clampedEnd) return 0;
+
+    // Otomatik Kesinti Aktifse
+    if (autoPause !== false) {
+        // Hafta sonu veya tatilse o gün sayılmaz
+        if (targetDate.getDay() === 0 || targetDate.getDay() === 6 || isHoliday(targetDate)) {
+            return 0; 
+        }
+        
+        const workStart = new Date(targetDate); workStart.setHours(8, 0, 0, 0);
+        const workEnd = new Date(targetDate); workEnd.setHours(18, 0, 0, 0);
+
+        const effectiveStart = clampedStart > workStart ? clampedStart : workStart;
+        const effectiveEnd = clampedEnd < workEnd ? clampedEnd : workEnd;
+
+        if (effectiveStart < effectiveEnd) {
+            return (effectiveEnd - effectiveStart) / (1000 * 60 * 60);
+        }
+        return 0;
+    }
+    
+    // Aktif değilse (Mesaiye kalındıysa) ham saati dön
+    return (clampedEnd - clampedStart) / (1000 * 60 * 60);
+};
+
 const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
-    const isAdmin = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU;
+    const isAdmin = loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.PROJE_SORUMLUSU || loggedInUser?.role === ROLES.KALIP_TASARIM_YONETICISI;
     
     const designers = useMemo(() => {
-        return personnel
-            .filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI)
-            .map(p => p.name)
-            .sort((a, b) => a.localeCompare(b, 'tr'));
+        return personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI).map(p => p.name).sort((a,b) => a.localeCompare(b, 'tr'));
     }, [personnel]);
 
-    // Tarih seçici için string formatı (YYYY-MM-DD)
     const todayStr = new Date().toISOString().split('T')[0];
     const [selectedDateStr, setSelectedDateStr] = useState(todayStr);
-    
     const [selectedDesigner, setSelectedDesigner] = useState(isAdmin ? (designers[0] || '') : loggedInUser.name);
 
-    // --- LOGLARI ÇIKARMA ALGORİTMASI ---
     const logs = useMemo(() => {
         if (!designJobs || designJobs.length === 0 || !selectedDesigner || !selectedDateStr) return [];
 
         const targetDate = new Date(selectedDateStr);
-        const startOfDay = new Date(targetDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(targetDate);
-        endOfDay.setHours(23, 59, 59, 999);
+        const startOfDay = new Date(targetDate); startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(targetDate); endOfDay.setHours(23, 59, 59, 999);
         const now = new Date();
 
         let rawLogs = [];
@@ -56,21 +91,23 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                     const eTime = ws.endTime ? new Date(ws.endTime) : now; 
                     
                     if (sTime <= endOfDay && eTime >= startOfDay) {
-                        const clampedStart = sTime < startOfDay ? startOfDay : sTime;
-                        const clampedEnd = eTime > endOfDay ? endOfDay : eTime;
-                        const durationHours = (clampedEnd - clampedStart) / (1000 * 60 * 60);
+                        const durationHours = calculateDailyDuration(sTime, eTime, targetDate, job.autoPause);
+                        const isOngoing = !ws.endTime && eTime.toDateString() === now.toDateString();
 
-                        rawLogs.push({
-                            id: `ws-${job.id}-${ws.startTime}`,
-                            type: 'WORK',
-                            start: clampedStart,
-                            end: clampedEnd,
-                            isOngoing: !ws.endTime && clampedEnd.toDateString() === now.toDateString(), 
-                            projectName: job.projectName,
-                            taskType: job.taskType,
-                            duration: durationHours,
-                            note: 'Aktif Tasarım / Modelleme'
-                        });
+                        // Eğer süre eklendiyse VEYA şu an aktifse (görünmesi için) loga at
+                        if (durationHours > 0 || (isOngoing && targetDate.toDateString() === now.toDateString())) {
+                            rawLogs.push({
+                                id: `ws-${job.id}-${ws.startTime}`,
+                                type: 'WORK',
+                                start: sTime < startOfDay ? startOfDay : sTime,
+                                end: eTime > endOfDay ? endOfDay : eTime,
+                                isOngoing, 
+                                projectName: job.projectName,
+                                taskType: job.taskType,
+                                duration: durationHours,
+                                note: job.autoPause === false ? 'Fazla Mesai Koruması Kapalı' : 'Aktif Tasarım'
+                            });
+                        }
                     }
                 }
             });
@@ -82,22 +119,23 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                     const eTime = ph.resumedAt ? new Date(ph.resumedAt) : now;
 
                     if (sTime <= endOfDay && eTime >= startOfDay) {
-                        const clampedStart = sTime < startOfDay ? startOfDay : sTime;
-                        const clampedEnd = eTime > endOfDay ? endOfDay : eTime;
-                        const durationHours = (clampedEnd - clampedStart) / (1000 * 60 * 60);
+                        const durationHours = calculateDailyDuration(sTime, eTime, targetDate, job.autoPause);
+                        const isOngoing = !ph.resumedAt && eTime.toDateString() === now.toDateString();
 
-                        rawLogs.push({
-                            id: `ph-${job.id}-${ph.pausedAt}`,
-                            type: 'PAUSE',
-                            start: clampedStart,
-                            end: clampedEnd,
-                            isOngoing: !ph.resumedAt && clampedEnd.toDateString() === now.toDateString(),
-                            projectName: job.projectName,
-                            taskType: ph.reason || 'Bilinmeyen Neden',
-                            pauseProject: ph.projectName || '',
-                            duration: durationHours,
-                            note: ph.note || ''
-                        });
+                        if (durationHours > 0 || (isOngoing && targetDate.toDateString() === now.toDateString())) {
+                            rawLogs.push({
+                                id: `ph-${job.id}-${ph.pausedAt}`,
+                                type: 'PAUSE',
+                                start: sTime < startOfDay ? startOfDay : sTime,
+                                end: eTime > endOfDay ? endOfDay : eTime,
+                                isOngoing,
+                                projectName: job.projectName,
+                                taskType: ph.reason || 'Bilinmeyen Neden',
+                                pauseProject: ph.projectName || '',
+                                duration: durationHours,
+                                note: ph.note || ''
+                            });
+                        }
                     }
                 }
             });
@@ -107,7 +145,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
 
     }, [designJobs, selectedDesigner, selectedDateStr]);
 
-    // --- PROJE BAZLI ÖZET İSTATİSTİKLER ---
     const projectStats = useMemo(() => {
         const stats = {};
         logs.forEach(log => {
@@ -118,20 +155,13 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
             if (log.type === 'PAUSE') stats[log.projectName].pause += log.duration;
             stats[log.projectName].total += log.duration;
         });
-
-        // Objeyi diziye çevir ve en çok vakit harcanan projeyi en üste al
-        return Object.entries(stats)
-            .map(([projectName, data]) => ({ projectName, ...data }))
-            .sort((a, b) => b.total - a.total);
+        return Object.entries(stats).map(([projectName, data]) => ({ projectName, ...data })).sort((a, b) => b.total - a.total);
     }, [logs]);
 
     return (
         <div className="max-w-6xl mx-auto space-y-6">
             
-            {/* ÜST KONTROL BAR */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
-                
-                {/* Tarih Seçici (Takvim) */}
                 <div className="flex items-center w-full md:w-auto">
                     <CalendarIcon className="w-5 h-5 text-indigo-500 mr-2" />
                     <input 
@@ -142,7 +172,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                     />
                 </div>
 
-                {/* Personel Seçici (Sadece Yöneticiler İçin) */}
                 {isAdmin ? (
                     <div className="flex items-center w-full md:w-auto">
                         <UserCircle className="w-5 h-5 text-gray-400 mr-2" />
@@ -162,7 +191,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                 )}
             </div>
 
-            {/* PROJE BAZLI İSTATİSTİKLER (YENİ) */}
             {projectStats.length > 0 && (
                 <div>
                     <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 mb-3 ml-1 uppercase tracking-wider">
@@ -173,9 +201,7 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                             <div key={idx} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:border-indigo-300 transition-colors">
                                 <div className="flex items-start mb-3">
                                     <Briefcase className="w-5 h-5 text-indigo-500 mr-2 flex-shrink-0" />
-                                    <h4 className="font-bold text-gray-800 dark:text-white leading-tight line-clamp-2" title={stat.projectName}>
-                                        {stat.projectName}
-                                    </h4>
+                                    <h4 className="font-bold text-gray-800 dark:text-white leading-tight line-clamp-2" title={stat.projectName}>{stat.projectName}</h4>
                                 </div>
                                 <div className="space-y-2 text-sm border-t border-gray-100 dark:border-gray-700 pt-3">
                                     <div className="flex justify-between items-center">
@@ -197,7 +223,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                 </div>
             )}
 
-            {/* TIMELINE (ZAMAN AKIŞI) */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                 <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-6 flex items-center">
                     <Activity className="w-5 h-5 mr-2 text-indigo-500" /> Günlük Aktivite Dökümü
@@ -206,33 +231,29 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                 {logs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-center">
                         <Search className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-3" />
-                        <p className="text-gray-500 dark:text-gray-400 font-medium">Bu tarihte herhangi bir aktivite kaydı bulunamadı.</p>
+                        <p className="text-gray-500 dark:text-gray-400 font-medium">Bu tarihte hesaplanmış bir aktivite kaydı bulunamadı.</p>
                     </div>
                 ) : (
                     <div className="relative border-l-2 border-gray-200 dark:border-gray-700 ml-4 space-y-8 pb-4">
-                        {logs.map((log, index) => {
+                        {logs.map((log) => {
                             const isWork = log.type === 'WORK';
                             return (
                                 <div key={log.id} className="relative pl-8">
-                                    {/* Timeline Noktası */}
                                     <div className={`absolute -left-[11px] top-1 w-5 h-5 rounded-full border-4 border-white dark:border-gray-800 shadow-sm ${isWork ? 'bg-green-500' : 'bg-orange-500'}`}></div>
                                     
                                     <div className={`p-4 rounded-xl border transition hover:shadow-md ${isWork ? 'bg-green-50/50 border-green-100 dark:bg-green-900/10 dark:border-green-900/30' : 'bg-orange-50/50 border-orange-100 dark:bg-orange-900/10 dark:border-orange-900/30'}`}>
                                         
                                         <div className="flex flex-wrap justify-between items-start gap-4 mb-2">
                                             <div>
-                                                {/* Zaman Damgası */}
                                                 <div className="flex items-center text-sm font-black text-gray-700 dark:text-gray-200 mb-1">
                                                     <Clock className="w-4 h-4 mr-1.5 opacity-60" />
                                                     {formatTime(log.start)} - {log.isOngoing ? <span className="text-blue-600 dark:text-blue-400 ml-1 animate-pulse">Devam Ediyor...</span> : formatTime(log.end)}
                                                 </div>
-                                                {/* Ana Proje */}
                                                 <h3 className="text-base font-bold text-gray-900 dark:text-white leading-tight">
                                                     {log.projectName}
                                                 </h3>
                                             </div>
                                             
-                                            {/* Süre Rozeti */}
                                             <div className={`px-3 py-1 rounded-full text-xs font-bold border ${isWork ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400' : 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-400'}`}>
                                                 {formatDuration(log.duration)}
                                             </div>
@@ -242,8 +263,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                                             <span className={`inline-block text-[10px] font-bold px-2 py-1 rounded w-max ${isWork ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'}`}>
                                                 {log.taskType}
                                             </span>
-                                            
-                                            {/* Duraklatmada gidilen başka proje varsa */}
                                             {!isWork && log.pauseProject && (
                                                 <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
                                                     Hedef: {log.pauseProject}
@@ -251,7 +270,6 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                                             )}
                                         </div>
 
-                                        {/* Detay / Not */}
                                         {log.note && (
                                             <div className={`mt-3 text-xs italic p-2 rounded border ${isWork ? 'bg-green-100/50 text-green-800 border-green-200/50 dark:bg-green-900/20 dark:text-green-300' : 'bg-orange-100/50 text-orange-800 border-orange-200/50 dark:bg-orange-900/20 dark:text-orange-300'}`}>
                                                 <span className="font-bold not-italic mr-1">Not:</span> {log.note}

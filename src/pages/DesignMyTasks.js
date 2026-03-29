@@ -1,7 +1,7 @@
 // src/pages/DesignMyTasks.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PlayCircle, PauseCircle, CheckCircle, Clock, Search, ChevronDown, AlertTriangle, Briefcase, Activity, ListOrdered, CalendarDays, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { PlayCircle, PauseCircle, CheckCircle, Clock, Search, ChevronDown, AlertTriangle, Briefcase, Activity, ListOrdered, CalendarDays, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, ShieldCheck } from 'lucide-react';
 import { doc, updateDoc, addDoc, collection } from '../config/firebase.js';
 import { DESIGN_JOBS_COLLECTION, DESIGN_JOB_STATUS, DESIGN_ACTIVITY_TYPES, DESIGN_TASK_TYPES } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
@@ -11,9 +11,7 @@ import Modal from '../components/Modals/Modal.js';
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 18;
 
-// Sabit Ulusal Bayramlar (Ay-Gün)
 const PUBLIC_HOLIDAYS = ["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-29"];
-// Dini Bayramlar (2026 Tahmini Tarihler - İhtiyaca göre güncellenebilir)
 const RELIGIOUS_HOLIDAYS_2026 = ["2026-03-20", "2026-03-21", "2026-03-22", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30"];
 
 const isHoliday = (date) => {
@@ -24,14 +22,19 @@ const isHoliday = (date) => {
 
 const TASK_COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-teal-500', 'bg-cyan-600', 'bg-indigo-500'];
 
-const addWorkingHours = (startDate, hoursToAdd) => {
+const addWorkingHours = (startDate, hoursToAdd, autoPause = true) => {
+    // EĞER OTOMATİK DURDURMA KAPALIYSA (MESAİ/HAFTASONU ÇALIŞILIYORSA): Ham saat ekle
+    if (!autoPause) {
+        return new Date(startDate.getTime() + hoursToAdd * 60 * 60 * 1000);
+    }
+
+    // OTOMATİK DURDURMA AÇIKSA: 18:00 ve Tatilleri atlayarak süreyi ileri sar
     let currentDate = new Date(startDate.getTime());
     let remainingMinutes = hoursToAdd * 60;
     
     if (currentDate.getHours() < WORK_START_HOUR) currentDate.setHours(WORK_START_HOUR, 0, 0, 0);
     else if (currentDate.getHours() >= WORK_END_HOUR) { currentDate.setDate(currentDate.getDate() + 1); currentDate.setHours(WORK_START_HOUR, 0, 0, 0); }
     
-    // Hafta sonu veya tatil atlama fonksiyonu
     const skipNonWorkingDays = () => {
         while (currentDate.getDay() === 0 || currentDate.getDay() === 6 || isHoliday(currentDate)) { 
             currentDate.setDate(currentDate.getDate() + 1); 
@@ -99,7 +102,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const [pauseProjectName, setPauseProjectName] = useState('');
     const [pauseNote, setPauseNote] = useState('');
     
-    // Manuel İş Ekleme States
     const [manualModalOpen, setManualModalOpen] = useState(false);
     const [manualProjectId, setManualProjectId] = useState('');
     const [manualProjectName, setManualProjectName] = useState('');
@@ -110,7 +112,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [currentDate, setCurrentDate] = useState(new Date());
 
-    // KİŞİSEL TIMELINE STATES
     const MINI_DAY_WIDTH = 100;
     const MINI_DAYS_TO_SHOW = 14;
     const [miniBaseDate, setMiniBaseDate] = useState(() => {
@@ -127,7 +128,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
             });
     }, [designJobs, loggedInUser.name]);
 
-    // --- KİŞİSEL TIMELINE HESAPLAMALARI ---
     const miniDays = useMemo(() => {
         const arr = [];
         for (let i = 0; i < MINI_DAYS_TO_SHOW; i++) {
@@ -151,14 +151,17 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
         myJobs.forEach((job) => {
             let start, end;
             const estimatedHours = parseFloat(job.estimatedHours) || 0;
+            // autoPause varsayılan olarak true'dur, veritabanında false ise false alır
+            const autoPause = job.autoPause !== false; 
+
             if (job.status === DESIGN_JOB_STATUS.IN_PROGRESS) {
                 const firstSession = job.workSessions?.[0]?.startTime;
                 start = firstSession ? new Date(firstSession) : new Date(currentPointer);
-                end = addWorkingHours(start, estimatedHours);
+                end = addWorkingHours(start, estimatedHours, autoPause);
                 currentPointer = new Date(Math.max(now.getTime(), end.getTime()));
             } else {
                 start = new Date(currentPointer);
-                end = addWorkingHours(start, estimatedHours);
+                end = addWorkingHours(start, estimatedHours, autoPause);
                 currentPointer = new Date(end); 
             }
 
@@ -181,7 +184,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const miniNextWeek = () => { const d = new Date(miniBaseDate); d.setDate(d.getDate() + 7); setMiniBaseDate(d); };
     const miniToday = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - 1); setMiniBaseDate(d); };
 
-    // --- AYLIK TAKVİM HESAPLAMALARI ---
     const calendarDays = useMemo(() => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
@@ -203,7 +205,18 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
-    // --- MANUEL İŞ EKLEME FONKSİYONU ---
+    // --- CHECKBOX TOGGLE FONKSİYONU ---
+    const handleToggleAutoPause = async (job, isChecked) => {
+        if (!db) return;
+        try {
+            const jobRef = doc(db, DESIGN_JOBS_COLLECTION, job.id);
+            await updateDoc(jobRef, { autoPause: isChecked });
+        } catch (error) {
+            console.error("Otomatik kesinti ayarı güncellenemedi:", error);
+            alert("Ayar kaydedilemedi.");
+        }
+    };
+
     const handleAddManualTask = async () => {
         if (!manualProjectId || !manualEstimatedHours || !manualTaskType) {
             return alert("Lütfen proje seçin, iş türü belirleyin ve tahmini süre girin!");
@@ -225,6 +238,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                 assignedDesigner: loggedInUser.name,
                 createdBy: loggedInUser.name,
                 createdAt: getCurrentDateTimeString(),
+                autoPause: true, // Varsayılan olarak Akıllı Sayaç koruması AÇIK
                 orderIndex: maxOrderIndex + 1 
             });
 
@@ -295,10 +309,8 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     return (
         <div className="p-4 max-w-6xl mx-auto space-y-6">
             
-            {/* 1. ÜST KOKPİT (TIMELINE VE TAKVİM) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* SOL: YENİ GRAFİKSEL KİŞİSEL TIMELINE */}
                 <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[340px]">
                     <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
                         <h3 className="font-bold text-gray-800 dark:text-white flex items-center text-sm">
@@ -313,7 +325,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                     
                     <div className="flex-1 overflow-x-auto overflow-y-auto bg-gray-50 dark:bg-gray-900/50 relative p-4">
                         <div className="relative min-w-max">
-                            {/* Günler Başlığı */}
                             <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 pb-2" style={{ width: `${MINI_DAYS_TO_SHOW * MINI_DAY_WIDTH}px` }}>
                                 {miniDays.map((day, idx) => {
                                     const isWknd = day.getDay() === 0 || day.getDay() === 6;
@@ -330,9 +341,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                                 })}
                             </div>
 
-                            {/* İş Blokları (Üst Üste) */}
                             <div className="relative" style={{ height: `${Math.max(timelineData.length * 45, 150)}px`, width: `${MINI_DAYS_TO_SHOW * MINI_DAY_WIDTH}px` }}>
-                                {/* Arka plan çizgileri */}
                                 <div className="absolute inset-0 flex pointer-events-none">
                                     {miniDays.map((day, idx) => (
                                         <div key={idx} className={`h-full border-l border-dashed border-gray-200 dark:border-gray-700/50 ${(day.getDay() === 0 || day.getDay() === 6 || isHoliday(day)) ? 'bg-red-50/30 dark:bg-red-900/5' : ''}`} style={{ width: `${MINI_DAY_WIDTH}px` }} />
@@ -354,7 +363,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                                     ))
                                 )}
 
-                                {/* Şu an çizgisi */}
                                 {(() => {
                                     const now = new Date();
                                     if (now.getTime() >= timelineStartMs && now.getTime() <= timelineEndMs) {
@@ -372,7 +380,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                     </div>
                 </div>
 
-                {/* SAĞ: AYLIK TAKVİM (OK TUŞLARI BELİRGİNLEŞTİRİLDİ VE TATİLLER EKLENDİ) */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[340px]">
                     <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
                         <button onClick={prevMonth} className="p-2 bg-white dark:bg-gray-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm transition"><ChevronLeft className="w-5 h-5" /></button>
@@ -426,7 +433,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
 
             </div>
 
-            {/* 2. İŞ KUYRUĞU VE YENİ İŞ EKLE BUTONU */}
             <div className="mb-4 mt-6 border-l-4 border-indigo-500 pl-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
                     <h2 className="text-xl font-bold text-gray-800 dark:text-white">İş Kuyruğum</h2>
@@ -456,9 +462,11 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                     {myJobs.map((job, idx) => {
                         const isRunning = job.status === DESIGN_JOB_STATUS.IN_PROGRESS;
                         const isPaused = job.status === DESIGN_JOB_STATUS.PAUSED;
+                        const autoPause = job.autoPause !== false; // YENİ: Checkbox durumu
 
                         return (
                             <div key={job.id} className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border overflow-hidden flex flex-col md:flex-row transition-all duration-200 ${isRunning ? 'border-green-500 ring-2 ring-green-500/20 transform scale-[1.01]' : isPaused ? 'border-orange-400 opacity-90' : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'}`}>
+                                
                                 {/* SOL KISIM */}
                                 <div className="p-5 flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-5">
                                     <div className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center text-xl font-black shadow-inner border-4 ${isRunning ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800' : isPaused ? 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800' : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600'}`}>
@@ -472,12 +480,28 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                                             {isPaused && <span className="flex items-center text-[10px] font-bold text-orange-700 bg-orange-100 px-2.5 py-1 rounded border border-orange-200"><PauseCircle className="w-3 h-3 mr-1" /> DURAKLATILDI</span>}
                                         </div>
                                         {job.customer && <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">{job.customer}</p>}
+                                        
                                         {job.managerNote && (
                                             <div className={`text-xs text-gray-700 dark:text-gray-300 p-2.5 rounded border flex items-start mt-2 ${job.managerNote.includes('Manuel') ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20' : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20'}`}>
                                                 <AlertTriangle className={`w-4 h-4 mr-2 flex-shrink-0 ${job.managerNote.includes('Manuel') ? 'text-indigo-600' : 'text-yellow-600'}`} />
                                                 <div><span className="font-bold mr-1">{job.managerNote.includes('Manuel') ? 'Tasarımcı Notu:' : 'Yönetici Notu:'}</span><span className="italic">{job.managerNote}</span></div>
                                             </div>
                                         )}
+
+                                        {/* YENİ EKLENEN: MESAİ KORUMASI CHECKBOX */}
+                                        <div className="mt-3 inline-flex items-center">
+                                            <label className="flex items-center text-[11px] font-bold text-gray-600 dark:text-gray-400 cursor-pointer hover:text-indigo-600 transition group select-none">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={autoPause} 
+                                                    onChange={(e) => handleToggleAutoPause(job, e.target.checked)}
+                                                    className="mr-2 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700 cursor-pointer"
+                                                />
+                                                <ShieldCheck className={`w-4 h-4 mr-1 ${autoPause ? 'text-green-500' : 'text-gray-400'}`} />
+                                                Akıllı Sayaç (18:00'de ve Hafta Sonu süreyi keser)
+                                            </label>
+                                        </div>
+
                                     </div>
                                 </div>
 
@@ -561,7 +585,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                     <div className="space-y-4">
                         <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800">
                             <p className="text-sm text-indigo-800 dark:text-indigo-300">
-                                Plan dışı gelişen işlerinizi buradan kendi sıranıza ekleyebilirsiniz. Eklediğiniz işler anında timeline (zaman çizelgesi) üzerinde de görünür olacaktır.
+                                Plan dışı gelişen işlerinizi buradan kendi sıranıza ekleyebilirsiniz.
                             </p>
                         </div>
                         
@@ -579,7 +603,6 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
 
                         <div>
                             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Tahmini Süre (Saat)</label>
-                            <p className="text-[10px] text-gray-500 mb-2">Timeline çizilebilmesi için tahmini bir süre girmelisiniz.</p>
                             <div className="relative">
                                 <input type="number" placeholder="Örn: 2" className="w-full p-3 pl-10 border-2 border-indigo-100 dark:border-gray-600 rounded-lg text-lg font-bold focus:border-indigo-500 outline-none dark:bg-gray-700 dark:text-white" value={manualEstimatedHours} onChange={(e) => setManualEstimatedHours(e.target.value)} />
                                 <Clock className="absolute left-3 top-3.5 text-indigo-400 w-5 h-5" />

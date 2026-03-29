@@ -169,7 +169,7 @@ const MoldDetailPage = ({
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
-    const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU), [personnel]);
+    const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI), [personnel]);
     
     const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR || p.role === PERSONNEL_ROLES.CAM_SORUMLUSU), [personnel]);
 
@@ -402,12 +402,12 @@ const MoldDetailPage = ({
         setIsNoteModalOpen(true);
     };
 
-    const isAdmin = loggedInUser.role === ROLES.ADMIN;
-    const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
-    const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
-    const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    const isAdmin = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
+    const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
+    const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
+    const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
 
-    const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
+    const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
 
     const openCriticalModal = (task) => {
         setSelectedTaskForCritical(task);
