@@ -200,10 +200,9 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
     };
     
-    // Arama yaparken Stok/Resim No (orderNumber) ve Parça Adını dikkate al
+    // Arama yaparken sadece Parça Kodunu (orderNumber) dikkate al ve içerenleri listele
     const filteredParts = parts.filter(p => 
-        (p.orderNumber && p.orderNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.partName && p.partName.toLowerCase().includes(searchTerm.toLowerCase()))
+        p.orderNumber && p.orderNumber.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     // --- KART BİLEŞENİ ---
@@ -454,7 +453,7 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                     <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
                                     <input 
                                         type="text" 
-                                        placeholder="Stok/Resim No veya Parça adı ara..." 
+                                        placeholder="Parça kodu ara..." 
                                         className="w-full pl-10 p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none uppercase"
                                         value={searchTerm}
                                         onFocus={() => setShowPartList(true)}
@@ -475,14 +474,13 @@ const CncLathePlanningPage = ({ db, cncJobs }) => {
                                                     key={part.id}
                                                     onClick={() => {
                                                         setSelectedPart(part);
-                                                        setSearchTerm(part.orderNumber || part.partName); 
+                                                        setSearchTerm(part.orderNumber || 'KOD YOK'); 
                                                         setShowPartList(false); 
                                                     }}
                                                     className={`p-2.5 text-sm cursor-pointer border-b last:border-0 hover:bg-blue-50 dark:hover:bg-gray-600 flex justify-between items-center transition ${selectedPart?.id === part.id ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-white font-bold' : 'text-gray-700 dark:text-gray-300 border-gray-100 dark:border-gray-700'}`}
                                                 >
-                                                    <span className="font-medium">
-                                                        {part.orderNumber ? <span className="font-bold mr-1">{part.orderNumber}</span> : null} 
-                                                        <span className="text-xs opacity-80">({part.partName})</span>
+                                                    <span className="font-bold text-gray-900 dark:text-white">
+                                                        {part.orderNumber || 'KOD YOK'}
                                                     </span>
                                                     {part.cycleTime && <span className="text-xs opacity-70 bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded border">{part.cycleTime} sn</span>}
                                                 </div>
