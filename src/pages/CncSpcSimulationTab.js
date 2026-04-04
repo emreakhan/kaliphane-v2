@@ -38,21 +38,37 @@ const getShiftInfo = (dateObj) => {
     
     const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-    if (h >= 8 && h < 16) {
-        return { shift: 1, dateStr, label: '1. Vardiya (08:00 - 16:00)' };
-    } else if (h >= 16 && h <= 23) {
-        return { shift: 2, dateStr, label: '2. Vardiya (16:00 - 24:00)' };
-    } else {
-        return { shift: 3, dateStr, label: '3. Vardiya (00:00 - 08:00)' };
+    if (h >= 8 && h < 18) {
+        return { shift: 1, dateStr, label: '1. Vardiya (08:00 - 18:00)' };
+    } else if (h >= 22 || h < 8) {
+        return { shift: 2, dateStr, label: '2. Vardiya (22:00 - 08:00)' };
     }
+    return { shift: 0, dateStr, label: 'Mesai Dışı' }; 
+};
+
+// VARDİYA BAŞI VE SONU DAHİL ZAMAN DİZİSİ OLUŞTURUCU (10 Saat = 600 Dk)
+const getShiftTimeOffsets = (freqMins) => {
+    let offsets = [];
+    let curr = 0;
+    while (curr < 600) {
+        offsets.push(curr);
+        curr += freqMins;
+    }
+    if (offsets[offsets.length - 1] !== 600) {
+        offsets.push(600); // Kesinlikle vardiya sonunu ekle
+    }
+    return offsets;
 };
 
 const getExpectedTimeStr = (shiftKey, groupIndex, freqMins) => {
     if (!shiftKey || shiftKey === 'ALL') return '-:-';
     const shift = parseInt(shiftKey.split('_')[1]); 
-    let startHour = shift === 1 ? 8 : shift === 2 ? 16 : 0; 
+    let startHour = shift === 1 ? 8 : 22; 
 
-    const totalMins = startHour * 60 + (groupIndex + 1) * freqMins;
+    const offsets = getShiftTimeOffsets(freqMins);
+    const offsetMins = offsets[groupIndex] !== undefined ? offsets[groupIndex] : (groupIndex * freqMins);
+
+    const totalMins = startHour * 60 + offsetMins;
     const h = Math.floor(totalMins / 60) % 24;
     const m = totalMins % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
@@ -119,12 +135,9 @@ const CncSpcSimulationTab = ({ db }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showPartList, setShowPartList] = useState(false);
     
-    // Ayarlar
     const [startDateStr, setStartDateStr] = useState(new Date().toISOString().split('T')[0]);
-    const [shiftCount, setShiftCount] = useState(3); 
+    const [shiftCount, setShiftCount] = useState(2); 
     const [measuringToolCode, setMeasuringToolCode] = useState('KUMPAS-SIM-01'); 
-    
-    // YENİ EKLENEN İMZA ALANLARI
     const [preparedBy, setPreparedBy] = useState('Kalite Operatörü');
     const [approvedBy, setApprovedBy] = useState('Kalite Müdürü');
 
@@ -169,7 +182,8 @@ const CncSpcSimulationTab = ({ db }) => {
             const nSize = parseInt(selectedPart.sampleQuantity) || 5;
             const freqMins = parseInt(selectedPart.sampleFrequencyMinutes) || 25;
             
-            const expectedGroupsPerShift = Math.min(Math.floor(480 / freqMins), 36);
+            const offsets = getShiftTimeOffsets(freqMins);
+            const expectedGroupsPerShift = Math.min(offsets.length, 36); 
 
             const nominal = parseFloat(crit.nominal);
             const upperTol = parseFloat(crit.upperTol);
@@ -186,21 +200,18 @@ const CncSpcSimulationTab = ({ db }) => {
             const baseDate = new Date(parseInt(y), parseInt(mon)-1, parseInt(d), 0, 0, 0);
 
             for (let shiftIndex = 0; shiftIndex < shiftCount; shiftIndex++) {
-                const shiftType = (shiftIndex % 3) + 1; 
-                let startHour = shiftType === 1 ? 8 : shiftType === 2 ? 16 : 0; 
+                const isShiftOne = shiftIndex % 2 === 0;
+                let startHour = isShiftOne ? 8 : 22; 
                 
                 const shiftDate = new Date(baseDate.getTime());
-                shiftDate.setDate(baseDate.getDate() + Math.floor(shiftIndex / 3));
-
-                if (shiftType === 3) {
-                    shiftDate.setDate(shiftDate.getDate() + 1);
-                }
+                shiftDate.setDate(baseDate.getDate() + Math.floor(shiftIndex / 2));
                 shiftDate.setHours(startHour, 0, 0, 0);
 
-                const operatorName = shiftType === 1 ? 'Ahmet T.' : shiftType === 2 ? 'Mehmet Y.' : 'Ali K.';
+                const operatorName = isShiftOne ? 'Ahmet T.' : 'Mehmet Y.';
 
                 for (let groupIdx = 0; groupIdx < expectedGroupsPerShift; groupIdx++) {
-                    const groupTime = new Date(shiftDate.getTime() + (groupIdx + 1) * freqMins * 60000);
+                    const offsetMins = offsets[groupIdx];
+                    const groupTime = new Date(shiftDate.getTime() + offsetMins * 60000);
                     
                     for(let i=0; i<nSize; i++) {
                         let val = nominal + randn_bm() * targetSigma;
@@ -250,16 +261,15 @@ const CncSpcSimulationTab = ({ db }) => {
         const nSize = parseInt(selectedPart.sampleQuantity) || 5;
         const freqMins = parseInt(selectedPart.sampleFrequencyMinutes) || 25;
         
-        const expectedGroupsPerShift = Math.min(Math.floor(480 / freqMins), 36);
+        const offsets = getShiftTimeOffsets(freqMins);
+        const expectedGroupsPerShift = Math.min(offsets.length, 36);
         const consts = SPC_CONSTANTS[nSize] || SPC_CONSTANTS[5];
 
         const nominal = parseFloat(crit.nominal);
         const USL = nominal + parseFloat(crit.upperTol);
         const LSL = nominal - Math.abs(parseFloat(crit.lowerTol));
 
-        const shiftsToProcess = selectedShiftKey === 'ALL' 
-            ? availableShifts.map(s => s.key) 
-            : [selectedShiftKey];
+        const shiftsToProcess = selectedShiftKey === 'ALL' ? availableShifts.map(s => s.key) : [selectedShiftKey];
 
         return shiftsToProcess.map(shiftKey => {
             const shiftInfo = availableShifts.find(s => s.key === shiftKey) || { label: 'Bilinmeyen Vardiya', dateStr: new Date().toISOString() };
@@ -388,7 +398,6 @@ const CncSpcSimulationTab = ({ db }) => {
                     <Wand2 className="w-5 h-5 mr-2" /> Kusursuz Proses Simülasyon Motoru
                 </div>
                 
-                {/* 1. Satır: Parça, Kriter, Ölçüm Aracı, Başlangıç, Vardiya Adedi */}
                 <div className="relative z-50 md:col-span-3">
                     <label className="block text-[10px] font-bold text-indigo-500 uppercase mb-1">Parça Seçimi (Stok Kodu)</label>
                     <div className="relative">
@@ -418,7 +427,7 @@ const CncSpcSimulationTab = ({ db }) => {
 
                 {selectedPart && (
                     <div className="md:col-span-2">
-                        <label className="block text-[10px] font-bold text-indigo-500 uppercase mb-1 flex items-center"><Wrench className="w-3 h-3 mr-1"/> Ölçüm Aracı</label>
+                        <label className="block text-[10px] font-bold text-indigo-500 uppercase mb-1 flex items-center"><Wrench className="w-3 h-3 mr-1"/> Ölçüm Aracı (PDF)</label>
                         <input type="text" className="w-full p-2 border rounded bg-white dark:bg-gray-800 border-indigo-200 dark:border-indigo-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold uppercase" value={measuringToolCode} onChange={(e) => setMeasuringToolCode(e.target.value)} placeholder="Örn: KUMPAS-01" />
                     </div>
                 )}
@@ -440,7 +449,6 @@ const CncSpcSimulationTab = ({ db }) => {
                     </div>
                 )}
 
-                {/* 2. Satır: Hazırlayan, Onaylayan ve Simüle Et Butonu */}
                 {selectedPart && selectedCriterionId && (
                     <>
                         <div className="md:col-span-3 mt-2">
@@ -509,7 +517,6 @@ const CncSpcSimulationTab = ({ db }) => {
                                     <SpcChart title={`R (ARALIKLAR) - ${shiftData.shiftLabel}`} data={shiftData.actualSubgroups} dataKey="range" centerLine={shiftData.R_bar} UCL={shiftData.UCL_R} LCL={shiftData.LCL_R} showSpecs={false} height={200} />
                                 </div>
 
-                                {/* EKRAN VERİ TABLOSU */}
                                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                                     <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 font-bold text-sm text-center border-b dark:border-gray-700 text-indigo-900 dark:text-indigo-200">
                                         ÖLÇÜM VERİ TABLOSU ({shiftData.shiftLabel})
@@ -532,11 +539,9 @@ const CncSpcSimulationTab = ({ db }) => {
                                                 {shiftData.displaySubgroups.map((sg, idx) => (
                                                     <tr key={idx} className={`border-b dark:border-gray-700 last:border-0 ${sg.isEmpty ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}>
                                                         <td className={`p-2 border-r dark:border-gray-700 font-bold ${!sg.isComplete ? 'text-red-500 dark:text-red-400' : ''}`}>{sg.displayIndex}</td>
-                                                        
                                                         <td className={`p-2 border-r dark:border-gray-700 ${sg.isEmpty ? 'text-red-500 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'}`}>
-                                                            {sg.isEmpty ? `~ ${sg.timeStr}` : (sg.timeStr.split(' ')[1] || '-:-')}
+                                                            {sg.timeStr.split(' ')[1] || sg.timeStr}
                                                         </td>
-                                                        
                                                         <td className="p-2 border-r dark:border-gray-700 font-medium truncate max-w-[100px]">{sg.operator}</td>
                                                         {sg.values.map((v, vi) => (
                                                             <td key={vi} className="p-2 border-r dark:border-gray-700 font-mono">
@@ -551,19 +556,6 @@ const CncSpcSimulationTab = ({ db }) => {
                                         </table>
                                     </div>
                                 </div>
-                                
-                                {/* EKRAN İÇİN İMZA BLOKLARI (SADELEŞTİRİLMİŞ) */}
-                                <div className="mt-4 border-2 border-black p-4 text-sm flex justify-between shrink-0 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                    <div className="text-center w-1/2 px-8 border-r border-black dark:border-gray-600">
-                                        <div className="font-bold border-b border-black dark:border-gray-600 pb-2 mb-8 text-gray-600 dark:text-gray-300">Hazırlayan</div>
-                                        <div className="font-bold text-gray-800 dark:text-white uppercase">{preparedBy || '-'}</div>
-                                    </div>
-                                    <div className="text-center w-1/2 px-8">
-                                        <div className="font-bold border-b border-black dark:border-gray-600 pb-2 mb-8 text-gray-600 dark:text-gray-300">Onaylayan</div>
-                                        <div className="font-bold text-gray-800 dark:text-white uppercase">{approvedBy || '-'}</div>
-                                    </div>
-                                </div>
-
                             </div>
 
                             <div className="w-full lg:w-96 flex flex-col gap-6">
@@ -579,30 +571,28 @@ const CncSpcSimulationTab = ({ db }) => {
                                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                                     <div className="bg-gray-50 dark:bg-gray-900 p-3 font-bold text-sm text-center border-b dark:border-gray-700 dark:text-white">PERFORMANS ({shiftData.shiftLabel.split(' - ')[1]})</div>
                                     <div className="p-4 grid grid-cols-2 gap-4 text-center">
-                                        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded p-3 border border-indigo-100 dark:border-indigo-800">
-                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400">Cp (Kısa Dönem)</div>
-                                            <div className="font-black text-3xl text-indigo-700 dark:text-indigo-300">{shiftData.Cp.toFixed(2)}</div>
+                                        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col items-center justify-center">
+                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Cp (Kısa Dönem)</div>
+                                            <div className="font-black text-4xl text-indigo-700 dark:text-indigo-300">{shiftData.Cp.toFixed(2)}</div>
                                         </div>
-                                        <div className={`rounded p-3 border ${shiftData.Cpk >= targetCpk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400">Cpk (≥{targetCpk})</div>
-                                            <div className="font-black text-3xl">{shiftData.Cpk.toFixed(2)}</div>
+                                        <div className={`rounded-xl p-4 border flex flex-col items-center justify-center ${shiftData.Cpk >= targetCpk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Cpk (≥{targetCpk})</div>
+                                            <div className="font-black text-4xl">{shiftData.Cpk.toFixed(2)}</div>
                                         </div>
-                                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded p-3 border border-purple-100 dark:border-purple-800">
-                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400">Pp (Uzun Dönem)</div>
-                                            <div className="font-black text-3xl text-purple-700 dark:text-purple-300">{shiftData.Pp.toFixed(2)}</div>
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-100 dark:border-purple-800 flex flex-col items-center justify-center">
+                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Pp (Uzun Dönem)</div>
+                                            <div className="font-black text-4xl text-purple-700 dark:text-purple-300">{shiftData.Pp.toFixed(2)}</div>
                                         </div>
-                                        <div className={`rounded p-3 border ${shiftData.Ppk >= targetPpk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400">Ppk (≥{targetPpk})</div>
-                                            <div className="font-black text-3xl">{shiftData.Ppk.toFixed(2)}</div>
+                                        <div className={`rounded-xl p-4 border flex flex-col items-center justify-center ${shiftData.Ppk >= targetPpk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Ppk (≥{targetPpk})</div>
+                                            <div className="font-black text-4xl">{shiftData.Ppk.toFixed(2)}</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* ====================================================================================== */}
                         {/* --- BU VARDİYAYA ÖZEL GİZLİ PDF RAPOR ŞABLONU --- */}
-                        {/* ====================================================================================== */}
                         <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                             <div id={`pdf-report-${shiftData.shiftKey}`} className="bg-white text-black font-sans box-border w-[297mm]">
                                 
@@ -611,19 +601,20 @@ const CncSpcSimulationTab = ({ db }) => {
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
                                         <div className="text-[120px] font-black transform -rotate-45 text-black">MOCK DATA</div>
                                     </div>
-                                    <div className="flex justify-between items-start border-2 border-black p-2 mb-2 shrink-0 relative z-10">
-                                        <div className="w-1/4 flex items-center justify-center border-r-2 border-black">
+                                    
+                                    <div className="flex justify-between items-stretch border-2 border-black p-1 mb-2 shrink-0 relative z-10 min-h-[60px] bg-white">
+                                        <div className="w-[20%] flex items-center justify-center border-r-2 border-black pr-2 py-1">
                                             <img src="/logo512.png" alt="Logo" className="h-12 object-contain" />
                                         </div>
-                                        <div className="w-2/4 text-center flex flex-col justify-center">
-                                            <h1 className="text-xl font-black uppercase text-indigo-900">SİMÜLASYON SPC RAPORU</h1>
-                                            <h2 className="text-sm font-bold text-gray-600">Vardiya İncelemesi (Mock Data)</h2>
+                                        <div className="w-[50%] flex flex-col justify-center text-center px-2 py-1">
+                                            <h1 className="text-xl font-black uppercase text-indigo-900 leading-none mb-1">SİMÜLASYON SPC RAPORU</h1>
+                                            <h2 className="text-xs font-bold text-gray-600 leading-none">Vardiya İncelemesi (Mock Data)</h2>
                                         </div>
-                                        <div className="w-1/4 border-l-2 border-black p-1 text-[11px]">
-                                            <div><span className="font-bold w-14 inline-block">Vardiya:</span> {shiftData.shiftLabel.split(' - ')[1]}</div>
-                                            <div><span className="font-bold w-14 inline-block">Tarih:</span> {shiftData.shiftLabel.split(' - ')[0]}</div>
-                                            <div><span className="font-bold w-14 inline-block">Hedef:</span> {targetCustomerName}</div>
-                                            <div className="truncate"><span className="font-bold w-14 inline-block">Cihaz:</span> {measuringToolCode}</div>
+                                        <div className="w-[30%] flex flex-col justify-center border-l-2 border-black pl-2 py-1 text-[11px] leading-normal">
+                                            <div className="flex"><span className="font-bold w-16 shrink-0">Vardiya:</span> <span className="truncate">{shiftData.shiftLabel.split(' - ')[1]}</span></div>
+                                            <div className="flex"><span className="font-bold w-16 shrink-0">Tarih:</span> <span className="truncate">{shiftData.shiftLabel.split(' - ')[0]}</span></div>
+                                            <div className="flex"><span className="font-bold w-16 shrink-0">Hedef:</span> <span className="truncate">{targetCustomerName}</span></div>
+                                            <div className="flex"><span className="font-bold w-16 shrink-0">Cihaz:</span> <span>{measuringToolCode}</span></div>
                                         </div>
                                     </div>
 
@@ -638,12 +629,24 @@ const CncSpcSimulationTab = ({ db }) => {
                                         </div>
                                         
                                         <div className="w-1/3 border-2 border-black p-2 flex flex-col items-center justify-center bg-gray-50">
-                                            <h3 className="font-black text-xs mb-1 uppercase border-b border-black w-full text-center pb-1 truncate">{targetCustomerName} PERFORMANSI</h3>
-                                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-center w-full">
-                                                <div><div className="text-[9px]">Cp</div><div className="text-sm font-black text-indigo-700">{shiftData.Cp.toFixed(2)}</div></div>
-                                                <div><div className="text-[9px]">Cpk (≥{targetCpk})</div><div className={`text-sm font-black ${shiftData.Cpk >= targetCpk ? 'text-green-700' : 'text-red-600'}`}>{shiftData.Cpk.toFixed(2)}</div></div>
-                                                <div><div className="text-[9px]">Pp</div><div className="text-sm font-black text-purple-700">{shiftData.Pp.toFixed(2)}</div></div>
-                                                <div><div className="text-[9px]">Ppk (≥{targetPpk})</div><div className={`text-sm font-black ${shiftData.Ppk >= targetPpk ? 'text-green-700' : 'text-red-600'}`}>{shiftData.Ppk.toFixed(2)}</div></div>
+                                            <h3 className="font-black text-xs mb-2 uppercase border-b border-black w-full text-center pb-1 truncate">{targetCustomerName} PERFORMANSI</h3>
+                                            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-center w-full">
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <div className="text-[10px] font-bold text-gray-600 mb-0.5">Cp</div>
+                                                    <div className="text-2xl font-black text-indigo-700 leading-none">{shiftData.Cp.toFixed(2)}</div>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <div className="text-[10px] font-bold text-gray-600 mb-0.5">Cpk (≥{targetCpk})</div>
+                                                    <div className={`text-2xl font-black leading-none ${shiftData.Cpk >= targetCpk ? 'text-green-700' : 'text-red-600'}`}>{shiftData.Cpk.toFixed(2)}</div>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <div className="text-[10px] font-bold text-gray-600 mb-0.5">Pp</div>
+                                                    <div className="text-2xl font-black text-purple-700 leading-none">{shiftData.Pp.toFixed(2)}</div>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <div className="text-[10px] font-bold text-gray-600 mb-0.5">Ppk (≥{targetPpk})</div>
+                                                    <div className={`text-2xl font-black leading-none ${shiftData.Ppk >= targetPpk ? 'text-green-700' : 'text-red-600'}`}>{shiftData.Ppk.toFixed(2)}</div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -660,7 +663,7 @@ const CncSpcSimulationTab = ({ db }) => {
 
                                 <div className="html2pdf__page-break"></div>
 
-                                {/* SAYFA 2: Tablo ve İmza */}
+                                {/* SAYFA 2: Tablo */}
                                 <div className="p-4 h-[205mm] flex flex-col relative box-border overflow-hidden">
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
                                         <div className="text-[120px] font-black transform -rotate-45 text-black">MOCK DATA</div>
@@ -687,27 +690,25 @@ const CncSpcSimulationTab = ({ db }) => {
                                                 <div key={i} className="flex text-center flex-1 items-center min-h-[10px]">
                                                     <div className="w-8 shrink-0 border-r border-black font-bold h-full flex items-center justify-center text-[9px]">{sg.displayIndex}</div>
                                                     
-                                                    {/* SAAT KISMI - PDF İÇİN SADECE SAAT */}
                                                     <div className="w-16 shrink-0 border-r border-black h-full flex items-center justify-center text-[10px] font-mono">
                                                         {sg.timeStr.split(' ')[1] || sg.timeStr}
                                                     </div>
-                                                    
+
                                                     <div className="w-20 shrink-0 border-r border-black truncate px-1 text-[9px] h-full flex items-center justify-center">{sg.operator}</div>
                                                     <div className="flex-1 grid divide-x divide-gray-300 h-full" style={{ gridTemplateColumns: `repeat(${shiftData.nSize}, minmax(0, 1fr))` }}>
                                                         {sg.values.map((v,vi)=>(
-                                                            <div key={vi} className="flex items-center justify-center h-full font-mono text-[9px]">
+                                                            <div key={vi} className="flex items-center justify-center h-full font-mono text-[10px]">
                                                                 {v === null ? <div className="w-3 h-2 border border-red-400 border-dashed bg-white"></div> : v.toFixed(2)}
                                                             </div>
                                                         ))}
                                                     </div>
-                                                    <div className="w-14 shrink-0 border-l border-black font-bold h-full flex items-center justify-center bg-indigo-50/50 text-[9px]">{sg.isComplete ? sg.mean.toFixed(2) : '-'}</div>
-                                                    <div className="w-14 shrink-0 border-l border-black font-bold h-full flex items-center justify-center bg-indigo-50/50 text-[9px]">{sg.isComplete ? sg.range.toFixed(2) : '-'}</div>
+                                                    <div className="w-14 shrink-0 border-l border-black font-bold h-full flex items-center justify-center bg-indigo-50/50 text-[10px]">{sg.isComplete ? sg.mean.toFixed(2) : '-'}</div>
+                                                    <div className="w-14 shrink-0 border-l border-black font-bold h-full flex items-center justify-center bg-indigo-50/50 text-[10px]">{sg.isComplete ? sg.range.toFixed(2) : '-'}</div>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
                                     
-                                    {/* PDF İÇİN İMZA BLOKLARI (SADELEŞTİRİLMİŞ) */}
                                     <div className="mt-2 border-2 border-black p-2 flex justify-between shrink-0 bg-gray-50 relative z-10">
                                         <div className="text-center w-1/2 px-8 border-r border-black">
                                             <div className="font-bold border-b border-black pb-1 mb-6 text-[10px]">Hazırlayan</div>
