@@ -27,11 +27,11 @@ import {
 // Yardımcılar
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar
+// İkonlar (ListOrdered eklendi)
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered
 } from 'lucide-react';
 
 // Sayfalar
@@ -57,6 +57,7 @@ import MoldMaintenancePage from './pages/MoldMaintenancePage.js';
 
 // --- YENİ EKLENEN SAYFALAR ---
 import MoldTrialReportsPage from './pages/MoldTrialReportsPage.js';
+import MachineQueuePage from './pages/MachineQueuePage.js'; // <-- YENİ EKLENDİ
 
 // --- CNC TORNA & SPC SAYFALARI ---
 import CncLatheDashboard from './pages/CncLatheDashboard.js';
@@ -250,7 +251,6 @@ const App = () => {
         };
     }, [userId, loggedInUser]);
 
-    // --- "BELİRTİLMEDİ" HATASI İÇİN DÜZELTİLMİŞ FONKSİYON ---
     const handleUpdateOperation = useCallback(async (moldId, taskId, updatedOperationData, actionType = null, pauseReason = null) => {
         if (!db) return;
         const currentProject = projects.find(p => p.id === moldId);
@@ -275,23 +275,19 @@ const App = () => {
         else if (actionType === 'RESUME_JOB' || (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS)) {
             if (oldOperation.lastPausedAt && updatedOperationData.lastPausedAt !== null) {
                 
-                // DÜZELTME: Eski geçmişi alırken null/undefined hatasına karşı güvenli kopyalama
                 const pauseHistory = (oldOperation.pauseHistory && Array.isArray(oldOperation.pauseHistory)) 
                     ? [...oldOperation.pauseHistory] 
                     : [];
 
-                // Yeni duraklatma geçmişini listeye ekle
                 pauseHistory.push({
                     pausedAt: oldOperation.lastPausedAt,
                     resumedAt: now,
-                    // DÜZELTME: Eski notu her zaman koru. pauseReason Modal'dan geliyorsa onu kullan, 
-                    // gelmiyorsa (Devam Et butonu) eskisini koru, yoksa "Belirtilmedi" yap.
                     reason: pauseReason || oldOperation.lastPauseReason || 'Belirtilmedi'
                 });
                 
                 updatedOperationData.pauseHistory = pauseHistory;
                 updatedOperationData.lastPausedAt = null; 
-                updatedOperationData.lastPauseReason = null; // Sıfırla
+                updatedOperationData.lastPauseReason = null; 
             }
         }
 
@@ -307,9 +303,7 @@ const App = () => {
             console.error("Hata:", e); 
         }
     }, [projects]);
-    // -------------------------------------------------------------
-
-    // --- (AYNI MANTIK) TERMINAL ACTION İÇİN DÜZELTİLMİŞ FONKSİYON ---
+    
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
         if (!db) return;
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
@@ -364,7 +358,7 @@ const App = () => {
 
                 updatedOp.pauseHistory = pauseHistory;
                 updatedOp.lastPausedAt = null; 
-                updatedOp.lastPauseReason = null; // Sıfırla
+                updatedOp.lastPauseReason = null; 
             }
         }
         else if (actionType === 'FINISH_JOB') { 
@@ -385,7 +379,6 @@ const App = () => {
             console.error("Terminal işlemi hatası:", e);
         }
     }, [projects]);
-    // -------------------------------------------------------------
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
         if (!db) return;
@@ -543,6 +536,7 @@ const App = () => {
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
+            { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc }, // <-- YENİ EKLENDİ
             { path: '/mold-trial-reports', label: 'Kalıp Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
@@ -584,7 +578,7 @@ const App = () => {
                     <div className="mt-4 sm:mt-0 flex items-center space-x-3">
                         <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
                             Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
-                         </span>
+                        </span>
          
                         <button
                             onClick={() => {
@@ -593,11 +587,11 @@ const App = () => {
                                 navigate('/');
                             }}
                             className="flex items-center text-sm px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-                         >
+                        >
                             <LogOut className="w-4 h-4 mr-1"/> Çıkış
                         </button>
                     </div>
-                 </div>
+                </div>
 
                 <nav className="mt-4 flex flex-wrap gap-2">
                     {navItems.map(item => (
@@ -607,7 +601,7 @@ const App = () => {
                             label={item.label}
                             isActive={location.pathname === item.path}
                             path={item.path}
-                         />
+                        />
                     ))}
                 </nav>
             </header>
@@ -632,9 +626,11 @@ const App = () => {
                 
                 <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                 
-                {/* --- DEĞİŞİKLİK BURADA: DESIGN_JOBS EKLENDİ --- */}
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
                 
+                {/* --- YENİ EKLENEN ROTA: İŞ AKIŞ PLANI --- */}
+                <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
+
                 <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
                 <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
                 <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />

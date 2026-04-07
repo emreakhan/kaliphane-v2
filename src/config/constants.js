@@ -27,6 +27,8 @@ export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`;
 export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; 
 export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activityLogs`; 
 
+export const MACHINE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineTasks`;
+
 // ============================================================
 // 2. ROLLER VE YETKİLER
 // ============================================================
