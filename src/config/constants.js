@@ -8,30 +8,21 @@ export const initialAuthToken = null;
 // 1. VERİTABANI KOLEKSİYONLARI (KUTULAR)
 // ============================================================
 
-// [KUTU A] KALIPHANE PROJELERİ (Sadece Kalıp, Revizyon, vb.)
 export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
-
-// [KUTU B] CNC TORNA İŞLERİ (Sadece Seri İmalat İşleri)
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
-
-// [KUTU C] TASARIM OFİSİ İŞLERİ (Yeni - Kanban Havuzu İçin)
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
 
-// DİĞER ORTAK KOLEKSİYONLAR
 export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
 export const MOLD_NOTES_COLLECTION = `artifacts/${appId}/public/data/moldNotes`;
 
-// TAKIMHANE
 export const INVENTORY_COLLECTION = `artifacts/${appId}/public/data/toolInventory`;
 export const TOOL_TRANSACTIONS_COLLECTION = `artifacts/${appId}/public/data/toolTransactions`;
 export const TOOL_CATEGORIES_COLLECTION = `artifacts/${appId}/public/data/toolCategories`;
 
-// KALIP BAKIM
 export const MAINTENANCE_MOLDS_COLLECTION = `artifacts/${appId}/public/data/maintenanceMolds`;
 export const MAINTENANCE_LOGS_COLLECTION = `artifacts/${appId}/public/data/maintenanceLogs`;
 
-// CNC EKSTRA VERİLER
 export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`; 
 export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; 
 export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activityLogs`; 
@@ -49,10 +40,7 @@ export const ROLES = {
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     KALIP_TASARIM_YONETICISI: 'Kalıp Tasarım Yöneticisi',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
-    
     MACHINE_OPERATOR: 'Tezgah Operatörü', 
-    
-    // CNC TORNA EKİBİ
     CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
     CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', 
 };
@@ -74,7 +62,6 @@ export const OPERATION_STATUS = {
     SUPERVISOR_REJECTED: 'REDDEDİLDİ'
 };
 
-// --- YENİ EKLENEN: TASARIM İŞ DURUMLARI ---
 export const DESIGN_JOB_STATUS = {
     POOL: 'HAVUZDA_BEKLIYOR',
     ASSIGNED: 'ATANDI_BEKLIYOR',
@@ -171,6 +158,7 @@ export const DESIGN_TASK_TYPES = {
     REVISION: 'REVİZYON',
     ELECTRODE: 'ELEKTROT TASARIMI',
     DRAWING: 'TEKNİK RESİM',
+    ANALYSIS: 'ANALİZ', // <-- YENİ EKLENEN SEÇENEK
     OTHER: 'DİĞER'
 };
 

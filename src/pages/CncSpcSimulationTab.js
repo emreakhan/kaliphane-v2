@@ -1,6 +1,6 @@
 // src/pages/CncSpcSimulationTab.js
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Search, FileText, Calendar, RefreshCw, Wand2, AlertCircle, Wrench, UserCheck, UserPlus
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { CNC_PARTS_COLLECTION } from '../config/constants.js';
 import { formatDateTime } from '../utils/dateUtils.js';
 import html2pdf from 'html2pdf.js'; 
 
+// AIAG SPC İSTATİSTİKSEL KATSAYILAR TABLOSU
 const SPC_CONSTANTS = {
     2: { A2: 1.880, D3: 0, D4: 3.267, d2: 1.128 },
     3: { A2: 1.023, D3: 0, D4: 2.574, d2: 1.693 },
@@ -55,7 +56,7 @@ const getShiftTimeOffsets = (freqMins) => {
         curr += freqMins;
     }
     if (offsets[offsets.length - 1] !== 600) {
-        offsets.push(600); // Kesinlikle vardiya sonunu ekle
+        offsets.push(600);
     }
     return offsets;
 };
@@ -592,7 +593,7 @@ const CncSpcSimulationTab = ({ db }) => {
                             </div>
                         </div>
 
-                        {/* --- BU VARDİYAYA ÖZEL GİZLİ PDF RAPOR ŞABLONU --- */}
+                        {/* --- GİZLİ PDF RAPOR ŞABLONU --- */}
                         <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                             <div id={`pdf-report-${shiftData.shiftKey}`} className="bg-white text-black font-sans box-border w-[297mm]">
                                 
@@ -663,7 +664,7 @@ const CncSpcSimulationTab = ({ db }) => {
 
                                 <div className="html2pdf__page-break"></div>
 
-                                {/* SAYFA 2: Tablo */}
+                                {/* SAYFA 2: Tablo ve Katsayılar */}
                                 <div className="p-4 h-[205mm] flex flex-col relative box-border overflow-hidden">
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.03]">
                                         <div className="text-[120px] font-black transform -rotate-45 text-black">MOCK DATA</div>
@@ -697,7 +698,7 @@ const CncSpcSimulationTab = ({ db }) => {
                                                     <div className="w-20 shrink-0 border-r border-black truncate px-1 text-[9px] h-full flex items-center justify-center">{sg.operator}</div>
                                                     <div className="flex-1 grid divide-x divide-gray-300 h-full" style={{ gridTemplateColumns: `repeat(${shiftData.nSize}, minmax(0, 1fr))` }}>
                                                         {sg.values.map((v,vi)=>(
-                                                            <div key={vi} className="flex items-center justify-center h-full font-mono text-[10px]">
+                                                            <div key={vi} className="flex items-center justify-center h-full font-mono text-[9px]">
                                                                 {v === null ? <div className="w-3 h-2 border border-red-400 border-dashed bg-white"></div> : v.toFixed(2)}
                                                             </div>
                                                         ))}
@@ -709,15 +710,55 @@ const CncSpcSimulationTab = ({ db }) => {
                                         </div>
                                     </div>
                                     
-                                    <div className="mt-2 border-2 border-black p-2 flex justify-between shrink-0 bg-gray-50 relative z-10">
-                                        <div className="text-center w-1/2 px-8 border-r border-black">
-                                            <div className="font-bold border-b border-black pb-1 mb-6 text-[10px]">Hazırlayan</div>
-                                            <div className="font-bold text-black text-[10px] uppercase">{preparedBy || '-'}</div>
+                                    {/* YENİ: KATSAYILAR TABLOSU VE İMZA BLOKLARI (ALT ALAN) */}
+                                    <div className="mt-2 flex gap-2 shrink-0 relative z-10">
+                                        
+                                        <div className="w-[45%] border-2 border-black bg-[#FFFDE7] p-1.5 flex flex-col justify-between">
+                                            <div className="text-[9px] font-black text-center border-b border-black pb-0.5 mb-1.5">İSTATİSTİKSEL KATSAYILAR VE FORMÜLLER</div>
+                                            <div className="flex gap-2 items-center h-full">
+                                                <table className="w-[50%] text-[8px] text-center border-collapse">
+                                                    <thead>
+                                                        <tr className="border-b-2 border-black bg-yellow-200">
+                                                            <th className="border-r border-black">n</th>
+                                                            <th className="border-r border-black">A2</th>
+                                                            <th className="border-r border-black">D3</th>
+                                                            <th className="border-r border-black">D4</th>
+                                                            <th>d2</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {[2, 3, 4, 5, 6].map(num => (
+                                                            <tr key={num} className={`border-b border-gray-400 ${shiftData.nSize === num ? "bg-yellow-400 font-black border-2 border-black" : ""}`}>
+                                                                <td className="border-r border-black">{num}</td>
+                                                                <td className="border-r border-black">{SPC_CONSTANTS[num].A2.toFixed(3)}</td>
+                                                                <td className="border-r border-black">{SPC_CONSTANTS[num].D3}</td>
+                                                                <td className="border-r border-black">{SPC_CONSTANTS[num].D4.toFixed(3)}</td>
+                                                                <td>{SPC_CONSTANTS[num].d2.toFixed(3)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                                <div className="w-[50%] text-[8px] flex flex-col justify-center gap-1 pl-1">
+                                                    <div className="font-bold flex justify-between"><span>UCL(X):</span> <span>X̄X̄ + (A2 * R̄)</span></div>
+                                                    <div className="font-bold flex justify-between"><span>LCL(X):</span> <span>X̄X̄ - (A2 * R̄)</span></div>
+                                                    <div className="font-bold flex justify-between"><span>UCL(R):</span> <span>D4 * R̄</span></div>
+                                                    <div className="font-bold flex justify-between"><span>LCL(R):</span> <span>D3 * R̄</span></div>
+                                                    <div className="font-bold text-red-600 flex justify-between border-t border-black pt-0.5 mt-0.5"><span>Sapma(σ):</span> <span>R̄ / d2</span></div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="text-center w-1/2 px-8">
-                                            <div className="font-bold border-b border-black pb-1 mb-6 text-[10px]">Onaylayan</div>
-                                            <div className="font-bold text-black text-[10px] uppercase">{approvedBy || '-'}</div>
+
+                                        <div className="w-[55%] border-2 border-black p-2 flex justify-between bg-white">
+                                            <div className="text-center w-1/2 px-4 border-r border-black flex flex-col justify-between">
+                                                <div className="font-bold border-b border-black pb-1 mb-4 text-[10px]">Hazırlayan (Kalite Op.)</div>
+                                                <div className="font-black text-black text-[10px] uppercase pb-2">{preparedBy || '-'}</div>
+                                            </div>
+                                            <div className="text-center w-1/2 px-4 flex flex-col justify-between">
+                                                <div className="font-bold border-b border-black pb-1 mb-4 text-[10px]">Onaylayan ({targetCustomerName})</div>
+                                                <div className="font-black text-black text-[10px] uppercase pb-2">{approvedBy || '-'}</div>
+                                            </div>
                                         </div>
+
                                     </div>
 
                                 </div>
