@@ -27,11 +27,11 @@ import {
 // Yardımcılar
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar (ListOrdered eklendi)
+// İkonlar (ListOrdered ve Truck eklendi)
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck
 } from 'lucide-react';
 
 // Sayfalar
@@ -57,7 +57,8 @@ import MoldMaintenancePage from './pages/MoldMaintenancePage.js';
 
 // --- YENİ EKLENEN SAYFALAR ---
 import MoldTrialReportsPage from './pages/MoldTrialReportsPage.js';
-import MachineQueuePage from './pages/MachineQueuePage.js'; // <-- YENİ EKLENDİ
+import MachineQueuePage from './pages/MachineQueuePage.js';
+import ForkliftDashboard from './pages/ForkliftDashboard.js'; // <-- FORKLİFT EKLENDİ
 
 // --- CNC TORNA & SPC SAYFALARI ---
 import CncLatheDashboard from './pages/CncLatheDashboard.js';
@@ -491,9 +492,15 @@ const App = () => {
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
 
+    // --- YETKİ VE FORKLİFT KONTROLÜ ---
+    const isForkliftOp = loggedInUser?.role === ROLES.FORKLIFT_OPERATORU;
+
     // --- NAVİGASYON ---
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
+        
+        // FORKLİFT OPERATÖRÜ HİÇBİR MENÜ GÖREMEZ
+        if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU) return [];
         
         const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
         
@@ -531,12 +538,11 @@ const App = () => {
             r !== ROLES.CNC_TORNA_SORUMLUSU
         );
         
-        // TASARIM PLANLAMA MENÜSÜ KALDIRILDI (Tasarım Ofisi içine gömülecek)
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
             { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
-            { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc }, // <-- YENİ EKLENDİ
+            { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-trial-reports', label: 'Kalıp Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
@@ -552,6 +558,7 @@ const App = () => {
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
             { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: canSeeAnalysis },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
+            { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, // YÖNETİCİ GÖREBİLİR
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
@@ -593,24 +600,36 @@ const App = () => {
                     </div>
                 </div>
 
-                <nav className="mt-4 flex flex-wrap gap-2">
-                    {navItems.map(item => (
-                        <NavItem
-                            key={item.path}
-                            icon={item.icon}
-                            label={item.label}
-                            isActive={location.pathname === item.path}
-                            path={item.path}
-                        />
-                    ))}
-                </nav>
+                {/* FORKLİFT OPERATÖRÜ İSE MENÜYÜ GİZLE */}
+                {!isForkliftOp && (
+                    <nav className="mt-4 flex flex-wrap gap-2">
+                        {navItems.map(item => (
+                            <NavItem
+                                key={item.path}
+                                icon={item.icon}
+                                label={item.label}
+                                isActive={location.pathname === item.path}
+                                path={item.path}
+                            />
+                        ))}
+                    </nav>
+                )}
             </header>
 
             <Routes>
+                {/* ANA SAYFA YÖNLENDİRMESİ */}
                 <Route path="/" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                    isForkliftOp ? <Navigate to="/forklift" replace />
+                    : (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
                     ? <Navigate to="/cnc-torna" replace /> 
                     : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
+                } />
+
+                {/* --- YENİ EKLENEN ROTA: FORKLİFT PANELİ --- */}
+                <Route path="/forklift" element={
+                    (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
+                    ? <ForkliftDashboard db={db} loggedInUser={loggedInUser} />
+                    : <Navigate to="/" replace />
                 } />
 
                 <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
@@ -628,7 +647,6 @@ const App = () => {
                 
                 <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
                 
-                {/* --- YENİ EKLENEN ROTA: İŞ AKIŞ PLANI --- */}
                 <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
 
                 <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
