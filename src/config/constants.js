@@ -11,6 +11,7 @@ export const initialAuthToken = null;
 export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
+export const MACHINE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineTasks`;
 
 export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
 export const MACHINES_COLLECTION = `artifacts/${appId}/public/data/machines`;
@@ -27,8 +28,6 @@ export const CNC_PARTS_COLLECTION = `artifacts/${appId}/public/data/cncParts`;
 export const CNC_MEASUREMENTS_COLLECTION = `artifacts/${appId}/public/data/cncMeasurements`; 
 export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activityLogs`; 
 
-export const MACHINE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineTasks`;
-
 // ============================================================
 // 2. ROLLER VE YETKİLER
 // ============================================================
@@ -44,7 +43,11 @@ export const ROLES = {
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
     MACHINE_OPERATOR: 'Tezgah Operatörü', 
     CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
-    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu', 
+    CNC_TORNA_SORUMLUSU: 'CNC Torna Sorumlusu',
+    GIRIS_KALITE: 'Giriş Kalite',
+    DEPO_SORUMLUSU: 'Depo Sorumlusu',
+    FORKLIFT_OPERATORU: 'Forklift Operatörü',
+    MONTAJ_ELEMANI: 'Montaj Elemanı'
 };
 
 export const PERSONNEL_ROLES = ROLES;
@@ -61,7 +64,21 @@ export const OPERATION_STATUS = {
     WAITING_SUPERVISOR_REVIEW: 'YETKİLİ DEĞERLENDİRMESİ BEKLİYOR',
     COMPLETED: 'TAMAMLANDI',
     SUPERVISOR_APPROVED: 'ONAYLANDI',
-    SUPERVISOR_REJECTED: 'REDDEDİLDİ'
+    SUPERVISOR_REJECTED: 'REDDEDİLDİ',
+    HAMMADDE_BEKLIYOR: 'HAMMADDE BEKLİYOR',
+    DEPODA: 'DEPODA',
+    TASIMA_BEKLIYOR: 'TAŞIMA BEKLİYOR (FORKLİFT)',
+    BUFFER_BEKLIYOR: 'İSTASYONDA BEKLİYOR',
+    AYAR_YAPILIYOR: 'AYAR YAPILIYOR',
+    MONTAJ_BUFFER: 'MONTAJ İÇİN BEKLİYOR',
+    MONTAJ_EDILIYOR: 'MONTAJ EDİLİYOR'
+};
+
+export const MATERIAL_TYPES = {
+    CELIK: 'Çelik Blok',
+    STANDART_ELEMAN: 'Standart Kalıp Elemanı',
+    SICAK_YOLLUK: 'Sıcak Yolluk Sistemi',
+    DIGER: 'Diğer'
 };
 
 export const DESIGN_JOB_STATUS = {
@@ -153,14 +170,13 @@ export const OPERATION_TYPES = {
     DRILLING: 'DELİK DELME'
 };
 
-// --- YENİ EKLENEN: TASARIM İŞ TÜRLERİ ---
 export const DESIGN_TASK_TYPES = {
     CONCEPT: 'KALIP TASARIM',
     DETAIL: 'KALIP TASARIM KONTROLÜ',
     REVISION: 'REVİZYON',
     ELECTRODE: 'ELEKTROT TASARIMI',
     DRAWING: 'TEKNİK RESİM',
-    ANALYSIS: 'ANALİZ', // <-- YENİ EKLENEN SEÇENEK
+    ANALYSIS: 'ANALİZ',
     OTHER: 'DİĞER'
 };
 
