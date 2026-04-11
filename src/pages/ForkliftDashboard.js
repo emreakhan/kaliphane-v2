@@ -16,7 +16,7 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
     const [loading, setLoading] = useState(true);
     
     const [isScanning, setIsScanning] = useState(false);
-    const [useCamera, setUseCamera] = useState(false); // Kamera modu aktif mi?
+    const [useCamera, setUseCamera] = useState(false);
     const [scannedCode, setScannedCode] = useState('');
     
     const [activeTask, setActiveTask] = useState(null); 
@@ -49,7 +49,8 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
                 { 
                     fps: 10, 
                     qrbox: { width: 250, height: 250 },
-                    supportedScanTypes: [0] // 0 = Sadece Arka Kamera (Environment)
+                    aspectRatio: 1.0, 
+                    showTorchButtonIfSupported: true 
                 },
                 false
             );
@@ -58,13 +59,13 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
                 (decodedText) => {
                     // Kod başarıyla okunduğunda:
                     setScannedCode(decodedText);
-                    setUseCamera(false); // Kamerayı kapat
+                    setUseCamera(false); 
                     if (scanner) {
                         scanner.clear().catch(e => console.error(e));
                     }
                 },
                 (error) => {
-                    // Okuma devam ederken anlık hataları yoksay (Sürekli taradığı için normaldir)
+                    // Okuma devam ederken anlık hataları yoksay
                 }
             );
         }
@@ -79,14 +80,13 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
 
     const startScanning = () => {
         setIsScanning(true);
-        setUseCamera(false); // Varsayılan olarak manuel/fiziksel okuyucu sekmesi açılsın
+        setUseCamera(false);
         setScannedCode('');
         setTimeout(() => {
             if (scanInputRef.current) scanInputRef.current.focus();
         }, 100);
     };
 
-    // Form onaylandığında (Kameradan veya Fiziksel okuyucudan gelen kod işlenir)
     const handleBarcodeSubmit = async (e) => {
         if (e) e.preventDefault();
         if (!scannedCode.trim()) return alert("Lütfen bir barkod okutun veya girin.");
@@ -157,6 +157,38 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
     return (
         <div className="p-4 md:p-8 max-w-5xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             
+            {/* HTML5-QRCODE KÜTÜPHANESİ İÇİN ÖZEL STİL DOSYASI (Yazıların görünmez olmasını engeller) */}
+            <style>{`
+                #qr-reader {
+                    border: none !important;
+                    color: #1f2937;
+                }
+                @media (prefers-color-scheme: dark) {
+                    #qr-reader { color: #f3f4f6; }
+                }
+                #qr-reader button {
+                    background-color: #2563eb !important; 
+                    color: white !important;
+                    padding: 10px 20px !important;
+                    border-radius: 8px !important;
+                    border: none !important;
+                    font-weight: bold !important;
+                    margin: 10px 0 !important;
+                    cursor: pointer !important;
+                    transition: background-color 0.2s;
+                }
+                #qr-reader button:hover {
+                    background-color: #1d4ed8 !important;
+                }
+                #qr-reader a {
+                    color: #3b82f6 !important;
+                    text-decoration: none !important;
+                }
+                #qr-reader__dashboard_section_csr span {
+                    color: inherit !important;
+                }
+            `}</style>
+
             <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-black flex items-center"><Truck className="w-10 h-10 mr-3" /> Forklift & Lojistik</h1>
@@ -197,7 +229,6 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
                     <div className="bg-white dark:bg-gray-800 p-6 md:p-10 rounded-3xl shadow-xl mb-8 text-center border-4 border-blue-500">
                         <h2 className="text-2xl md:text-3xl font-black text-gray-800 dark:text-white mb-6">Barkod / QR Okut</h2>
                         
-                        {/* SEKMELER: FİZİKSEL OKUYUCU vs KAMERA */}
                         <div className="flex gap-2 mb-6 bg-gray-100 dark:bg-gray-700 p-1.5 rounded-xl">
                             <button 
                                 type="button" 
@@ -216,8 +247,7 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
                         </div>
                         
                         {useCamera ? (
-                            <div className="mb-6 border-2 border-blue-100 dark:border-blue-900 rounded-xl overflow-hidden bg-black">
-                                {/* HTML5 QR KOD OKUYUCU DIV'i */}
+                            <div className="mb-6 border-2 border-blue-100 dark:border-blue-900 rounded-xl overflow-hidden bg-white dark:bg-gray-800 p-4">
                                 <div id="qr-reader" className="w-full max-w-md mx-auto"></div>
                             </div>
                         ) : (
