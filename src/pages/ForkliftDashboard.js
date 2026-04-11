@@ -50,7 +50,11 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
                     fps: 10, 
                     qrbox: { width: 250, height: 250 },
                     aspectRatio: 1.0, 
-                    showTorchButtonIfSupported: true 
+                    showTorchButtonIfSupported: true,
+                    rememberLastUsedCamera: false, // Tarayıcının ön kamerayı hatırlamasını engeller
+                    videoConstraints: {
+                        facingMode: "environment" // Sisteme KESİNLİKLE arka kamerayı açmasını emreder
+                    }
                 },
                 false
             );
@@ -157,7 +161,7 @@ const ForkliftDashboard = ({ db, loggedInUser }) => {
     return (
         <div className="p-4 md:p-8 max-w-5xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             
-            {/* HTML5-QRCODE KÜTÜPHANESİ İÇİN ÖZEL STİL DOSYASI (Yazıların görünmez olmasını engeller) */}
+            {/* HTML5-QRCODE KÜTÜPHANESİ İÇİN ÖZEL STİL DOSYASI */}
             <style>{`
                 #qr-reader {
                     border: none !important;
