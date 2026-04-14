@@ -49,7 +49,8 @@ export const ROLES = {
     GIRIS_KALITE: 'Giriş Kalite',
     DEPO_SORUMLUSU: 'Depo Sorumlusu',
     FORKLIFT_OPERATORU: 'Forklift Operatörü',
-    MONTAJ_ELEMANI: 'Montaj Elemanı'
+    MONTAJ_ELEMANI: 'Montaj Elemanı',
+    MONTAJ_SORUMLUSU: 'Montaj Sorumlusu',
 };
 
 export const PERSONNEL_ROLES = ROLES;
@@ -99,6 +100,7 @@ export const TASK_STATUS = {
     TAMAMLANDI: 'TAMAMLANDI',
 };
 
+// İki ayrı listeyi birleştirdik
 export const MOLD_STATUS = {
     WAITING: 'BEKLEMEDE',
     TASARIM: 'TASARIM',
@@ -108,6 +110,8 @@ export const MOLD_STATUS = {
     DESEN: 'DESEN',
     MOLD_ASSEMBLY: 'KALIP MONTAJ',
     TRIAL: 'DENEME\'DE',
+    MONTAJDA: 'MONTAJDA',
+    DENEMEDE: 'DENEMEDE',
     COMPLETED: 'TAMAMLANDI',
 };
 
@@ -118,7 +122,9 @@ export const MOLD_STATUS_ACTIVE_LIST = [
     MOLD_STATUS.POLISAJ,
     MOLD_STATUS.DESEN,
     MOLD_STATUS.MOLD_ASSEMBLY,
-    MOLD_STATUS.TRIAL
+    MOLD_STATUS.TRIAL,
+    MOLD_STATUS.MONTAJDA,
+    MOLD_STATUS.DENEMEDE
 ];
 
 export const MACHINE_STATUS = {
@@ -139,7 +145,7 @@ export const LOGISTICS_STATUS = {
     PENDING: 'BEKLİYOR',
     IN_TRANSIT: 'TAŞINIYOR',
     COMPLETED: 'TESLİM EDİLDİ',
-    CANCELLED: 'İPTAL EDİLDİ'
+    CANCELLED: 'İPTAL EDİLDİ',
 };
 
 // ============================================================

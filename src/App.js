@@ -11,27 +11,27 @@ import {
     updateDoc, deleteDoc, doc, onSnapshot, where
 } from './config/firebase.js';
 
-// Sabitler (Merkezi Yönetim)
+// Sabitler
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
     PERSONNEL_ROLES, INVENTORY_COLLECTION,
-    PROJECT_COLLECTION, // KUTU A (Kalıp)
-    CNC_LATHE_JOBS_COLLECTION, // KUTU B (CNC Torna)
-    DESIGN_JOBS_COLLECTION, // KUTU C (Tasarım İşleri) 
+    PROJECT_COLLECTION, 
+    CNC_LATHE_JOBS_COLLECTION, 
+    DESIGN_JOBS_COLLECTION,  
     PERSONNEL_COLLECTION,
     MACHINES_COLLECTION,
     MOLD_NOTES_COLLECTION,
     initialAuthToken 
 } from './config/constants.js';
 
-// Yardımcılar
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar (ListOrdered ve Truck eklendi)
+// İkonlar
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
-    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck
+    Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
+    Menu, X 
 } from 'lucide-react';
 
 // Sayfalar
@@ -54,13 +54,11 @@ import ToolHistoryPage from './pages/ToolHistoryPage.js';
 import ToolAnalysisPage from './pages/ToolAnalysisPage.js';
 import ToolLifecycleAnalysis from './pages/ToolLifecycleAnalysis.js'; 
 import MoldMaintenancePage from './pages/MoldMaintenancePage.js';
-
-// --- YENİ EKLENEN SAYFALAR ---
 import MoldTrialReportsPage from './pages/MoldTrialReportsPage.js';
 import MachineQueuePage from './pages/MachineQueuePage.js';
-import ForkliftDashboard from './pages/ForkliftDashboard.js'; // <-- FORKLİFT EKLENDİ
+import ForkliftDashboard from './pages/ForkliftDashboard.js';
+import AssemblyDashboard from './pages/AssemblyDashboard.js'; 
 
-// --- CNC TORNA & SPC SAYFALARI ---
 import CncLatheDashboard from './pages/CncLatheDashboard.js';
 import CncLatheHistoryPage from './pages/CncLatheHistoryPage.js';
 import CncPartManager from './pages/CncPartManager.js'; 
@@ -71,21 +69,37 @@ import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
 
-// Bileşenler
-import NavItem from './components/Shared/NavItem.js';
 import { initialProjects } from './config/initialData.js';
 
-// --- MAIN APP COMPONENT ---
+// SIDEBAR NAV ITEM BİLEŞENİ
+const SidebarNavItem = ({ icon: Icon, label, isActive, onClick }) => {
+    return (
+        <button
+            onClick={onClick}
+            className={`w-full flex items-center px-4 py-3 mb-2 rounded-xl transition-all duration-200 ${
+                isActive 
+                ? 'bg-blue-600 text-white font-bold shadow-md' 
+                : 'text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-white font-medium'
+            }`}
+        >
+            <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`} />
+            <span className="text-sm">{label}</span>
+        </button>
+    );
+};
+
 
 const App = () => {
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isProjectsLoading, setIsProjectsLoading] = useState(true);
     
-    // VERİ STATELERİ (AYRIŞTIRILMIŞ)
-    const [projects, setProjects] = useState([]); // Kutu A
-    const [cncJobs, setCncJobs] = useState([]);   // Kutu B
-    const [designJobs, setDesignJobs] = useState([]); // Kutu C 
+    // SİDEBAR STATE'İ
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    
+    const [projects, setProjects] = useState([]); 
+    const [cncJobs, setCncJobs] = useState([]);   
+    const [designJobs, setDesignJobs] = useState([]); 
     
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
@@ -104,6 +118,11 @@ const App = () => {
     const navigate = useNavigate(); 
     const location = useLocation();
 
+    // Sidebar'ı kapatma fonksiyonu (sayfa değişince otomatik kapansın diye)
+    useEffect(() => {
+        setIsSidebarOpen(false);
+    }, [location.pathname]);
+
     useEffect(() => {
         if (loggedInUser && !loggedInUser.role) {
             console.warn("Kullanıcı verisi bozuk, otomatik çıkış yapılıyor.");
@@ -113,21 +132,6 @@ const App = () => {
         }
     }, [loggedInUser, navigate]);
 
-    // Seed Data 
-    const getMoldStatusFromTasksForSeed = (tasks) => {
-        if (!tasks || tasks.length === 0) return OPERATION_STATUS.NOT_STARTED;
-        const allOps = tasks.flatMap(t => t.operations || []);
-        if (allOps.length === 0) {
-             if (tasks.every(t => t.status === OPERATION_STATUS.COMPLETED)) return OPERATION_STATUS.COMPLETED;
-             if (tasks.some(t => t.status && [OPERATION_STATUS.IN_PROGRESS, OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW].includes(t.status))) return OPERATION_STATUS.IN_PROGRESS;
-             return OPERATION_STATUS.IN_PROGRESS;
-        }
-        if (allOps.every(op => op.status === OPERATION_STATUS.COMPLETED)) return OPERATION_STATUS.COMPLETED;
-        if (allOps.some(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW)) return OPERATION_STATUS.IN_PROGRESS;
-        if (allOps.every(op => op.status === OPERATION_STATUS.NOT_STARTED)) return OPERATION_STATUS.NOT_STARTED;
-        return OPERATION_STATUS.IN_PROGRESS;
-    };
-    
     const seedInitialData = useCallback(async () => {
         if (!db) return;
         const q = query(collection(db, PROJECT_COLLECTION));
@@ -297,12 +301,7 @@ const App = () => {
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
         
-        try { 
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); 
-        } 
-        catch (e) { 
-            console.error("Hata:", e); 
-        }
+        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } catch (e) { console.error("Hata:", e); }
     }, [projects]);
     
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
@@ -374,11 +373,7 @@ const App = () => {
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOps };
 
-        try {
-            await updateDoc(moldRef, { tasks: newTasks });
-        } catch (e) {
-            console.error("Terminal işlemi hatası:", e);
-        }
+        try { await updateDoc(moldRef, { tasks: newTasks }); } catch (e) { console.error("Terminal işlemi hatası:", e); }
     }, [projects]);
 
     const handleSetCriticalTask = useCallback(async (moldId, taskId, isCritical, criticalNote) => {
@@ -459,12 +454,7 @@ const App = () => {
         const newTasks = [...currentProject.tasks];
         newTasks[taskIndex] = { ...currentTask, operations: newOperations };
 
-        try { 
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks });
-        } 
-        catch (e) { 
-            console.error("Operatör değiştirme hatası:", e);
-        }
+        try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } catch (e) { console.error("Operatör değiştirme hatası:", e); }
     }, [projects, loggedInUser]);
 
     const handleAddOperation = useCallback(async (moldId, taskId, newOperationData) => {
@@ -492,18 +482,16 @@ const App = () => {
     const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
 
-    // --- YETKİ VE FORKLİFT KONTROLÜ ---
     const isForkliftOp = loggedInUser?.role === ROLES.FORKLIFT_OPERATORU;
+    const isAssemblyOp = loggedInUser?.role === ROLES.MONTAJ_SORUMLUSU; 
 
     // --- NAVİGASYON ---
     const navItems = useMemo(() => {
         if (!loggedInUser || !loggedInUser.role) return [];
         
-        // FORKLİFT OPERATÖRÜ HİÇBİR MENÜ GÖREMEZ
-        if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU) return [];
+        if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU || loggedInUser.role === ROLES.MONTAJ_SORUMLUSU) return [];
         
         const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
-        
         const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU];
         const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI];
         const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU];
@@ -533,32 +521,31 @@ const App = () => {
         }
 
         const rolesExceptToolRoomAndCnc = allLoginRoles.filter(r => 
-            r !== ROLES.TAKIMHANE_SORUMLUSU && 
-            r !== ROLES.CNC_TORNA_OPERATORU && 
-            r !== ROLES.CNC_TORNA_SORUMLUSU
+            r !== ROLES.TAKIMHANE_SORUMLUSU && r !== ROLES.CNC_TORNA_OPERATORU && r !== ROLES.CNC_TORNA_SORUMLUSU
         );
         
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
-            { path: '/project-management', label: 'PROJE', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
+            { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
-            { path: '/mold-trial-reports', label: 'Kalıp Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
-            { path: '/mold-maintenance', label: 'Kalıp Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
+            { path: '/mold-trial-reports', label: 'Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
+            { path: '/mold-maintenance', label: 'Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
-            { path: '/tool-history', label: 'Geçmiş & Takip', icon: FileText, roles: canSeeTools },
-            { path: '/tool-analysis', label: 'Analiz Raporu', icon: TrendingUp, roles: canSeeTools },
-            { path: '/tool-lifecycle', label: 'Detaylı Analiz', icon: Activity, roles: canSeeTools },
+            { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: canSeeTools },
+            { path: '/tool-analysis', label: 'Takım Analizi', icon: TrendingUp, roles: canSeeTools },
+            { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
-            { path: '/cam-job-entry', label: 'Proje ve İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
+            { path: '/cam-job-entry', label: 'İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: canSeeAdmin },
-            { path: '/admin/layout', label: 'Atölye Yerleşimi', icon: MapIcon, roles: [ROLES.ADMIN] },
+            { path: '/admin/layout', label: 'Yerleşim', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
-            { path: '/analysis', label: 'Analiz', icon: BarChart2, roles: canSeeAnalysis },
+            { path: '/analysis', label: 'Veri Analizi', icon: BarChart2, roles: canSeeAnalysis },
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, // YÖNETİCİ GÖREBİLİR
+            { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, 
+            { path: '/assembly', label: 'Montaj Paneli', icon: Wrench, roles: [ROLES.ADMIN] }, 
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
@@ -577,172 +564,158 @@ const App = () => {
     if (isProjectsLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Sistem verileri yükleniyor...</p></div>;
 
     return (
-        <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
-            <header className="mb-8 border-b pb-4 dark:border-gray-700">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                    <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white">Kalıphane İş Akışı Takibi</h1>
-                    
-                    <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-                        <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                            Giriş Yapan: {loggedInUser.name} ({loggedInUser.role})
-                        </span>
-         
+        <div className="flex h-screen bg-gray-100 dark:bg-gray-900 font-sans overflow-hidden">
+            
+            {/* GÖLGELENDİRME (Açıkken arkayı karartır ve tıklanınca menüyü kapatır) */}
+            {isSidebarOpen && !isForkliftOp && !isAssemblyOp && (
+                <div 
+                    className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+
+            {/* SİDEBAR (Sol Menü - ÇEKMECE) */}
+            {(!isForkliftOp && !isAssemblyOp) && (
+                <aside 
+                    className={`fixed top-0 left-0 h-full w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 transform transition-transform duration-300 ease-in-out flex flex-col shadow-2xl ${
+                        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
+                >
+                    {/* Üst Logo/Başlık Alanı */}
+                    <div className="p-6 flex items-center justify-between border-b dark:border-gray-800 shrink-0">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
+                                <LayoutDashboard className="w-5 h-5 text-white" />
+                            </div>
+                            <span className="font-black text-xl text-gray-900 dark:text-white tracking-tight">Kalıphane<span className="text-blue-500">.io</span></span>
+                        </div>
+                        <button onClick={() => setIsSidebarOpen(false)} className="text-gray-500 hover:text-gray-900 dark:hover:text-white transition">
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
+
+                    {/* Menü Elemanları */}
+                    <nav className="flex-1 overflow-y-auto custom-scrollbar p-4">
+                        <div className="space-y-1">
+                            {navItems.map(item => (
+                                <SidebarNavItem
+                                    key={item.path}
+                                    icon={item.icon}
+                                    label={item.label}
+                                    isActive={location.pathname === item.path}
+                                    onClick={() => navigate(item.path)}
+                                />
+                            ))}
+                        </div>
+                    </nav>
+
+                    {/* Alt Kullanıcı Kartı */}
+                    <div className="p-4 border-t dark:border-gray-800 shrink-0 bg-gray-50 dark:bg-gray-800/30 m-4 rounded-2xl">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+                                <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{loggedInUser.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{loggedInUser.role}</p>
+                            </div>
+                        </div>
                         <button
                             onClick={() => {
                                 setLoggedInUser(null); 
                                 localStorage.removeItem('kaliphane_user'); 
                                 navigate('/');
                             }}
-                            className="flex items-center text-sm px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                            className="w-full flex items-center justify-center text-sm py-2 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-400 rounded-xl font-bold transition-colors"
                         >
-                            <LogOut className="w-4 h-4 mr-1"/> Çıkış
+                            <LogOut className="w-4 h-4 mr-2"/> Güvenli Çıkış
                         </button>
                     </div>
+                </aside>
+            )}
+
+            {/* ANA İÇERİK ALANI (Sağ Taraf) */}
+            <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-gray-50 dark:bg-gray-900 w-full">
+                
+                {/* ÜST BAR (Header) */}
+                <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md sticky top-0 z-30 shrink-0 w-full">
+                    <div className="flex items-center">
+                        {(!isForkliftOp && !isAssemblyOp) && (
+                            <button 
+                                onClick={() => setIsSidebarOpen(true)}
+                                className="mr-4 p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                            >
+                                <Menu className="w-6 h-6" />
+                            </button>
+                        )}
+                        <h1 className="text-xl font-black text-gray-800 dark:text-white truncate">
+                            {(isForkliftOp || isAssemblyOp) ? 'Kalıphane İş Akışı Takibi' : navItems.find(item => item.path === location.pathname)?.label || 'Gösterge Paneli'}
+                        </h1>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                        <div className="hidden sm:flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{getCurrentDateTimeString().split(' ')[0]}</span>
+                        </div>
+                    </div>
+                </header>
+
+                {/* SAYFA İÇERİKLERİ (Scroll edilebilir alan) */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar w-full">
+                    <Routes>
+                        <Route path="/" element={
+                            isForkliftOp ? <Navigate to="/forklift" replace />
+                            : isAssemblyOp ? <Navigate to="/assembly" replace />
+                            : (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                            ? <Navigate to="/cnc-torna" replace /> 
+                            : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
+                        } />
+
+                        <Route path="/forklift" element={
+                            (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
+                            ? <ForkliftDashboard db={db} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/assembly" element={
+                            (loggedInUser?.role === ROLES.MONTAJ_SORUMLUSU || loggedInUser?.role === ROLES.ADMIN)
+                            ? <AssemblyDashboard db={db} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
+                        <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} handleChangeMachineOperator={handleChangeMachineOperator} personnel={personnel} machines={machines} />} />
+                        <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                        <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
+                        <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
+                        <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
+                        <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
+                        <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
+                        <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
+                        <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
+                        <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/cnc-torna" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-torna-history" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-part-manager" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncPartManager db={db} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-spc-analysis" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncSpcAnalysisPage db={db} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-inspection-report" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncInspectionReport db={db} /> : <Navigate to="/" replace />} />
+                        <Route path="/operator-performance" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-lathe-planning" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-raw-material" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheRawMaterialPlanningPage db={db} /> : <Navigate to="/" replace />} />
+                        <Route path="/cnc-lathe-calendar" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheCalendarPage cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
+                        <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} loggedInUser={loggedInUser} />} />
+                        <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
+                        <Route path="/history" element={<HistoryPage projects={projects} />} />
+                        <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                        <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
+                        <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                        <Route path="/mold/:moldId" element={<MoldDetailPage loggedInUser={loggedInUser} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleReportOperationIssue={handleReportOperationIssue} handleSetCriticalTask={handleSetCriticalTask} handleUpdateMoldStatus={handleUpdateMoldStatus} handleUpdateMoldDeadline={handleUpdateMoldDeadline} handleUpdateMoldPriority={handleUpdateMoldPriority} handleUpdateTrialReportUrl={handleUpdateTrialReportUrl} handleUpdateProductImageUrl={handleUpdateProductImageUrl} handleUpdateProjectManager={handleUpdateProjectManager} handleUpdateMoldDesigner={handleUpdateMoldDesigner} handleUpdateCamResponsible={handleUpdateCamResponsible} projects={projects} personnel={personnel} machines={machines} db={db} />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
                 </div>
-
-                {/* FORKLİFT OPERATÖRÜ İSE MENÜYÜ GİZLE */}
-                {!isForkliftOp && (
-                    <nav className="mt-4 flex flex-wrap gap-2">
-                        {navItems.map(item => (
-                            <NavItem
-                                key={item.path}
-                                icon={item.icon}
-                                label={item.label}
-                                isActive={location.pathname === item.path}
-                                path={item.path}
-                            />
-                        ))}
-                    </nav>
-                )}
-            </header>
-
-            <Routes>
-                {/* ANA SAYFA YÖNLENDİRMESİ */}
-                <Route path="/" element={
-                    isForkliftOp ? <Navigate to="/forklift" replace />
-                    : (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <Navigate to="/cnc-torna" replace /> 
-                    : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
-                } />
-
-                {/* --- YENİ EKLENEN ROTA: FORKLİFT PANELİ --- */}
-                <Route path="/forklift" element={
-                    (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
-                    ? <ForkliftDashboard db={db} loggedInUser={loggedInUser} />
-                    : <Navigate to="/" replace />
-                } />
-
-                <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
-                
-                <Route path="/cam" element={<CamDashboard 
-                    loggedInUser={loggedInUser} 
-                    projects={projects} 
-                    handleUpdateOperation={handleUpdateOperation} 
-                    handleChangeMachineOperator={handleChangeMachineOperator}
-                    personnel={personnel} 
-                    machines={machines} 
-                />} />
-                
-                <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                
-                <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
-                
-                <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
-
-                <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
-                <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
-                <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} />} />
-                <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
-                <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
-                <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
-                <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
-
-                <Route path="/cnc-torna" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-torna-history" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> 
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-part-manager" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncPartManager db={db} />
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-spc-analysis" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncSpcAnalysisPage db={db} />
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-inspection-report" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncInspectionReport db={db} />
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/operator-performance" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-lathe-planning" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> 
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-raw-material" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLatheRawMaterialPlanningPage db={db} /> 
-                    : <Navigate to="/" replace />
-                } />
-                <Route path="/cnc-lathe-calendar" element={
-                    (loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
-                    ? <CncLatheCalendarPage cncJobs={cncJobs} /> 
-                    : <Navigate to="/" replace />
-                } />
-
-                <Route path="/admin" element={<AdminDashboard 
-                    db={db} projects={projects} setProjects={setProjects} 
-                    personnel={personnel} setPersonnel={setPersonnel} 
-                    machines={machines} setMachines={setMachines} 
-                    handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} 
-                    loggedInUser={loggedInUser} 
-                />} />
-                <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
-                <Route path="/history" element={<HistoryPage projects={projects} />} />
-                <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
-                <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-
-                <Route path="/mold/:moldId" element={
-                    <MoldDetailPage 
-                        loggedInUser={loggedInUser} 
-                        handleUpdateOperation={handleUpdateOperation} 
-                        handleAddOperation={handleAddOperation} 
-                        handleReportOperationIssue={handleReportOperationIssue} 
-                        handleSetCriticalTask={handleSetCriticalTask} 
-                        handleUpdateMoldStatus={handleUpdateMoldStatus}
-                        handleUpdateMoldDeadline={handleUpdateMoldDeadline}
-                        handleUpdateMoldPriority={handleUpdateMoldPriority} 
-                        handleUpdateTrialReportUrl={handleUpdateTrialReportUrl}
-                        handleUpdateProductImageUrl={handleUpdateProductImageUrl} 
-                        handleUpdateProjectManager={handleUpdateProjectManager}
-                        handleUpdateMoldDesigner={handleUpdateMoldDesigner}
-                        handleUpdateCamResponsible={handleUpdateCamResponsible}
-                        projects={projects} 
-                        personnel={personnel} 
-                        machines={machines}
-                        db={db}
-                    />
-                } />
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-            
-            <footer className="mt-8 text-center text-xs text-gray-500 dark:text-gray-600 border-t pt-4 dark:border-gray-700">
-                 Veritabanı Kimliği: {userId}
-            </footer>
+            </main>
         </div>
     );
 };
