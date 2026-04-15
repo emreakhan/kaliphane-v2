@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X 
+    Menu, X, Radio // YENİ EKLENDİ: Canlı yayın ikonu için Radio eklendi
 } from 'lucide-react';
 
 // Sayfalar
@@ -68,6 +68,8 @@ import CncOperatorPerformance from './pages/CncOperatorPerformance.js';
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
+
+import CanliDurum from './pages/CanliDurum'; // YENİ EKLENDİ: Yeni sayfamızı import ettik
 
 import { initialProjects } from './config/initialData.js';
 
@@ -526,6 +528,8 @@ const App = () => {
         
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
+            // YENİ EKLENDİ: Canlı Durum menü elemanı eklendi. (Görmesini istemediğin roller varsa 'roles' kısmından çıkarabilirsin)
+            { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
@@ -671,6 +675,9 @@ const App = () => {
                             ? <Navigate to="/cnc-torna" replace /> 
                             : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
                         } />
+
+                        {/* YENİ EKLENDİ: Sayfa Rotası */}
+                        <Route path="/canli-durum" element={<CanliDurum />} />
 
                         <Route path="/forklift" element={
                             (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
