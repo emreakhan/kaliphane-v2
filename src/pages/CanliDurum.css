@@ -1,0 +1,142 @@
+/* Arka Plan ve Genel Konteyner */
+.canli-izleme-konteyner {
+    background-color: #0b0e14;
+    min-height: 100vh;
+    padding: 30px;
+    color: #e2e8f0;
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+
+.ust-bar h2 {
+    font-size: 24px;
+    margin-bottom: 25px;
+    color: #fff;
+    border-left: 4px solid #3b82f6;
+    padding-left: 15px;
+}
+
+/* Makine Kartları Grid Yapısı */
+.makine-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 25px;
+}
+
+/* Kart Tasarımı */
+.makine-kart {
+    background: #161b22;
+    border-radius: 16px;
+    border: 1px solid #30363d;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.makine-kart:hover {
+    border-color: #58a6ff;
+    transform: translateY(-5px);
+}
+
+/* Kart Header: İsim ve Badge */
+.kart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.kart-header h3 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.durum-sinyali {
+    padding: 5px 15px;
+    border-radius: 50px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.durum-sinyali.yesil { background: #238636; color: #ffffff; box-shadow: 0 0 10px rgba(35, 134, 54, 0.4); }
+.durum-sinyali.kirmizi { background: #da3633; color: #ffffff; box-shadow: 0 0 10px rgba(218, 54, 51, 0.4); }
+
+/* Tarih Seçici */
+.rapor-tarih-alan {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.rapor-tarih-alan input {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+/* Analiz İçeriği: Saatler solda, Grafik sağda */
+.analiz-icerik {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #0d1117;
+    border-radius: 12px;
+    padding: 15px;
+}
+
+.saat-bilgileri {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.saat-satir {
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+    width: 140px;
+}
+
+.saat-satir span { color: #8b949e; }
+.saat-satir strong { color: #f0f6fc; }
+
+.saat-satir.mavi strong { color: #58a6ff; }
+.saat-satir.turuncu strong { color: #f0883e; }
+.saat-satir.yesil strong { color: #3fb950; }
+
+/* Grafik Bölümü */
+.grafik-bolumu {
+    position: relative;
+    width: 100px;
+    height: 100px;
+}
+
+.grafik-merkez-yuzde {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: 800;
+    font-size: 18px;
+    color: #fff;
+}
+
+.ayirici {
+    border: 0;
+    border-top: 1px solid #30363d;
+    margin: 20px 0 10px 0;
+}
+
+.kart-footer p {
+    margin: 0;
+    font-size: 14px;
+    color: #8b949e;
+    font-style: italic;
+    text-align: center;
+}
