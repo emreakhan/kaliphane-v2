@@ -32,6 +32,7 @@ const CncInspectionReport = ({ db }) => {
     const [approvedBy, setApprovedBy] = useState('');
     const [displayStartTime, setDisplayStartTime] = useState('');
     const [displayEndTime, setDisplayEndTime] = useState('');
+    const [remarks, setRemarks] = useState(''); // YENİ: Açıklama Alanı
 
     // DİJİTAL FORM VERİSİ (Sonsuz Sayfa Desteği)
     const [gridData, setGridData] = useState([]);
@@ -99,6 +100,7 @@ const CncInspectionReport = ({ db }) => {
             setPreparedBy(jobData.preparedBy || '');
             setCheckedBy(jobData.checkedBy || '');
             setApprovedBy(jobData.approvedBy || '');
+            setRemarks(jobData.remarks || ''); // Açıklamayı veritabanından çek
             setDisplayStartTime(jobData.displayStartTime || formatDateTime(jobData.startTime).split(' ')[0]);
             setDisplayEndTime(jobData.displayEndTime || (jobData.endTime ? formatDateTime(jobData.endTime).split(' ')[0] : ''));
             
@@ -121,7 +123,6 @@ const CncInspectionReport = ({ db }) => {
             const mSnap = await getDocs(mQuery);
             const measurements = mSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            // En büyük sütun indeksini bul ve kaç sayfa (vardiya) gerektiğini hesapla
             let maxColIndex = 11; 
             measurements.forEach(m => {
                 if (m.columnIndex !== undefined && m.columnIndex > maxColIndex) {
@@ -160,7 +161,6 @@ const CncInspectionReport = ({ db }) => {
         }
     };
 
-    // YENİ VARDİYA (SAYFA) EKLEME MANTIĞI
     const handleAddShift = () => {
         setGridData(prev => [
             ...prev,
@@ -168,7 +168,6 @@ const CncInspectionReport = ({ db }) => {
         ]);
     };
 
-    // SON VARDİYAYI (SAYFAYI) SİLME MANTIĞI
     const handleRemoveShift = async () => {
         if (gridData.length <= 12) {
             alert("İlk sayfayı silemezsiniz!");
@@ -183,7 +182,6 @@ const CncInspectionReport = ({ db }) => {
             const itemsToRemove = gridData.slice(-12);
             const remainingItems = gridData.slice(0, -12);
 
-            // Eğer veritabanında daha önce kaydedilmiş sütunlar varsa, onları sil
             for (const item of itemsToRemove) {
                 if (item && item.id) {
                     await deleteDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, item.id));
@@ -200,7 +198,6 @@ const CncInspectionReport = ({ db }) => {
         }
     };
 
-    // --- FORM ÜZERİNDE DÜZENLEME İŞLEMLERİ ---
     const handleOperatorChange = (colIndex, value) => {
         if (!isAdmin) return;
         const newGrid = [...gridData];
@@ -229,21 +226,21 @@ const CncInspectionReport = ({ db }) => {
         setGridData(newGrid);
     };
 
-    // 3. DEĞİŞİKLİKLERİ KAYDET
     const handleSaveChanges = async () => {
         if (!selectedJobId || !isAdmin) return;
         setSaving(true);
         try {
+            // İş Emri Altındaki Meta Verileri Kaydet (Açıklama Dahil)
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJobId), {
                 rawMaterialLot,
                 preparedBy,
                 checkedBy,
                 approvedBy,
                 displayStartTime,
-                displayEndTime
+                displayEndTime,
+                remarks // Açıklama alanını Firestore'a kaydediyoruz
             });
 
-            // Tüm sayfalardaki verileri sırasıyla kaydet
             for (let i = 0; i < gridData.length; i++) {
                 const colData = gridData[i];
                 const hasData = colData.operator?.trim().length > 0 || colData.details?.some(d => d.value !== '');
@@ -274,7 +271,6 @@ const CncInspectionReport = ({ db }) => {
         }
     };
 
-    // 4. İNDİRME FONKSİYONU
     const handleDownloadPdf = () => {
         const element = reportRef.current;
         if (!element) return;
@@ -288,7 +284,6 @@ const CncInspectionReport = ({ db }) => {
         html2pdf().set(opt).from(element).save();
     };
 
-    // Sayfa sayısını hesapla
     const numPages = Math.ceil(gridData.length / 12);
 
     return (
@@ -300,7 +295,6 @@ const CncInspectionReport = ({ db }) => {
                     Kalite Kontrol Formları (Vardiya Sistemli)
                 </h1>
 
-                {/* YETKİ SİMÜLATÖRÜ (TEST İÇİN) */}
                 <div className="flex items-center space-x-3 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                     <span className="text-xs font-bold text-gray-500">TEST MODU:</span>
                     <button 
@@ -312,7 +306,6 @@ const CncInspectionReport = ({ db }) => {
                 </div>
             </div>
 
-            {/* SEÇİM VE ARAMA ALANI */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6" data-html2canvas-ignore="true">
                 
                 <div className="w-full relative" ref={dropdownRef}>
@@ -430,7 +423,6 @@ const CncInspectionReport = ({ db }) => {
                 )}
             </div>
 
-            {/* RAPOR AKSİYON BUTONLARI (YENİ SİLME BUTONU BURADA) */}
             {reportData && (
                 <div className="flex justify-between items-center mb-4" data-html2canvas-ignore="true">
                     <div className="flex gap-2">
@@ -474,12 +466,10 @@ const CncInspectionReport = ({ db }) => {
                 </div>
             )}
 
-            {/* DİJİTAL VE İNTERAKTİF RAPOR GÖRÜNÜMÜ (SAYFALAR) */}
             {reportData && (
                 <div className="overflow-auto bg-gray-200 p-4 rounded-lg border border-gray-300">
                     <div ref={reportRef} className="bg-white text-black mx-auto shadow-sm" style={{ width: '290mm', position: 'relative' }}>
                         
-                        {/* VAR OLAN SAYFA KADAR DÖNGÜ (Vardiya Sayfaları) */}
                         {Array.from({ length: numPages }).map((_, pageIndex) => {
                             const startIndex = pageIndex * 12;
                             const pageHeaders = [
@@ -491,7 +481,6 @@ const CncInspectionReport = ({ db }) => {
                             return (
                                 <div key={pageIndex} className="p-4 relative" style={{ height: '195mm', overflow: 'hidden', pageBreakAfter: pageIndex < numPages - 1 ? 'always' : 'auto', backgroundColor: 'white' }}>
                                     
-                                    {/* HEADER ALANI */}
                                     <div className="border-2 border-black mb-1 m-4 mt-4">
                                         <div className="grid grid-cols-4 text-center border-b border-black">
                                             <div className="p-2 border-r border-black flex items-center justify-center">
@@ -655,8 +644,22 @@ const CncInspectionReport = ({ db }) => {
                                         </table>
                                     </div>
 
-                                    {/* FOOTER ALANI (FR 372 Sabitlenmiş) */}
+                                    {/* FOOTER ALANI (AÇIKLAMA VE İMZALAR) */}
                                     <div className="absolute bottom-3 left-4 right-4 px-4">
+                                        
+                                        {/* YENİ EKLENEN AÇIKLAMA (NOT) ALANI */}
+                                        <div className="w-full flex items-start border border-black p-1 mb-2 bg-gray-50">
+                                            <span className="font-bold text-[10px] mr-2 whitespace-nowrap pt-1">Açıklama:</span>
+                                            <textarea 
+                                                value={remarks}
+                                                onChange={(e) => setRemarks(e.target.value)}
+                                                readOnly={!isAdmin}
+                                                className={`w-full text-[10px] bg-transparent outline-none resize-none ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`}
+                                                rows="2"
+                                                placeholder={isAdmin ? "Açıklama veya notlarınızı buraya girebilirsiniz..." : ""}
+                                            ></textarea>
+                                        </div>
+
                                         <div className="grid grid-cols-3 gap-8 text-center text-sm border-t border-black pt-2 mb-2">
                                             <div>
                                                 <div className="font-bold mb-2">Hazırlayan</div>
