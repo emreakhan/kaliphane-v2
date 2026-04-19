@@ -16,28 +16,20 @@ const CncPartManager = ({ db }) => {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Form Verisi
     const [partForm, setPartForm] = useState({
         partName: '',
         orderNumber: '', 
-        
-        // --- KALİTE KONTROL ÖRNEKLEM AYARLARI ---
+        isSpcEnabled: false, 
         sampleFrequencyMinutes: '25', 
         sampleQuantity: '5',          
-        
-        // --- YENİ: MÜŞTERİ SPC HEDEFLERİ ---
         targetCustomer: 'STANDART',
         targetCpk: '1.33',
         targetPpk: '1.33',
-
         cycleTime: '', 
-        
-        // --- KALİTE DOKÜMAN BİLGİLERİ ---
         technicalDrawingNo: '', 
         revisionInfo: '',       
         instructionNo: '',      
         rawMaterialCode: '',    
-        
         criteria: [] 
     });
 
@@ -56,6 +48,7 @@ const CncPartManager = ({ db }) => {
         setSelectedPart(part);
         setPartForm({
             ...part,
+            isSpcEnabled: part.isSpcEnabled || false,
             sampleFrequencyMinutes: part.sampleFrequencyMinutes || '25',
             sampleQuantity: part.sampleQuantity || '5',
             targetCustomer: part.targetCustomer || 'STANDART',
@@ -68,6 +61,7 @@ const CncPartManager = ({ db }) => {
     const handleNewPart = () => {
         const newPart = { 
             partName: '', orderNumber: '', 
+            isSpcEnabled: false,
             sampleFrequencyMinutes: '25', sampleQuantity: '5', 
             targetCustomer: 'STANDART', targetCpk: '1.33', targetPpk: '1.33',
             cycleTime: '', 
@@ -136,8 +130,6 @@ const CncPartManager = ({ db }) => {
 
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col md:flex-row gap-6">
-            
-            {/* SOL PANEL: LİSTE */}
             <div className="w-full md:w-1/3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-[80vh]">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 rounded-t-xl">
                     <h2 className="font-bold text-gray-800 dark:text-white flex items-center">
@@ -155,7 +147,7 @@ const CncPartManager = ({ db }) => {
                             type="text" 
                             className="w-full pl-9 p-2 text-sm border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition"
                             placeholder="Parça adı veya kodu ara..."
-                            value={searchTerm}
+                            value={searchTerm ?? ''}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
@@ -179,6 +171,9 @@ const CncPartManager = ({ db }) => {
                                     <div className="text-[10px] font-mono bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded text-gray-600 dark:text-gray-300 mb-1">
                                         {part.criteria?.length || 0} Kriter
                                     </div>
+                                    {part.isSpcEnabled && (
+                                        <div className="text-[9px] font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded">SPC AKTİF</div>
+                                    )}
                                 </div>
                             </div>
                         ))
@@ -188,7 +183,6 @@ const CncPartManager = ({ db }) => {
                 </div>
             </div>
 
-            {/* SAĞ PANEL: DETAY */}
             <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-[80vh] overflow-y-auto">
                 {(isEditing || selectedPart) ? (
                     <div>
@@ -224,23 +218,36 @@ const CncPartManager = ({ db }) => {
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Parça Adı</label>
-                                    {isEditing ? <input type="text" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.partName} onChange={e => setPartForm({...partForm, partName: e.target.value})} placeholder="Örn: Flanş Mili" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded">{selectedPart.partName}</div>}
+                                    {isEditing ? <input type="text" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.partName ?? ''} onChange={e => setPartForm({...partForm, partName: e.target.value})} placeholder="Örn: Flanş Mili" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded">{selectedPart.partName ?? '-'}</div>}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stok / Resim No</label>
-                                    {isEditing ? <input type="text" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.orderNumber} onChange={e => setPartForm({...partForm, orderNumber: e.target.value})} placeholder="Örn: 2024-001" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded">{selectedPart.orderNumber || '-'}</div>}
+                                    {isEditing ? <input type="text" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.orderNumber ?? ''} onChange={e => setPartForm({...partForm, orderNumber: e.target.value})} placeholder="Örn: 2024-001" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded">{selectedPart.orderNumber || '-'}</div>}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Çevrim Süresi (sn)</label>
-                                    {isEditing ? <input type="number" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600 text-center font-bold" value={partForm.cycleTime} onChange={e => setPartForm({...partForm, cycleTime: e.target.value})} placeholder="Örn: 45" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded flex items-center justify-center"><Clock className="w-4 h-4 mr-2 text-blue-500"/>{selectedPart.cycleTime ? `${selectedPart.cycleTime} sn` : '-'}</div>}
+                                    {isEditing ? <input type="number" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600 text-center font-bold" value={partForm.cycleTime ?? ''} onChange={e => setPartForm({...partForm, cycleTime: e.target.value})} placeholder="Örn: 45" /> : <div className="text-gray-900 dark:text-white font-medium p-2 bg-gray-50 dark:bg-gray-700/30 rounded flex items-center justify-center"><Clock className="w-4 h-4 mr-2 text-blue-500"/>{selectedPart.cycleTime ? `${selectedPart.cycleTime} sn` : '-'}</div>}
                                 </div>
                             </div>
 
-                            {/* --- HEDEF VE ÖRNEKLEM AYARLARI KUTUSU --- */}
                             <div className="bg-orange-50 dark:bg-orange-900/10 p-4 rounded-lg border border-orange-200 dark:border-orange-900/30">
                                 <h3 className="font-bold text-orange-800 dark:text-orange-400 mb-3 flex items-center text-sm">
                                     <Settings className="w-4 h-4 mr-2"/> İstatistiki Proses Kontrol (SPC) Hedef ve Örneklem Ayarları
                                 </h3>
+
+                                <div className="flex items-center mb-5 bg-white dark:bg-gray-800 p-3 rounded shadow-sm border border-orange-100 dark:border-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        id="spcToggle"
+                                        className="w-5 h-5 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+                                        checked={partForm.isSpcEnabled || false}
+                                        onChange={(e) => setPartForm({ ...partForm, isSpcEnabled: e.target.checked })}
+                                        disabled={!isEditing}
+                                    />
+                                    <label htmlFor="spcToggle" className={`ml-3 text-sm font-bold ${partForm.isSpcEnabled ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500'} ${isEditing ? 'cursor-pointer' : 'cursor-default'}`}>
+                                        Bu Parça İçin SPC Raporlamayı Aktif Et (Standart Formdan Sonra Otomatik Açılır)
+                                    </label>
+                                </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                                     <div className="bg-white dark:bg-gray-800 p-3 rounded shadow-sm border border-orange-100 dark:border-gray-700">
@@ -248,7 +255,7 @@ const CncPartManager = ({ db }) => {
                                         {isEditing ? (
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-bold text-gray-500">Her</span>
-                                                <input type="number" className="w-24 p-2 border rounded font-bold text-center text-orange-600 dark:bg-gray-700 dark:border-gray-600" value={partForm.sampleFrequencyMinutes} onChange={e => setPartForm({...partForm, sampleFrequencyMinutes: e.target.value})} />
+                                                <input type="number" className="w-24 p-2 border rounded font-bold text-center text-orange-600 dark:bg-gray-700 dark:border-gray-600" value={partForm.sampleFrequencyMinutes ?? ''} onChange={e => setPartForm({...partForm, sampleFrequencyMinutes: e.target.value})} />
                                                 <span className="text-sm font-bold text-gray-500">dakikada bir</span>
                                             </div>
                                         ) : (
@@ -259,7 +266,7 @@ const CncPartManager = ({ db }) => {
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><Users className="w-3 h-3 mr-1"/> Alt Grup Örnek Sayısı (n)</label>
                                         {isEditing ? (
                                             <div className="flex items-center gap-2">
-                                                <input type="number" className="w-24 p-2 border rounded font-bold text-center text-orange-600 dark:bg-gray-700 dark:border-gray-600" value={partForm.sampleQuantity} onChange={e => setPartForm({...partForm, sampleQuantity: e.target.value})} />
+                                                <input type="number" className="w-24 p-2 border rounded font-bold text-center text-orange-600 dark:bg-gray-700 dark:border-gray-600" value={partForm.sampleQuantity ?? ''} onChange={e => setPartForm({...partForm, sampleQuantity: e.target.value})} />
                                                 <span className="text-sm font-bold text-gray-500">adet parça ölçülecek</span>
                                             </div>
                                         ) : (
@@ -268,12 +275,11 @@ const CncPartManager = ({ db }) => {
                                     </div>
                                 </div>
 
-                                {/* YENİ EKLENEN: HEDEF BELİRLEME */}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-orange-200 dark:border-orange-800/50">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center"><Target className="w-3 h-3 mr-1"/> Müşteri / Hedef Adı</label>
                                         {isEditing ? (
-                                            <input type="text" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600 uppercase" value={partForm.targetCustomer} onChange={e => setPartForm({...partForm, targetCustomer: e.target.value})} placeholder="Örn: MERCEDES" />
+                                            <input type="text" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600 uppercase" value={partForm.targetCustomer ?? ''} onChange={e => setPartForm({...partForm, targetCustomer: e.target.value})} placeholder="Örn: MERCEDES" />
                                         ) : (
                                             <div className="text-sm font-bold text-gray-800 dark:text-gray-200 uppercase">{selectedPart.targetCustomer || 'STANDART'}</div>
                                         )}
@@ -281,7 +287,7 @@ const CncPartManager = ({ db }) => {
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Hedef Cpk (Kısa Dönem)</label>
                                         {isEditing ? (
-                                            <input type="number" step="0.01" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.targetCpk} onChange={e => setPartForm({...partForm, targetCpk: e.target.value})} placeholder="Örn: 1.67" />
+                                            <input type="number" step="0.01" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.targetCpk ?? ''} onChange={e => setPartForm({...partForm, targetCpk: e.target.value})} placeholder="Örn: 1.67" />
                                         ) : (
                                             <div className="text-sm font-bold text-green-600 dark:text-green-400">≥ {selectedPart.targetCpk || '1.33'}</div>
                                         )}
@@ -289,7 +295,7 @@ const CncPartManager = ({ db }) => {
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Hedef Ppk (Uzun Dönem)</label>
                                         {isEditing ? (
-                                            <input type="number" step="0.01" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.targetPpk} onChange={e => setPartForm({...partForm, targetPpk: e.target.value})} placeholder="Örn: 2.00" />
+                                            <input type="number" step="0.01" className="w-full p-2 border rounded text-sm font-bold dark:bg-gray-700 dark:text-white dark:border-gray-600" value={partForm.targetPpk ?? ''} onChange={e => setPartForm({...partForm, targetPpk: e.target.value})} placeholder="Örn: 2.00" />
                                         ) : (
                                             <div className="text-sm font-bold text-green-600 dark:text-green-400">≥ {selectedPart.targetPpk || '1.33'}</div>
                                         )}
@@ -297,7 +303,6 @@ const CncPartManager = ({ db }) => {
                                 </div>
                             </div>
 
-                            {/* KALİTE DOKÜMAN BİLGİLERİ */}
                             <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-900/30">
                                 <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-3 flex items-center text-sm">
                                     <FileText className="w-4 h-4 mr-2"/> Kalite Doküman Bilgileri (PDF İçin)
@@ -305,24 +310,23 @@ const CncPartManager = ({ db }) => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <div>
                                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Teknik Resim NO</label>
-                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.technicalDrawingNo || ''} onChange={e => setPartForm({...partForm, technicalDrawingNo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.technicalDrawingNo || '-'}</div>}
+                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.technicalDrawingNo ?? ''} onChange={e => setPartForm({...partForm, technicalDrawingNo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.technicalDrawingNo || '-'}</div>}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Revizyon No/Tarih</label>
-                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.revisionInfo || ''} onChange={e => setPartForm({...partForm, revisionInfo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.revisionInfo || '-'}</div>}
+                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.revisionInfo ?? ''} onChange={e => setPartForm({...partForm, revisionInfo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.revisionInfo || '-'}</div>}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Talimat NO</label>
-                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.instructionNo || ''} onChange={e => setPartForm({...partForm, instructionNo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.instructionNo || '-'}</div>}
+                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.instructionNo ?? ''} onChange={e => setPartForm({...partForm, instructionNo: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.instructionNo || '-'}</div>}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Hammalzeme Stok Kodu</label>
-                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.rawMaterialCode || ''} onChange={e => setPartForm({...partForm, rawMaterialCode: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.rawMaterialCode || '-'}</div>}
+                                        {isEditing ? <input type="text" className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:text-white" value={partForm.rawMaterialCode ?? ''} onChange={e => setPartForm({...partForm, rawMaterialCode: e.target.value})} /> : <div className="text-sm font-medium dark:text-white">{selectedPart.rawMaterialCode || '-'}</div>}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* KRİTER TABLOSU */}
                             <div>
                                 <div className="flex justify-between items-center mb-2 mt-6">
                                     <h3 className="font-bold text-gray-800 dark:text-gray-200 flex items-center">
@@ -349,33 +353,33 @@ const CncPartManager = ({ db }) => {
                                         <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-gray-700/50 p-3 md:p-2 rounded border border-gray-200 dark:border-gray-700">
                                             <div className="md:col-span-3">
                                                 <label className="md:hidden text-xs font-bold text-gray-400 block">Adı</label>
-                                                {isEditing ? <input type="text" className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.name} onChange={(e) => updateCriterion(idx, 'name', e.target.value)} /> : <span className="text-sm font-bold dark:text-white flex items-center">{crit.type === 'BOOL' && <CheckSquare className="w-3 h-3 mr-1 text-orange-500"/>}{crit.name}</span>}
+                                                {isEditing ? <input type="text" className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.name ?? ''} onChange={(e) => updateCriterion(idx, 'name', e.target.value)} /> : <span className="text-sm font-bold dark:text-white flex items-center">{crit.type === 'BOOL' && <CheckSquare className="w-3 h-3 mr-1 text-orange-500"/>}{crit.name}</span>}
                                             </div>
 
                                             <div className="md:col-span-2">
                                                 <label className="md:hidden text-xs font-bold text-gray-400 block">Metot</label>
-                                                {isEditing ? <input type="text" className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.method} onChange={(e) => updateCriterion(idx, 'method', e.target.value)} /> : <span className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-600 flex items-center w-fit"><Wrench className="w-3 h-3 mr-1 opacity-50"/>{crit.method || '-'}</span>}
+                                                {isEditing ? <input type="text" className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.method ?? ''} onChange={(e) => updateCriterion(idx, 'method', e.target.value)} /> : <span className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-600 flex items-center w-fit"><Wrench className="w-3 h-3 mr-1 opacity-50"/>{crit.method || '-'}</span>}
                                             </div>
 
                                             <div className="md:col-span-2">
                                                 <label className="md:hidden text-xs font-bold text-gray-400 block">Tip</label>
-                                                {isEditing ? <select className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.type || 'NUMBER'} onChange={(e) => updateCriterion(idx, 'type', e.target.value)}><option value="NUMBER">Sayısal Ölçü</option><option value="BOOL">Gözle Kontrol</option></select> : <span className="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{crit.type === 'BOOL' ? 'Gözle Kontrol' : 'Sayısal'}</span>}
+                                                {isEditing ? <select className="w-full p-1 border rounded text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.type ?? 'NUMBER'} onChange={(e) => updateCriterion(idx, 'type', e.target.value)}><option value="NUMBER">Sayısal Ölçü</option><option value="BOOL">Gözle Kontrol</option></select> : <span className="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{crit.type === 'BOOL' ? 'Gözle Kontrol' : 'Sayısal'}</span>}
                                             </div>
 
                                             {(!crit.type || crit.type === 'NUMBER') ? (
                                                 <>
                                                     <div className="md:col-span-1">
                                                         <label className="md:hidden text-xs font-bold text-gray-400 block">Nominal</label>
-                                                        {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.nominal} onChange={(e) => updateCriterion(idx, 'nominal', e.target.value)} /> : <div className="text-center text-sm font-mono dark:text-white bg-white dark:bg-gray-600 rounded px-1">{crit.nominal}</div>}
+                                                        {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center dark:bg-gray-700 dark:text-white dark:border-gray-600" value={crit.nominal ?? ''} onChange={(e) => updateCriterion(idx, 'nominal', e.target.value)} /> : <div className="text-center text-sm font-mono dark:text-white bg-white dark:bg-gray-600 rounded px-1">{crit.nominal}</div>}
                                                     </div>
                                                     <div className="md:col-span-3 flex gap-1">
                                                         <div className="flex-1">
                                                             <label className="md:hidden text-xs font-bold text-gray-400 block">Üst</label>
-                                                            {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center text-green-600 font-bold dark:bg-gray-700 dark:border-gray-600" value={crit.upperTol} onChange={(e) => updateCriterion(idx, 'upperTol', e.target.value)} /> : <div className="text-center text-xs font-mono text-green-600 bg-green-50 dark:bg-green-900/30 rounded px-1">+{crit.upperTol}</div>}
+                                                            {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center text-green-600 font-bold dark:bg-gray-700 dark:border-gray-600" value={crit.upperTol ?? ''} onChange={(e) => updateCriterion(idx, 'upperTol', e.target.value)} /> : <div className="text-center text-xs font-mono text-green-600 bg-green-50 dark:bg-green-900/30 rounded px-1">+{crit.upperTol}</div>}
                                                         </div>
                                                         <div className="flex-1">
                                                             <label className="md:hidden text-xs font-bold text-gray-400 block">Alt</label>
-                                                            {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center text-red-600 font-bold dark:bg-gray-700 dark:border-gray-600" value={crit.lowerTol} onChange={(e) => updateCriterion(idx, 'lowerTol', e.target.value)} /> : <div className="text-center text-xs font-mono text-red-600 bg-red-50 dark:bg-red-900/30 rounded px-1">-{Math.abs(crit.lowerTol)}</div>}
+                                                            {isEditing ? <input type="number" step="0.01" className="w-full p-1 border rounded text-sm text-center text-red-600 font-bold dark:bg-gray-700 dark:border-gray-600" value={crit.lowerTol ?? ''} onChange={(e) => updateCriterion(idx, 'lowerTol', e.target.value)} /> : <div className="text-center text-xs font-mono text-red-600 bg-red-50 dark:bg-red-900/30 rounded px-1">-{Math.abs(crit.lowerTol)}</div>}
                                                         </div>
                                                     </div>
                                                 </>
