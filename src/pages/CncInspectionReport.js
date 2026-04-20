@@ -3,11 +3,27 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import html2pdf from 'html2pdf.js'; 
 import { 
-    FileText, Download, Search, History, X, Save, Plus, Trash2
+    FileText, Download, Search, History, X, Save, Plus, Trash2, Edit2
 } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, addDoc, updateDoc, deleteDoc } from '../config/firebase.js';
 import { CNC_LATHE_JOBS_COLLECTION, CNC_MEASUREMENTS_COLLECTION, CNC_PARTS_COLLECTION } from '../config/constants.js';
 import { formatDateTime } from '../utils/dateUtils.js';
+
+// --- BASİT MODAL (PENCERE) BİLEŞENİ ---
+const SimpleModal = ({ isOpen, onClose, title, children, maxWidth = "max-w-md" }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
+            <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full ${maxWidth} flex flex-col overflow-hidden`}>
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
+                    <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">{title}</h3>
+                    <button onClick={onClose} className="text-gray-500 hover:text-red-500 font-bold text-2xl">&times;</button>
+                </div>
+                <div className="p-6 overflow-y-auto flex-1">{children}</div>
+            </div>
+        </div>
+    );
+};
 
 const CncInspectionReport = ({ db }) => {
     // GELİŞTİRİCİ TESTİ İÇİN YETKİ SİMÜLATÖRÜ (Gerçek projede Auth'tan alınmalı)
@@ -32,11 +48,15 @@ const CncInspectionReport = ({ db }) => {
     const [approvedBy, setApprovedBy] = useState('');
     const [displayStartTime, setDisplayStartTime] = useState('');
     const [displayEndTime, setDisplayEndTime] = useState('');
-    const [remarks, setRemarks] = useState(''); // YENİ: Açıklama Alanı
+    const [remarks, setRemarks] = useState(''); 
 
-    // DİJİTAL FORM VERİSİ (Sonsuz Sayfa Desteği)
+    // DİJİTAL FORM VERİSİ
     const [gridData, setGridData] = useState([]);
     
+    // --- YENİ EKLENEN: İŞ EMRİ DÜZENLEME STATE'LERİ ---
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingJob, setEditingJob] = useState({ id: '', orderNumber: '' });
+
     const reportRef = useRef(null);
     const dropdownRef = useRef(null);
 
@@ -86,6 +106,35 @@ const CncInspectionReport = ({ db }) => {
         return jobs.filter(j => j.partId === selectedPart.id);
     }, [jobs, selectedPart]);
 
+
+    // --- YENİ EKLENEN: İŞ EMRİNİ VERİTABANINDA GÜNCELLEME ---
+    const handleUpdateOrderNumber = async () => {
+        if (!editingJob.id || !editingJob.orderNumber.trim()) return alert("İş emri numarası boş olamaz.");
+        setSaving(true);
+        try {
+            await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, editingJob.id), {
+                orderNumber: editingJob.orderNumber
+            });
+            
+            // Listeyi yerel olarak güncelle (Sayfa yenilemeden yansısın diye)
+            setJobs(prev => prev.map(j => j.id === editingJob.id ? { ...j, orderNumber: editingJob.orderNumber } : j));
+            
+            // Eğer rapor açıksa raporun içindeki başlığı da güncelle
+            if (reportData && reportData.job.id === editingJob.id) {
+                setReportData(prev => ({ ...prev, job: { ...prev.job, orderNumber: editingJob.orderNumber } }));
+            }
+
+            alert("İş emri numarası başarıyla güncellendi!");
+            setIsEditModalOpen(false);
+        } catch (error) {
+            console.error(error);
+            alert("Güncellenirken bir hata oluştu.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+
     // 2. Rapor Verisini Hazırla ve Tabloyu Doldur (Çoklu Sayfa Destekli)
     const handleGenerateReport = async (jobId) => {
         if (!jobId) return;
@@ -100,7 +149,7 @@ const CncInspectionReport = ({ db }) => {
             setPreparedBy(jobData.preparedBy || '');
             setCheckedBy(jobData.checkedBy || '');
             setApprovedBy(jobData.approvedBy || '');
-            setRemarks(jobData.remarks || ''); // Açıklamayı veritabanından çek
+            setRemarks(jobData.remarks || ''); 
             setDisplayStartTime(jobData.displayStartTime || formatDateTime(jobData.startTime).split(' ')[0]);
             setDisplayEndTime(jobData.displayEndTime || (jobData.endTime ? formatDateTime(jobData.endTime).split(' ')[0] : ''));
             
@@ -131,16 +180,16 @@ const CncInspectionReport = ({ db }) => {
             });
 
             const totalPages = Math.ceil((maxColIndex + 1) / 12);
-            const newGrid = Array(totalPages * 12).fill(null).map(() => ({ details: [], operator: '' }));
+            const newGrid = Array(totalPages * 12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' }));
             
             let unassignedIdx = 0;
             measurements.forEach(m => {
                 if (m.columnIndex !== undefined && m.columnIndex >= 0) {
-                    newGrid[m.columnIndex] = m;
+                    newGrid[m.columnIndex] = { ...m, timeStr: m.timeStr || '' };
                 } else {
                     while (unassignedIdx < newGrid.length && newGrid[unassignedIdx].id) unassignedIdx++;
                     if (unassignedIdx < newGrid.length) {
-                        newGrid[unassignedIdx] = m;
+                        newGrid[unassignedIdx] = { ...m, timeStr: m.timeStr || '' };
                         unassignedIdx++;
                     }
                 }
@@ -164,7 +213,7 @@ const CncInspectionReport = ({ db }) => {
     const handleAddShift = () => {
         setGridData(prev => [
             ...prev,
-            ...Array(12).fill(null).map(() => ({ details: [], operator: '' }))
+            ...Array(12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' }))
         ]);
     };
 
@@ -198,11 +247,13 @@ const CncInspectionReport = ({ db }) => {
         }
     };
 
-    const handleOperatorChange = (colIndex, value) => {
+    const handleHeaderChange = (colIndex, field, value) => {
         if (!isAdmin) return;
         const newGrid = [...gridData];
-        newGrid[colIndex].operator = value;
-        setGridData(newGrid);
+        if (newGrid[colIndex]) {
+            newGrid[colIndex][field] = value;
+            setGridData(newGrid);
+        }
     };
 
     const handleCellChange = (colIndex, critId, value, type) => {
@@ -230,7 +281,6 @@ const CncInspectionReport = ({ db }) => {
         if (!selectedJobId || !isAdmin) return;
         setSaving(true);
         try {
-            // İş Emri Altındaki Meta Verileri Kaydet (Açıklama Dahil)
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJobId), {
                 rawMaterialLot,
                 preparedBy,
@@ -238,18 +288,19 @@ const CncInspectionReport = ({ db }) => {
                 approvedBy,
                 displayStartTime,
                 displayEndTime,
-                remarks // Açıklama alanını Firestore'a kaydediyoruz
+                remarks 
             });
 
             for (let i = 0; i < gridData.length; i++) {
                 const colData = gridData[i];
-                const hasData = colData.operator?.trim().length > 0 || colData.details?.some(d => d.value !== '');
+                const hasData = colData.operator?.trim().length > 0 || colData.timeStr?.trim().length > 0 || colData.details?.some(d => d.value !== '');
                 
                 if (hasData) {
                     const docData = {
                         jobId: selectedJobId,
                         columnIndex: i, 
                         operator: colData.operator || '',
+                        timeStr: colData.timeStr || '', 
                         details: colData.details || [],
                         timestamp: colData.timestamp || Date.now() + i
                     };
@@ -289,6 +340,34 @@ const CncInspectionReport = ({ db }) => {
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
             
+            {/* İŞ EMRİ DÜZENLEME MODALI */}
+            <SimpleModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="İş Emri Numarasını Düzelt">
+                <div className="space-y-4">
+                    <div className="p-3 bg-blue-50 text-blue-800 rounded-lg text-sm border border-blue-200">
+                        Bu işlem, bu kayda ait tüm <strong>Kontrol Formu</strong> ve <strong>SPC Analiz</strong> geçmişindeki iş emri numarasını kalıcı olarak değiştirecektir.
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Yeni İş Emri No / Kodu</label>
+                        <input 
+                            type="text" 
+                            className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500 uppercase font-bold" 
+                            value={editingJob.orderNumber} 
+                            onChange={(e) => setEditingJob({...editingJob, orderNumber: e.target.value})} 
+                        />
+                    </div>
+                    <div className="pt-2">
+                        <button 
+                            onClick={handleUpdateOrderNumber} 
+                            disabled={saving}
+                            className="w-full p-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center"
+                        >
+                            {saving ? 'Güncelleniyor...' : <><Save className="w-5 h-5 mr-2" /> Değişikliği Kaydet</>}
+                        </button>
+                    </div>
+                </div>
+            </SimpleModal>
+
+
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center">
                     <FileText className="w-8 h-8 mr-3 text-blue-600" />
@@ -318,7 +397,7 @@ const CncInspectionReport = ({ db }) => {
                             type="text"
                             placeholder="Örn: 603246 veya SUNROOF..."
                             className="w-full pl-10 pr-10 p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
-                            value={searchTerm}
+                            value={searchTerm || ''}
                             onChange={(e) => {
                                 setSearchTerm(e.target.value);
                                 setIsDropdownOpen(true);
@@ -394,7 +473,22 @@ const CncInspectionReport = ({ db }) => {
                                                 <td className="px-6 py-4 text-gray-600 dark:text-gray-400">
                                                     {formatDateTime(job.startTime).split(' ')[0]}
                                                 </td>
-                                                <td className="px-6 py-4 text-right">
+                                                <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
+                                                    
+                                                    {/* YENİ EKLENEN: İŞ EMRİ DÜZENLEME BUTONU */}
+                                                    {isAdmin && (
+                                                        <button 
+                                                            onClick={() => { 
+                                                                setEditingJob({ id: job.id, orderNumber: job.orderNumber }); 
+                                                                setIsEditModalOpen(true); 
+                                                            }}
+                                                            className="px-3 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 rounded-lg font-bold transition-all text-xs flex items-center"
+                                                            title="İş Emrini Düzelt"
+                                                        >
+                                                            <Edit2 className="w-4 h-4 mr-1"/> Düzenle
+                                                        </button>
+                                                    )}
+
                                                     <button 
                                                         onClick={() => handleGenerateReport(job.id)}
                                                         disabled={loading && selectedJobId === job.id}
@@ -563,13 +657,22 @@ const CncInspectionReport = ({ db }) => {
                                                             <div className="font-bold border-b border-gray-400 pb-1 mb-1 text-[9px] whitespace-pre-line leading-tight">
                                                                 {col.title}
                                                             </div>
+                                                            {/* YENİ EKLENEN SAAT INPUTU */}
+                                                            <input 
+                                                                type="text" 
+                                                                placeholder="SAAT"
+                                                                readOnly={!isAdmin}
+                                                                className={`text-[9px] font-black text-gray-700 bg-transparent border-b border-gray-400 w-full text-center outline-none pb-0.5 mb-0.5 font-mono ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
+                                                                value={gridData[col.index]?.timeStr ?? ''}
+                                                                onChange={(e) => handleHeaderChange(col.index, 'timeStr', e.target.value)}
+                                                            />
                                                             <input 
                                                                 type="text" 
                                                                 placeholder="OPR."
                                                                 readOnly={!isAdmin}
                                                                 className={`text-[8px] font-black text-blue-900 uppercase bg-transparent border-none w-full text-center outline-none ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
-                                                                value={gridData[col.index]?.operator || ''}
-                                                                onChange={(e) => handleOperatorChange(col.index, e.target.value)}
+                                                                value={gridData[col.index]?.operator ?? ''}
+                                                                onChange={(e) => handleHeaderChange(col.index, 'operator', e.target.value)}
                                                             />
                                                         </th>
                                                     ))}
@@ -647,7 +750,6 @@ const CncInspectionReport = ({ db }) => {
                                     {/* FOOTER ALANI (AÇIKLAMA VE İMZALAR) */}
                                     <div className="absolute bottom-3 left-4 right-4 px-4">
                                         
-                                        {/* YENİ EKLENEN AÇIKLAMA (NOT) ALANI */}
                                         <div className="w-full flex items-start border border-black p-1 mb-2 bg-gray-50">
                                             <span className="font-bold text-[10px] mr-2 whitespace-nowrap pt-1">Açıklama:</span>
                                             <textarea 

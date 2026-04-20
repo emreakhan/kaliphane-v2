@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Monitor, PlayCircle, StopCircle, Clock, 
-    Save, Search, Edit2, Calendar, FileText, Plus, BarChart2, Download
+    Save, Search, Edit2, Calendar, FileText, Plus, BarChart2, Download, X
 } from 'lucide-react';
 import { 
     collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc, getDocs, orderBy 
@@ -127,7 +127,7 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
     const [partSearchTerm, setPartSearchTerm] = useState('');
     const [isPartDropdownOpen, setIsPartDropdownOpen] = useState(false);
     
-    const [gridData, setGridData] = useState(Array(12).fill(null).map(() => ({ details: [], operator: '' })));
+    const [gridData, setGridData] = useState(Array(12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' })));
     const [spcGridData, setSpcGridData] = useState([]); 
     const [savingForm, setSavingForm] = useState(false);
 
@@ -247,11 +247,18 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
             const mSnap = await getDocs(mQuery);
             const measurements = mSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-            const newGrid = Array(12).fill(null).map(() => ({ details: [], operator: loggedInUser.name }));
+            const newGrid = Array(12).fill(null).map(() => ({ details: [], operator: loggedInUser.name, timeStr: '' }));
             let unassignedIdx = 0;
             measurements.forEach(m => {
-                if (m.columnIndex !== undefined && m.columnIndex >= 0 && m.columnIndex < 12) newGrid[m.columnIndex] = m;
-                else { while (unassignedIdx < 12 && newGrid[unassignedIdx].id) unassignedIdx++; if (unassignedIdx < 12) { newGrid[unassignedIdx] = m; unassignedIdx++; } }
+                if (m.columnIndex !== undefined && m.columnIndex >= 0 && m.columnIndex < 12) {
+                    newGrid[m.columnIndex] = { ...newGrid[m.columnIndex], ...m, timeStr: m.timeStr || '' };
+                } else { 
+                    while (unassignedIdx < 12 && newGrid[unassignedIdx].id) unassignedIdx++; 
+                    if (unassignedIdx < 12) { 
+                        newGrid[unassignedIdx] = { ...newGrid[unassignedIdx], ...m, timeStr: m.timeStr || '' }; 
+                        unassignedIdx++; 
+                    } 
+                }
             });
             setGridData(newGrid); setIsMeasureModalOpen(true);
         } catch (error) { alert("Hata oluştu."); }
@@ -273,10 +280,18 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
         try {
             for (let i = 0; i < 12; i++) {
                 const colData = gridData[i];
-                const hasData = colData.operator?.trim().length > 0 || colData.details?.some(d => d.value !== '');
+                const hasData = colData.operator?.trim().length > 0 || colData.timeStr?.trim() !== '' || colData.details?.some(d => d.value !== '');
                 if (hasData) {
-                    const docData = { jobId: selectedJob.id, columnIndex: i, operator: colData.operator || '', details: colData.details || [], timestamp: colData.timestamp || Date.now() + i };
-                    if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData); else await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
+                    const docData = { 
+                        jobId: selectedJob.id, 
+                        columnIndex: i, 
+                        operator: colData.operator || '', 
+                        timeStr: colData.timeStr || '',
+                        details: colData.details || [], 
+                        timestamp: colData.timestamp || Date.now() + i 
+                    };
+                    if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData); 
+                    else await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
                 }
             }
             setIsMeasureModalOpen(false);
@@ -399,7 +414,7 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
             const actualSubgroups = [];
             const allUsedVals = [];
 
-            pageCols.forEach((col, idxInPage) => {
+            pageCols.forEach((col) => {
                 const parsedVals = col.values.map(parseInputFloat);
                 const isComplete = parsedVals.every(v => !isNaN(v));
                 if (isComplete) {
@@ -438,11 +453,30 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
         });
     }, [spcGridData, selectedJob, selectedSpcCriterionId, parts]);
 
+    const handleDownloadPdf = () => {
+        const element = reportRef.current;
+        if (!element) return;
+        const opt = {
+            margin: 0, 
+            filename: `SPC_Raporu_${selectedJob?.orderNumber || 'Rapor'}.pdf`,
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 2, useCORS: true, windowWidth: element.scrollWidth, windowHeight: element.scrollHeight }, 
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+            pagebreak: { mode: 'avoid-all' } 
+        };
+        html2pdf().set(opt).from(element).save();
+    };
 
     const calculateDuration = (startTime) => {
         const diffMs = new Date() - new Date(startTime);
         return `${Math.floor(diffMs / 3600000)}s ${Math.floor((diffMs % 3600000) / 60000)}dk`;
     };
+
+    const tableHeaders = [
+        { title: "SERİ BAŞ.\nONAYI", bg: "bg-yellow-50 dark:bg-yellow-900/20", index: 0, width: "w-16" },
+        ...Array.from({ length: 10 }).map((_, i) => ({ title: `${i + 1}.\nKONTROL`, bg: "bg-white dark:bg-gray-800", index: i + 1, width: "w-14" })),
+        { title: "SERİ SONU\nKONTROL", bg: "bg-green-50 dark:bg-green-900/20", index: 11, width: "w-16" }
+    ];
 
     return (
         <div className="p-4 sm:p-8 min-h-screen bg-gray-100 dark:bg-gray-900 font-sans text-sm">
@@ -496,7 +530,121 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                 })}
             </div>
 
-            {/* --- SPC A4 MODALI --- */}
+            {/* --- 1. STANDART KONTROL FORMU (12 SÜTUNLU) SAAT EKLENMİŞ HALİ --- */}
+            <SimpleModal isOpen={isMeasureModalOpen} onClose={() => setIsMeasureModalOpen(false)} title="Talaşlı İmalat Kontrol Formu" maxWidth="max-w-[95vw] lg:max-w-[1200px]">
+                <div className="bg-white dark:bg-gray-800 rounded-lg">
+                    <div className="flex justify-between items-end mb-4 border-b border-gray-200 dark:border-gray-700 pb-4">
+                        <div>
+                            <div className="text-2xl font-black text-gray-800 dark:text-white">{selectedJob?.partName}</div>
+                            <div className="text-sm text-gray-500 font-bold mt-1">İş Emri: {selectedJob?.orderNumber || 'Yok'}</div>
+                        </div>
+                        <div className="text-right">
+                            <button onClick={handleSaveBigForm} disabled={savingForm} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50">
+                                <Save className="w-5 h-5 mr-2" /> {savingForm ? 'KAYDEDİLİYOR...' : 'FORMA İŞLE'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto pb-4">
+                        <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 text-center text-xs">
+                            <thead>
+                                <tr className="bg-gray-100 dark:bg-gray-700">
+                                    <th className="border border-gray-300 dark:border-gray-600 p-2 w-10 text-gray-700 dark:text-gray-300">NO</th>
+                                    <th className="border border-gray-300 dark:border-gray-600 p-2 text-left text-gray-700 dark:text-gray-300">KONTROL KRİTERİ (Nominal / Tol)</th>
+                                    
+                                    {tableHeaders.map((col) => (
+                                        <th key={col.index} className={`border border-gray-300 dark:border-gray-600 p-2 align-top ${col.width} ${col.bg}`}>
+                                            <div className="font-bold border-b border-gray-300 dark:border-gray-500 pb-1 mb-1 text-[10px] whitespace-pre-line text-gray-800 dark:text-gray-200">
+                                                {col.title}
+                                            </div>
+                                            {/* YENİ SAAT INPUTU EKLENDİ */}
+                                            <input 
+                                                type="text" 
+                                                placeholder="SAAT"
+                                                className="text-[10px] font-black text-gray-700 dark:text-gray-300 bg-transparent border-b border-gray-300 dark:border-gray-500 w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400 pb-1 mb-1 font-mono"
+                                                value={gridData[col.index]?.timeStr ?? ''}
+                                                onChange={(e) => {
+                                                    const newGrid = [...gridData];
+                                                    if (newGrid[col.index]) {
+                                                        newGrid[col.index].timeStr = e.target.value;
+                                                        setGridData(newGrid);
+                                                    }
+                                                }}
+                                            />
+                                            <input 
+                                                type="text" 
+                                                placeholder="OPR."
+                                                className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase bg-transparent border-none w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400"
+                                                value={gridData[col.index]?.operator ?? ''}
+                                                onChange={(e) => {
+                                                    const newGrid = [...gridData];
+                                                    if (newGrid[col.index]) {
+                                                        newGrid[col.index].operator = e.target.value;
+                                                        setGridData(newGrid);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {activeCriteria.map((crit, idx) => (
+                                    <tr key={crit.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                        <td className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-600 dark:text-gray-400">{idx + 1}</td>
+                                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-left px-3">
+                                            <span className="font-bold text-sm text-gray-800 dark:text-white block">{crit.name}</span>
+                                            {crit.type !== 'BOOL' && <span className="text-[10px] text-gray-500">{crit.nominal} (+{crit.upperTol}/-{Math.abs(crit.lowerTol)})</span>}
+                                        </td>
+                                        
+                                        {tableHeaders.map((col) => {
+                                            const detail = gridData[col.index]?.details?.find(d => d.criterionId === crit.id);
+                                            let rawVal = detail?.value;
+                                            if (rawVal === null || rawVal === undefined) rawVal = '';
+
+                                            let displayVal = rawVal;
+                                            let textClass = 'text-gray-900 dark:text-white font-mono';
+
+                                            if (rawVal !== '') {
+                                                if (crit.type === 'BOOL') {
+                                                    displayVal = rawVal === 1 ? 'OK' : (rawVal === 0 ? 'RET' : '');
+                                                    textClass = displayVal === 'OK' ? 'text-green-600 font-bold' : 'text-red-600 font-extrabold';
+                                                } else {
+                                                    const numVal = parseFloat(rawVal.toString().replace(',', '.'));
+                                                    const nom = parseFloat(crit.nominal);
+                                                    const upper = parseFloat(crit.upperTol);
+                                                    const lower = parseFloat(crit.lowerTol);
+                                                    if (!isNaN(numVal) && !isNaN(nom)) {
+                                                        if (numVal > (nom + upper) || numVal < (nom - Math.abs(lower))) {
+                                                            textClass += ' text-red-500 font-extrabold';
+                                                        } else {
+                                                            textClass += ' font-bold';
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            return (
+                                                <td key={col.index} className={`border border-gray-300 dark:border-gray-600 p-0 h-10 align-middle ${col.bg}`}>
+                                                    {crit.type === 'BOOL' ? (
+                                                        <select className={`w-full h-full bg-transparent border-none text-center outline-none cursor-pointer text-xs font-bold ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'BOOL', gridData, setGridData)}>
+                                                            <option value=""></option><option value="OK">OK</option><option value="RET">RET</option>
+                                                        </select>
+                                                    ) : (
+                                                        <input type="text" className={`w-full h-full bg-transparent border-none text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 text-sm ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'NUMBER', gridData, setGridData)} />
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </SimpleModal>
+
+            {/* --- 2. SPC A4 MODALI --- */}
             <SimpleModal isOpen={isSpcModalOpen} onClose={() => setIsSpcModalOpen(false)} title="İstatistiki Proses Kontrol (SPC) Formu" maxWidth="max-w-[98vw] lg:max-w-[1200px]" fullHeight={true}>
                 
                 <div className="flex flex-wrap justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 gap-4">
@@ -513,130 +661,155 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                         <button onClick={handleSaveSpcForm} disabled={savingForm} className="px-5 py-2.5 bg-purple-600 text-white font-bold rounded-lg shadow hover:bg-purple-700 flex items-center transition text-xs">
                             <Save className="w-4 h-4 mr-2"/> {savingForm ? 'KAYDEDİLİYOR...' : 'TÜMÜNÜ KAYDET'}
                         </button>
+                        <button onClick={handleDownloadPdf} className="px-5 py-2.5 bg-green-600 text-white font-bold rounded-lg shadow hover:bg-green-700 flex items-center transition text-xs">
+                            <Download className="w-4 h-4 mr-2"/> PDF İNDİR (A4)
+                        </button>
                     </div>
                 </div>
 
                 <div className="flex flex-col gap-8 pb-10">
-                    {spcPagesAnalysis.map((pageData, pageIdx) => (
-                        <div key={pageIdx} className="bg-white text-black box-border flex flex-col relative shadow-xl mx-auto rounded-lg overflow-hidden shrink-0" style={{ width: '297mm', minHeight: '210mm', padding: '8mm' }}>
-                            
-                            {/* ANTET */}
-                            <div className="grid grid-cols-12 border-2 border-black mb-1 shrink-0 bg-white h-[18mm]">
-                                <div className="col-span-3 border-r-2 border-black flex items-center justify-center p-1"><img src="/logo512.png" alt="Logo" className="h-10 object-contain" /></div>
-                                <div className="col-span-6 border-r-2 border-black flex flex-col items-center justify-center text-center"><h1 className="text-xl font-black uppercase tracking-wider">NİCELİK KONTROL KARTI (X-R)</h1></div>
-                                <div className="col-span-3 text-[9px] grid grid-cols-1 divide-y border-black">
-                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Sayfa No:</span><span>{pageIdx + 1} / {spcPagesAnalysis.length}</span></div>
-                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Çalışma Tarihi:</span><span>{new Date().toLocaleDateString('tr-TR')}</span></div>
-                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Doküman No:</span><span>FR 09-715-00</span></div>
+                    <div ref={reportRef}>
+                        {spcPagesAnalysis.map((pageData, pageIdx) => (
+                            <div key={pageIdx} className="bg-white text-black box-border flex flex-col relative shadow-xl mx-auto rounded-lg overflow-hidden shrink-0" style={{ width: '297mm', minHeight: '210mm', padding: '8mm', pageBreakAfter: pageIdx < spcPagesAnalysis.length - 1 ? 'always' : 'auto' }}>
+                                
+                                {/* ANTET */}
+                                <div className="grid grid-cols-12 border-2 border-black mb-1 shrink-0 bg-white h-[18mm]">
+                                    <div className="col-span-3 border-r-2 border-black flex items-center justify-center p-1"><img src="/logo512.png" alt="Logo" className="h-10 object-contain" /></div>
+                                    <div className="col-span-6 border-r-2 border-black flex flex-col items-center justify-center text-center"><h1 className="text-xl font-black uppercase tracking-wider">NİCELİK KONTROL KARTI (X-R)</h1></div>
+                                    <div className="col-span-3 text-[9px] grid grid-cols-1 divide-y border-black">
+                                        <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Sayfa No:</span><span>{pageIdx + 1} / {spcPagesAnalysis.length}</span></div>
+                                        <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Çalışma Tarihi:</span><span>{new Date().toLocaleDateString('tr-TR')}</span></div>
+                                        <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Doküman No:</span><span>FR 09-715-00</span></div>
+                                    </div>
                                 </div>
-                            </div>
 
-                            {/* BİLGİLER */}
-                            <div className="border-2 border-t-0 border-black mb-1.5 flex text-[9px] shrink-0 bg-white divide-x border-black h-[14mm]">
-                                <div className="flex-1 flex flex-col divide-y border-black">
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Parça Adı:</span><span className="truncate">{pageData.jobPart.partName}</span></div>
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Müşteri:</span><span className="uppercase">{pageData.jobPart.targetCustomer || 'STANDART'}</span></div>
+                                {/* BİLGİLER */}
+                                <div className="border-2 border-t-0 border-black mb-1.5 flex text-[9px] shrink-0 bg-white divide-x border-black h-[14mm]">
+                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Parça Adı:</span><span className="truncate">{pageData.jobPart.partName}</span></div>
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Müşteri:</span><span className="uppercase">{pageData.jobPart.targetCustomer || 'STANDART'}</span></div>
+                                    </div>
+                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">Operasyon:</span><span className="truncate">{selectedJob?.machine}</span></div>
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">İş Emri No:</span><span className="font-bold text-lg text-purple-800">{selectedJob?.orderNumber}</span></div>
+                                    </div>
+                                    <div className="flex-1 flex flex-col divide-y border-black bg-gray-50">
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Karakteristik:</span><span className="font-bold text-blue-700 truncate">{pageData.critName}</span></div>
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Nom/Tol:</span><span className="font-black text-[10px]">{pageData.nominal}</span> <span className="font-bold text-green-700 ml-1"> (+{pageData.USL - pageData.nominal} / -{pageData.nominal - pageData.LSL})</span></div>
+                                    </div>
+                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Ölç. Sayısı:</span><span>n = {pageData.nSize}</span></div>
+                                        <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Frekans:</span><span>{pageData.jobPart.sampleFrequencyMinutes} dk</span></div>
+                                    </div>
                                 </div>
-                                <div className="flex-1 flex flex-col divide-y border-black">
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">Operasyon:</span><span className="truncate">{selectedJob?.machine}</span></div>
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">İş Emri No:</span><span className="font-bold text-lg text-purple-800">{selectedJob?.orderNumber}</span></div>
-                                </div>
-                                <div className="flex-1 flex flex-col divide-y border-black bg-gray-50">
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Karakteristik:</span><span className="font-bold text-blue-700 truncate">{pageData.critName}</span></div>
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Nom/Tol:</span><span className="font-black text-[10px]">{pageData.nominal}</span> <span className="font-bold text-green-700 ml-1"> (+{pageData.USL - pageData.nominal} / -{pageData.nominal - pageData.LSL})</span></div>
-                                </div>
-                                <div className="flex-1 flex flex-col divide-y border-black">
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Ölç. Sayısı:</span><span>n = {pageData.nSize}</span></div>
-                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Frekans:</span><span>{pageData.jobPart.sampleFrequencyMinutes} dk</span></div>
-                                </div>
-                            </div>
 
-                            {/* EXCEL TABLOSU */}
-                            <div className="border-2 border-black w-full flex flex-col text-[8.5px] shrink-0 mb-1.5">
-                                <div className="flex border-b border-black text-center font-bold bg-gray-200 h-[14px] items-stretch">
-                                    <div className="w-[50px] shrink-0 border-r border-black flex items-center justify-center">Örnek No</div>
-                                    {pageData.pageCols.map((col, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center">{col.columnIndex + 1}</div>)}
-                                </div>
-                                <div className="flex border-b border-black text-center h-[16px] items-stretch bg-gray-50">
-                                    <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">Saat</div>
-                                    {pageData.pageCols.map((col, i) => (
-                                        <div key={i} className="flex-1 border-r border-black last:border-0">
-                                            <input type="text" className="w-full h-full text-center outline-none bg-transparent focus:bg-yellow-200 font-mono" value={col.timeStr ?? ''} onChange={(e) => handleSpcGridChange(col.columnIndex, 'timeStr', e.target.value)} />
+                                {/* EXCEL TABLOSU */}
+                                <div className="border-2 border-black w-full flex flex-col text-[8.5px] shrink-0 mb-1.5 bg-white">
+                                    <div className="flex border-b border-black text-center font-bold bg-gray-200 h-[14px] items-stretch">
+                                        <div className="w-[50px] shrink-0 border-r border-black flex items-center justify-center">Örnek No</div>
+                                        {pageData.pageCols.map((col, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center">{col.columnIndex + 1}</div>)}
+                                    </div>
+                                    <div className="flex border-b border-black text-center h-[16px] items-stretch bg-gray-50">
+                                        <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">Saat</div>
+                                        {pageData.pageCols.map((col, i) => (
+                                            <div key={i} className="flex-1 border-r border-black last:border-0 h-full">
+                                                <input type="text" className="w-full h-full text-center outline-none bg-transparent focus:bg-yellow-200 font-mono" value={col.timeStr ?? ''} onChange={(e) => handleSpcGridChange(col.columnIndex, 'timeStr', e.target.value)} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex text-center border-b border-black bg-gray-50 h-[16px] items-stretch">
+                                        <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">Opr.</div>
+                                        {pageData.pageCols.map((col, i) => (
+                                            <div key={i} className="flex-1 border-r border-black last:border-0 h-full">
+                                                <input type="text" className="w-full h-full text-center outline-none bg-transparent uppercase font-bold focus:bg-yellow-200 text-[7px]" value={col.operator ?? ''} onChange={(e) => handleSpcGridChange(col.columnIndex, 'operator', e.target.value)} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {Array.from({ length: pageData.nSize }).map((_, rIdx) => (
+                                        <div key={`X${rIdx}`} className="flex border-b border-black text-center h-[16px] items-stretch bg-white">
+                                            <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center bg-gray-100">X{rIdx + 1}</div>
+                                            {pageData.pageCols.map((col, cIdx) => {
+                                                let val = col.values[rIdx] ?? '';
+                                                let isErr = false;
+                                                if (val !== '') {
+                                                    const nVal = parseInputFloat(val);
+                                                    if (!isNaN(nVal) && (nVal > pageData.USL || nVal < pageData.LSL)) isErr = true;
+                                                }
+                                                return (
+                                                    <div key={cIdx} className="flex-1 border-r border-black last:border-0 h-full">
+                                                        <input type="text" className={`w-full h-full text-center outline-none focus:bg-yellow-200 font-mono ${isErr ? 'text-red-600 font-bold bg-red-50' : ''}`} value={val} onChange={(e) => handleSpcGridChange(col.columnIndex, 'values', e.target.value, rIdx)} />
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     ))}
-                                </div>
-                                <div className="flex text-center border-b border-black bg-gray-50 h-[16px] items-stretch">
-                                    <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">Opr.</div>
-                                    {pageData.pageCols.map((col, i) => (
-                                        <div key={i} className="flex-1 border-r border-black last:border-0">
-                                            <input type="text" className="w-full h-full text-center outline-none bg-transparent uppercase font-bold focus:bg-yellow-200 text-[7px]" value={col.operator ?? ''} onChange={(e) => handleSpcGridChange(col.columnIndex, 'operator', e.target.value)} />
-                                        </div>
-                                    ))}
-                                </div>
-                                {Array.from({ length: pageData.nSize }).map((_, rIdx) => (
-                                    <div key={`X${rIdx}`} className="flex border-b border-black text-center h-[16px] items-stretch bg-white">
-                                        <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center bg-gray-100">X{rIdx + 1}</div>
-                                        {pageData.pageCols.map((col, cIdx) => {
-                                            let val = col.values[rIdx] ?? '';
-                                            let isErr = false;
-                                            if (val !== '') {
-                                                const nVal = parseInputFloat(val);
-                                                if (!isNaN(nVal) && (nVal > pageData.USL || nVal < pageData.LSL)) isErr = true;
-                                            }
-                                            return (
-                                                <div key={cIdx} className="flex-1 border-r border-black last:border-0">
-                                                    <input type="text" className={`w-full h-full text-center outline-none focus:bg-yellow-200 font-mono ${isErr ? 'text-red-600 font-bold bg-red-50' : ''}`} value={val} onChange={(e) => handleSpcGridChange(col.columnIndex, 'values', e.target.value, rIdx)} />
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="flex border-b border-black text-center h-[16px] items-stretch bg-blue-50">
+                                        <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">X̄</div>
+                                        {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.mean.toFixed(3) : ''}</div>)}
                                     </div>
-                                ))}
-                                <div className="flex border-b border-black text-center h-[16px] items-stretch bg-blue-50">
-                                    <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">X̄</div>
-                                    {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.mean.toFixed(3) : ''}</div>)}
+                                    <div className="flex text-center h-[16px] items-stretch bg-blue-50">
+                                        <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">R</div>
+                                        {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.range.toFixed(3) : ''}</div>)}
+                                    </div>
                                 </div>
-                                <div className="flex text-center h-[16px] items-stretch bg-blue-50">
-                                    <div className="w-[50px] shrink-0 border-r border-black font-bold flex items-center justify-center">R</div>
-                                    {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.range.toFixed(3) : ''}</div>)}
-                                </div>
-                            </div>
 
-                            {/* GRAFİKLER VE HESAPLAMALAR */}
-                            <div className="flex flex-1 gap-2 overflow-hidden h-[95mm]">
-                                <div className="flex-1 flex flex-col gap-1.5 h-full">
-                                    <div className="flex-1 border border-black flex flex-col min-h-0 relative">
-                                        <SpcChart data={pageData.actualSubgroups} dataKey="mean" centerLine={pageData.X_double_bar} UCL={pageData.UCL_X} LCL={pageData.LCL_X} USL={pageData.USL} LSL={pageData.LSL} showSpecs={true} width={750} height={140} title="X ORTALAMA KARTI" />
+                                {/* GRAFİKLER VE HESAPLAMALAR */}
+                                <div className="flex flex-1 gap-2 overflow-hidden h-[95mm]">
+                                    <div className="flex-1 flex flex-col gap-1.5 h-full">
+                                        <div className="flex-1 border border-black flex flex-col min-h-0 relative">
+                                            <SpcChart data={pageData.actualSubgroups} dataKey="mean" centerLine={pageData.X_double_bar} UCL={pageData.UCL_X} LCL={pageData.LCL_X} USL={pageData.USL} LSL={pageData.LSL} showSpecs={true} width={750} height={140} title="X ORTALAMA KARTI" />
+                                        </div>
+                                        <div className="flex-1 border border-black flex flex-col min-h-0 relative">
+                                            <SpcChart data={pageData.actualSubgroups} dataKey="range" centerLine={pageData.R_bar} UCL={pageData.UCL_R} LCL={pageData.LCL_R} showSpecs={false} width={750} height={140} title="R (ARALIK) KARTI" />
+                                        </div>
                                     </div>
-                                    <div className="flex-1 border border-black flex flex-col min-h-0 relative">
-                                        <SpcChart data={pageData.actualSubgroups} dataKey="range" centerLine={pageData.R_bar} UCL={pageData.UCL_R} LCL={pageData.LCL_R} showSpecs={false} width={750} height={140} title="R (ARALIK) KARTI" />
-                                    </div>
-                                </div>
-                                <div className="w-[160px] shrink-0 flex flex-col gap-1.5 text-[8.5px] h-full">
-                                    <div className="border border-black p-1 bg-gray-50 flex flex-col justify-center">
-                                        <div className="font-black border-b border-gray-400 text-center mb-0.5">İSTATİSTİK (Sayfa {pageIdx+1})</div>
-                                        <div className="flex justify-between"><span>Ölçüm (k):</span> <span className="font-bold">{pageData.k}</span></div>
-                                        <div className="flex justify-between"><span>X̄X̄ (Gen. Ort):</span> <span className="font-bold text-blue-800">{pageData.X_double_bar.toFixed(3)}</span></div>
-                                        <div className="flex justify-between"><span>R̄ (Ort. R):</span> <span className="font-bold text-blue-800">{pageData.R_bar.toFixed(3)}</span></div>
-                                        <div className="flex justify-between font-bold text-red-600 border-t border-gray-300 pt-0.5 mt-0.5"><span>Sapma(σ):</span> <span>{pageData.sigma_within.toFixed(4)}</span></div>
-                                        <div className="font-black border-b border-gray-400 text-center mt-1 mb-0.5">LİMİTLER</div>
-                                        <div className="flex justify-between text-red-700 font-bold"><span>UCL(X):</span> <span>{pageData.UCL_X.toFixed(3)}</span></div>
-                                        <div className="flex justify-between text-red-700 font-bold"><span>LCL(X):</span> <span>{pageData.LCL_X.toFixed(3)}</span></div>
-                                        <div className="flex justify-between text-purple-700 font-bold"><span>UCL(R):</span> <span>{pageData.UCL_R.toFixed(3)}</span></div>
-                                        <div className="flex justify-between text-purple-700 font-bold"><span>LCL(R):</span> <span>{pageData.LCL_R.toFixed(3)}</span></div>
-                                    </div>
-                                    <div className="border border-black p-1 bg-white">
-                                        <div className="font-black border-b border-gray-400 text-center mb-1 uppercase">YETERLİLİK ({pageData.jobPart.targetCustomer || 'GENEL'})</div>
-                                        <div className="grid grid-cols-2 gap-1 text-center font-bold">
-                                            <div className="bg-gray-100 p-0.5">Cp<br/><span className="text-xs text-black">{pageData.Cp.toFixed(2)}</span></div>
-                                            <div className="bg-gray-100 p-0.5">Cpk<br/><span className={`text-xs ${pageData.Cpk >= (pageData.jobPart.targetCpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Cpk.toFixed(2)}</span></div>
-                                            <div className="bg-gray-100 p-0.5">Pp<br/><span className="text-xs text-black">{pageData.Pp.toFixed(2)}</span></div>
-                                            <div className="bg-gray-100 p-0.5">Ppk<br/><span className={`text-xs ${pageData.Ppk >= (pageData.jobPart.targetPpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Ppk.toFixed(2)}</span></div>
+                                    <div className="w-[160px] shrink-0 flex flex-col gap-1.5 text-[8.5px] h-full">
+                                        <div className="border border-black p-1 bg-gray-50 flex flex-col justify-center">
+                                            <div className="font-black border-b border-gray-400 text-center mb-0.5">İSTATİSTİK (Sayfa {pageIdx+1})</div>
+                                            <div className="flex justify-between"><span>Ölçüm (k):</span> <span className="font-bold">{pageData.k}</span></div>
+                                            <div className="flex justify-between"><span>X̄X̄ (Gen. Ort):</span> <span className="font-bold text-blue-800">{pageData.X_double_bar.toFixed(3)}</span></div>
+                                            <div className="flex justify-between"><span>R̄ (Ort. R):</span> <span className="font-bold text-blue-800">{pageData.R_bar.toFixed(3)}</span></div>
+                                            <div className="flex justify-between font-bold text-red-600 border-t border-gray-300 pt-0.5 mt-0.5"><span>Sapma(σ):</span> <span>{pageData.sigma_within.toFixed(4)}</span></div>
+                                            <div className="font-black border-b border-gray-400 text-center mt-1 mb-0.5">LİMİTLER</div>
+                                            <div className="flex justify-between text-red-700 font-bold"><span>UCL(X):</span> <span>{pageData.UCL_X.toFixed(3)}</span></div>
+                                            <div className="flex justify-between text-red-700 font-bold"><span>LCL(X):</span> <span>{pageData.LCL_X.toFixed(3)}</span></div>
+                                            <div className="flex justify-between text-purple-700 font-bold"><span>UCL(R):</span> <span>{pageData.UCL_R.toFixed(3)}</span></div>
+                                            <div className="flex justify-between text-purple-700 font-bold"><span>LCL(R):</span> <span>{pageData.LCL_R.toFixed(3)}</span></div>
+                                        </div>
+                                        <div className="border border-black p-1 bg-white">
+                                            <div className="font-black border-b border-gray-400 text-center mb-1 uppercase">YETERLİLİK ({pageData.jobPart.targetCustomer || 'GENEL'})</div>
+                                            <div className="grid grid-cols-2 gap-1 text-center font-bold">
+                                                <div className="bg-gray-100 p-0.5">Cp<br/><span className="text-xs text-black">{pageData.Cp.toFixed(2)}</span></div>
+                                                <div className="bg-gray-100 p-0.5">Cpk<br/><span className={`text-xs ${pageData.Cpk >= (pageData.jobPart.targetCpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Cpk.toFixed(2)}</span></div>
+                                                <div className="bg-gray-100 p-0.5">Pp<br/><span className="text-xs text-black">{pageData.Pp.toFixed(2)}</span></div>
+                                                <div className="bg-gray-100 p-0.5">Ppk<br/><span className={`text-xs ${pageData.Ppk >= (pageData.jobPart.targetPpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Ppk.toFixed(2)}</span></div>
+                                            </div>
+                                        </div>
+                                        <div className="border border-black p-1 bg-yellow-50 flex-1 flex flex-col justify-center">
+                                            <div className="font-black text-center border-b border-gray-400 mb-0.5">KATSAYILAR</div>
+                                            <table className="w-full text-center">
+                                                <thead><tr className="border-b border-gray-400 font-bold text-[7px]"><td>n</td><td>A2</td><td>D3</td><td>D4</td><td>d2</td></tr></thead>
+                                                <tbody className="text-[8px]">
+                                                    {[2, 3, 4, 5, 6].map(num => (
+                                                        <tr key={num} className={pageData.nSize === num ? "bg-yellow-300 font-black" : ""}>
+                                                            <td>{num}</td><td>{SPC_CONSTANTS[num].A2.toFixed(3)}</td><td>{SPC_CONSTANTS[num].D3}</td><td>{SPC_CONSTANTS[num].D4.toFixed(3)}</td><td>{SPC_CONSTANTS[num].d2.toFixed(3)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* İMZALAR */}
+                                <div className="mt-2 border-t-2 border-black pt-2 grid grid-cols-3 gap-8 text-center text-xs shrink-0 h-[15mm]">
+                                    <div><div className="font-bold mb-3">Hazırlayan</div></div>
+                                    <div><div className="font-bold mb-3">Kontrol Eden</div></div>
+                                    <div><div className="font-bold mb-3">Onaylayan</div></div>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             </SimpleModal>
 
@@ -659,6 +832,25 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                         </div>
                         <button onClick={handleStartJob} className="w-full p-2 bg-green-600 text-white font-bold rounded">BAŞLAT</button>
                     </div>
+                </div>
+            </SimpleModal>
+            
+            {/* Edit Modal */}
+            <SimpleModal isOpen={isEditJobModalOpen} onClose={() => setIsEditJobModalOpen(false)} title="İş Bilgilerini Düzenle">
+                <div className="space-y-4">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded text-sm text-blue-800 dark:text-blue-200"><strong>Parça:</strong> {selectedJob?.partName}</div>
+                    <div><label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">İş Emri Numarası</label><input type="text" className="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-white" value={editFormData.orderNumber} onChange={e => setEditFormData({...editFormData, orderNumber: e.target.value})} /></div>
+                    <div><label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Hedeflenen Adet</label><input type="number" className="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-white" value={editFormData.targetQuantity} onChange={e => setEditFormData({...editFormData, targetQuantity: e.target.value})} /></div>
+                    <button onClick={handleSaveJobEdit} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg">GÜNCELLE</button>
+                </div>
+            </SimpleModal>
+
+            {/* Finish Modal */}
+            <SimpleModal isOpen={isFinishModalOpen} onClose={() => setIsFinishModalOpen(false)} title="İşi Sonlandır">
+                <div className="space-y-4">
+                    <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-100 text-center"><div className="text-xl font-black text-gray-900">{selectedJob?.orderNumber || '---'}</div></div>
+                    <div><label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Üretilen Toplam Adet</label><input type="number" className="w-full p-4 text-center text-2xl font-bold border-2 border-green-500 rounded-lg bg-white dark:bg-gray-700 dark:text-white" value={producedQuantity} onChange={e => setProducedQuantity(e.target.value)} /></div>
+                    <button onClick={handleFinishJob} className="w-full py-3 mt-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg">KAYDET VE BİTİR</button>
                 </div>
             </SimpleModal>
 
