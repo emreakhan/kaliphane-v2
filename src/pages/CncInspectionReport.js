@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import html2pdf from 'html2pdf.js'; 
 import { 
-    FileText, Download, Search, History, X, Save, Plus, Trash2, Edit2
+    FileText, Download, Search, History, X, Save, Plus, Trash2, Edit2, PlusCircle, Wand2
 } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, addDoc, updateDoc, deleteDoc } from '../config/firebase.js';
-import { CNC_LATHE_JOBS_COLLECTION, CNC_MEASUREMENTS_COLLECTION, CNC_PARTS_COLLECTION } from '../config/constants.js';
+import { CNC_LATHE_JOBS_COLLECTION, CNC_MEASUREMENTS_COLLECTION, CNC_PARTS_COLLECTION, CNC_LATHE_MACHINES } from '../config/constants.js';
 import { formatDateTime } from '../utils/dateUtils.js';
 
 // --- BASİT MODAL (PENCERE) BİLEŞENİ ---
@@ -26,7 +26,6 @@ const SimpleModal = ({ isOpen, onClose, title, children, maxWidth = "max-w-md" }
 };
 
 const CncInspectionReport = ({ db }) => {
-    // GELİŞTİRİCİ TESTİ İÇİN YETKİ SİMÜLATÖRÜ (Gerçek projede Auth'tan alınmalı)
     const [isAdmin, setIsAdmin] = useState(true);
 
     const [parts, setParts] = useState([]); 
@@ -53,9 +52,20 @@ const CncInspectionReport = ({ db }) => {
     // DİJİTAL FORM VERİSİ
     const [gridData, setGridData] = useState([]);
     
-    // --- YENİ EKLENEN: İŞ EMRİ DÜZENLEME STATE'LERİ ---
+    // İŞ EMRİ DÜZENLEME STATE'LERİ
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingJob, setEditingJob] = useState({ id: '', orderNumber: '' });
+
+    // GEÇMİŞ İŞ EMRİ EKLEME STATE'LERİ
+    const [isAddPastJobModalOpen, setIsAddPastJobModalOpen] = useState(false);
+    const [pastJobFormData, setPastJobFormData] = useState({
+        orderNumber: '',
+        machine: CNC_LATHE_MACHINES ? CNC_LATHE_MACHINES[0] : 'TEZGAH-1',
+        startDate: new Date().toISOString().split('T')[0],
+        startTime: '08:00',
+        targetQuantity: '100',
+        operator: 'Admin'
+    });
 
     const reportRef = useRef(null);
     const dropdownRef = useRef(null);
@@ -107,7 +117,7 @@ const CncInspectionReport = ({ db }) => {
     }, [jobs, selectedPart]);
 
 
-    // --- YENİ EKLENEN: İŞ EMRİNİ VERİTABANINDA GÜNCELLEME ---
+    // --- İŞ EMRİNİ GÜNCELLEME ---
     const handleUpdateOrderNumber = async () => {
         if (!editingJob.id || !editingJob.orderNumber.trim()) return alert("İş emri numarası boş olamaz.");
         setSaving(true);
@@ -115,15 +125,10 @@ const CncInspectionReport = ({ db }) => {
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, editingJob.id), {
                 orderNumber: editingJob.orderNumber
             });
-            
-            // Listeyi yerel olarak güncelle (Sayfa yenilemeden yansısın diye)
             setJobs(prev => prev.map(j => j.id === editingJob.id ? { ...j, orderNumber: editingJob.orderNumber } : j));
-            
-            // Eğer rapor açıksa raporun içindeki başlığı da güncelle
             if (reportData && reportData.job.id === editingJob.id) {
                 setReportData(prev => ({ ...prev, job: { ...prev.job, orderNumber: editingJob.orderNumber } }));
             }
-
             alert("İş emri numarası başarıyla güncellendi!");
             setIsEditModalOpen(false);
         } catch (error) {
@@ -134,8 +139,108 @@ const CncInspectionReport = ({ db }) => {
         }
     };
 
+    // --- YENİ EKLENEN: GEÇMİŞ İŞ EMRİ EKLEME ---
+    const handleAddPastJob = async () => {
+        if (!selectedPart || !pastJobFormData.orderNumber || !pastJobFormData.startDate) {
+            return alert("Lütfen iş emri ve tarih alanlarını doldurunuz.");
+        }
+        setSaving(true);
+        try {
+            const combinedStartTime = `${pastJobFormData.startDate} ${pastJobFormData.startTime || '08:00'}`;
+            const newJob = {
+                partId: selectedPart.id,
+                partName: selectedPart.partName,
+                orderNumber: pastJobFormData.orderNumber,
+                machine: pastJobFormData.machine,
+                targetQuantity: parseInt(pastJobFormData.targetQuantity) || 0,
+                producedQuantity: 0,
+                startTime: combinedStartTime,
+                endTime: combinedStartTime, 
+                operator: pastJobFormData.operator,
+                status: 'COMPLETED'
+            };
+            const docRef = await addDoc(collection(db, CNC_LATHE_JOBS_COLLECTION), newJob);
+            setJobs(prev => [{ id: docRef.id, ...newJob }, ...prev]);
+            setIsAddPastJobModalOpen(false);
+            alert("Geçmiş iş emri başarıyla eklendi!");
+            setPastJobFormData(prev => ({ ...prev, orderNumber: '' })); // Formu temizle
+        } catch (error) {
+            console.error("İş emri ekleme hatası:", error);
+            alert("Kayıt oluşturulurken hata oluştu.");
+        } finally {
+            setSaving(false);
+        }
+    };
 
-    // 2. Rapor Verisini Hazırla ve Tabloyu Doldur (Çoklu Sayfa Destekli)
+    // --- YENİ EKLENEN: OTOMATİK DOLDURMA (SİHİRLİ DEĞNEK) ---
+    const handleAutoFill = () => {
+        if (!reportData || !reportData.criteria || gridData.length === 0) return;
+        
+        const confirmFill = window.confirm("Tüm BOŞ ölçümler, belirtilen toleranslar içinde rastgele OK değerlerle otomatik doldurulacaktır. Onaylıyor musunuz?");
+        if (!confirmFill) return;
+
+        let currentHour = 8;
+        let currentMin = 0;
+
+        const newGrid = gridData.map((col, cIdx) => {
+            let newDetails = [...(col.details || [])];
+            
+            reportData.criteria.forEach(crit => {
+                const existingIdx = newDetails.findIndex(d => d.criterionId === crit.id);
+                let finalValue = '';
+
+                if (crit.type === 'BOOL') {
+                    finalValue = 1; // 1 OK Demek
+                } else {
+                    const nominal = parseFloat(crit.nominal);
+                    const upperTol = parseFloat(crit.upperTol);
+                    const lowerTol = Math.abs(parseFloat(crit.lowerTol));
+                    
+                    if (!isNaN(nominal) && !isNaN(upperTol) && !isNaN(lowerTol)) {
+                        // Tolerans aralığının tam sınırlarına değmemesi için güvenli marj (%10 içeride kalsın)
+                        const safeMargin = (upperTol + lowerTol) * 0.05;
+                        const min = nominal - lowerTol + safeMargin;
+                        const max = nominal + upperTol - safeMargin;
+                        const randomVal = min + Math.random() * (max - min);
+                        
+                        // Küsürat ayarlaması (Nominaldeki küsürata göre, en az 2)
+                        const decimalPlaces = crit.nominal.toString().includes('.') ? crit.nominal.toString().split('.')[1].length : 2;
+                        finalValue = randomVal.toFixed(Math.max(decimalPlaces, 2));
+                    }
+                }
+
+                if (existingIdx >= 0) {
+                    // Sadece boşsa doldur
+                    if(newDetails[existingIdx].value === '' || newDetails[existingIdx].value === null || newDetails[existingIdx].value === undefined) {
+                       newDetails[existingIdx].value = finalValue;
+                    }
+                } else {
+                    newDetails.push({ criterionId: crit.id, type: crit.type || 'NUMBER', value: finalValue });
+                }
+            });
+
+            // Otomatik Saat Ayarı
+            let timeStr = col.timeStr;
+            if (!timeStr) {
+                timeStr = `${currentHour.toString().padStart(2, '0')}:${currentMin.toString().padStart(2, '0')}`;
+                currentMin += 30; // 30 dakikada bir ölçüm yapıyor gibi
+                if(currentMin >= 60) { currentMin -= 60; currentHour++; }
+                if(currentHour >= 24) currentHour = 0;
+            }
+
+            return {
+                ...col,
+                operator: col.operator || 'OTO-OPR',
+                timeStr: timeStr,
+                details: newDetails
+            };
+        });
+
+        setGridData(newGrid);
+    };
+
+
+    // 2. Rapor Verisini Hazırla ve Tabloyu Doldur
     const handleGenerateReport = async (jobId) => {
         if (!jobId) return;
         setSelectedJobId(jobId);
@@ -218,11 +323,7 @@ const CncInspectionReport = ({ db }) => {
     };
 
     const handleRemoveShift = async () => {
-        if (gridData.length <= 12) {
-            alert("İlk sayfayı silemezsiniz!");
-            return;
-        }
-
+        if (gridData.length <= 12) return alert("İlk sayfayı silemezsiniz!");
         const confirmDelete = window.confirm("Son eklenen vardiya sayfasını silmek istediğinize emin misiniz? (Bu sayfadaki veriler veritabanından kalıcı olarak silinecektir!)");
         if (!confirmDelete) return;
 
@@ -232,15 +333,11 @@ const CncInspectionReport = ({ db }) => {
             const remainingItems = gridData.slice(0, -12);
 
             for (const item of itemsToRemove) {
-                if (item && item.id) {
-                    await deleteDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, item.id));
-                }
+                if (item && item.id) await deleteDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, item.id));
             }
-
             setGridData(remainingItems);
             alert("Son vardiya sayfası başarıyla silindi!");
         } catch (error) {
-            console.error("Silme hatası:", error);
             alert("Sayfa silinirken bir hata oluştu.");
         } finally {
             setSaving(false);
@@ -267,11 +364,8 @@ const CncInspectionReport = ({ db }) => {
             finalValue = value === 'OK' ? 1 : (value === 'RET' ? 0 : '');
         }
 
-        if (existingIdx >= 0) {
-            details[existingIdx].value = finalValue;
-        } else {
-            details.push({ criterionId: critId, type, value: finalValue });
-        }
+        if (existingIdx >= 0) details[existingIdx].value = finalValue;
+        else details.push({ criterionId: critId, type, value: finalValue });
         
         newGrid[colIndex].details = details;
         setGridData(newGrid);
@@ -282,13 +376,7 @@ const CncInspectionReport = ({ db }) => {
         setSaving(true);
         try {
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJobId), {
-                rawMaterialLot,
-                preparedBy,
-                checkedBy,
-                approvedBy,
-                displayStartTime,
-                displayEndTime,
-                remarks 
+                rawMaterialLot, preparedBy, checkedBy, approvedBy, displayStartTime, displayEndTime, remarks 
             });
 
             for (let i = 0; i < gridData.length; i++) {
@@ -297,25 +385,18 @@ const CncInspectionReport = ({ db }) => {
                 
                 if (hasData) {
                     const docData = {
-                        jobId: selectedJobId,
-                        columnIndex: i, 
-                        operator: colData.operator || '',
-                        timeStr: colData.timeStr || '', 
-                        details: colData.details || [],
-                        timestamp: colData.timestamp || Date.now() + i
+                        jobId: selectedJobId, columnIndex: i, 
+                        operator: colData.operator || '', timeStr: colData.timeStr || '',
+                        details: colData.details || [], timestamp: colData.timestamp || Date.now() + i
                     };
 
-                    if (colData.id) {
-                        await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData);
-                    } else {
-                        await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
-                    }
+                    if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData);
+                    else await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
                 }
             }
             alert("Vardiya kayıtları başarıyla güncellendi!");
             handleGenerateReport(selectedJobId);
         } catch (error) {
-            console.error("Kaydetme hatası:", error);
             alert("Hata oluştu.");
         } finally {
             setSaving(false);
@@ -340,6 +421,47 @@ const CncInspectionReport = ({ db }) => {
     return (
         <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
             
+            {/* GEÇMİŞ İŞ EMRİ EKLEME MODALI */}
+            <SimpleModal isOpen={isAddPastJobModalOpen} onClose={() => setIsAddPastJobModalOpen(false)} title="Geçmişe Dönük İş Emri Ekle">
+                <div className="space-y-4">
+                    <div className="p-3 bg-purple-50 text-purple-800 rounded-lg text-sm border border-purple-200">
+                        <strong>Seçili Parça:</strong> {selectedPart?.partName} <br/>
+                        Bu ekrandan geçmiş tarihler için üretim kaydı (iş emri) oluşturabilirsiniz.
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">İş Emri Numarası</label>
+                        <input type="text" className="w-full p-2.5 border rounded bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 uppercase font-bold" value={pastJobFormData.orderNumber} onChange={(e) => setPastJobFormData({...pastJobFormData, orderNumber: e.target.value})} placeholder="Örn: 2024-X123" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Üretim Tarihi</label>
+                            <input type="date" className="w-full p-2.5 border rounded bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-purple-500" value={pastJobFormData.startDate} onChange={(e) => setPastJobFormData({...pastJobFormData, startDate: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Başlangıç Saati</label>
+                            <input type="time" className="w-full p-2.5 border rounded bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-purple-500" value={pastJobFormData.startTime} onChange={(e) => setPastJobFormData({...pastJobFormData, startTime: e.target.value})} />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Tezgah Seçimi</label>
+                            <select className="w-full p-2.5 border rounded bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 font-bold" value={pastJobFormData.machine} onChange={(e) => setPastJobFormData({...pastJobFormData, machine: e.target.value})}>
+                                {(CNC_LATHE_MACHINES || ['TEZGAH-1', 'TEZGAH-2']).map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Üretim Adedi</label>
+                            <input type="number" className="w-full p-2.5 border rounded bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-purple-500" value={pastJobFormData.targetQuantity} onChange={(e) => setPastJobFormData({...pastJobFormData, targetQuantity: e.target.value})} />
+                        </div>
+                    </div>
+                    <div className="pt-2">
+                        <button onClick={handleAddPastJob} disabled={saving} className="w-full p-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center">
+                            {saving ? 'Ekleniyor...' : <><PlusCircle className="w-5 h-5 mr-2" /> İş Emrini Ekle</>}
+                        </button>
+                    </div>
+                </div>
+            </SimpleModal>
+
             {/* İŞ EMRİ DÜZENLEME MODALI */}
             <SimpleModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="İş Emri Numarasını Düzelt">
                 <div className="space-y-4">
@@ -396,7 +518,7 @@ const CncInspectionReport = ({ db }) => {
                         <input 
                             type="text"
                             placeholder="Örn: 603246 veya SUNROOF..."
-                            className="w-full pl-10 pr-10 p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                            className="w-full pl-10 pr-10 p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none uppercase"
                             value={searchTerm || ''}
                             onChange={(e) => {
                                 setSearchTerm(e.target.value);
@@ -452,10 +574,22 @@ const CncInspectionReport = ({ db }) => {
 
                 {selectedPart && (
                     <div className="mt-8 animate-in fade-in slide-in-from-top-4">
-                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-                            <History className="w-5 h-5 mr-2 text-blue-500" />
-                            "{selectedPart.partName}" Geçmiş Üretim Kayıtları
-                        </h3>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
+                                <History className="w-5 h-5 mr-2 text-blue-500" />
+                                "{selectedPart.partName}" Geçmiş Üretim Kayıtları
+                            </h3>
+                            {/* GEÇMİŞ İŞ EMRİ EKLEME BUTONU */}
+                            {isAdmin && (
+                                <button 
+                                    onClick={() => setIsAddPastJobModalOpen(true)}
+                                    className="px-4 py-2 bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:hover:bg-purple-900/50 rounded-lg font-bold transition-all text-sm flex items-center shadow-sm"
+                                >
+                                    <PlusCircle className="w-4 h-4 mr-2" /> Geçmiş İş Emri Ekle
+                                </button>
+                            )}
+                        </div>
+
                         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 uppercase text-xs">
@@ -468,27 +602,20 @@ const CncInspectionReport = ({ db }) => {
                                 <tbody>
                                     {selectedPartJobs.length > 0 ? (
                                         selectedPartJobs.map((job) => (
-                                            <tr key={job.id} className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                                            <tr key={job.id} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 ${selectedJobId === job.id ? 'bg-blue-50 dark:bg-gray-800' : 'bg-white dark:bg-gray-800'}`}>
                                                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{job.orderNumber}</td>
                                                 <td className="px-6 py-4 text-gray-600 dark:text-gray-400">
                                                     {formatDateTime(job.startTime).split(' ')[0]}
                                                 </td>
                                                 <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
-                                                    
-                                                    {/* YENİ EKLENEN: İŞ EMRİ DÜZENLEME BUTONU */}
                                                     {isAdmin && (
                                                         <button 
-                                                            onClick={() => { 
-                                                                setEditingJob({ id: job.id, orderNumber: job.orderNumber }); 
-                                                                setIsEditModalOpen(true); 
-                                                            }}
+                                                            onClick={() => { setEditingJob({ id: job.id, orderNumber: job.orderNumber }); setIsEditModalOpen(true); }}
                                                             className="px-3 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 rounded-lg font-bold transition-all text-xs flex items-center"
-                                                            title="İş Emrini Düzelt"
                                                         >
                                                             <Edit2 className="w-4 h-4 mr-1"/> Düzenle
                                                         </button>
                                                     )}
-
                                                     <button 
                                                         onClick={() => handleGenerateReport(job.id)}
                                                         disabled={loading && selectedJobId === job.id}
@@ -518,22 +645,18 @@ const CncInspectionReport = ({ db }) => {
             </div>
 
             {reportData && (
-                <div className="flex justify-between items-center mb-4" data-html2canvas-ignore="true">
+                <div className="flex flex-wrap justify-between items-center mb-4 gap-4" data-html2canvas-ignore="true">
                     <div className="flex gap-2">
                         {isAdmin && (
                             <>
-                                <button 
-                                    onClick={handleAddShift} 
-                                    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95"
-                                >
+                                <button onClick={handleAddShift} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
                                     <Plus className="w-5 h-5 mr-2"/> SAYFA EKLE
                                 </button>
+                                <button onClick={handleAutoFill} className="px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
+                                    <Wand2 className="w-5 h-5 mr-2"/> OTOMATİK DOLDUR
+                                </button>
                                 {gridData.length > 12 && (
-                                    <button 
-                                        onClick={handleRemoveShift} 
-                                        disabled={saving}
-                                        className="px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50"
-                                    >
+                                    <button onClick={handleRemoveShift} disabled={saving} className="px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50">
                                         <Trash2 className="w-5 h-5 mr-2"/> SON SAYFAYI SİL
                                     </button>
                                 )}
@@ -542,18 +665,11 @@ const CncInspectionReport = ({ db }) => {
                     </div>
                     <div className="flex gap-2">
                         {isAdmin && (
-                            <button 
-                                onClick={handleSaveChanges} 
-                                disabled={saving}
-                                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50"
-                            >
+                            <button onClick={handleSaveChanges} disabled={saving} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50">
                                 <Save className="w-5 h-5 mr-2"/> {saving ? 'KAYDEDİLİYOR...' : 'DEĞİŞİKLİKLERİ KAYDET'}
                             </button>
                         )}
-                        <button 
-                            onClick={handleDownloadPdf} 
-                            className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95"
-                        >
+                        <button onClick={handleDownloadPdf} className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
                             <Download className="w-5 h-5 mr-2"/> PDF İNDİR
                         </button>
                     </div>
@@ -657,7 +773,6 @@ const CncInspectionReport = ({ db }) => {
                                                             <div className="font-bold border-b border-gray-400 pb-1 mb-1 text-[9px] whitespace-pre-line leading-tight">
                                                                 {col.title}
                                                             </div>
-                                                            {/* YENİ EKLENEN SAAT INPUTU */}
                                                             <input 
                                                                 type="text" 
                                                                 placeholder="SAAT"

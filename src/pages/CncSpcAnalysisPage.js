@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import html2pdf from 'html2pdf.js'; 
 import { 
-    Activity, Search, BarChart2, Trash2, Calendar, AlertCircle, Layers, X, Save, Plus, Download, History 
+    Activity, Search, Layers, X, Save, Plus, Download, History, Wand2
 } from 'lucide-react';
 import { 
-    collection, query, where, onSnapshot, getDocs, deleteDoc, doc, updateDoc, orderBy, addDoc 
+    collection, query, where, getDocs, doc, updateDoc, orderBy, addDoc 
 } from '../config/firebase.js';
 import { 
     CNC_PARTS_COLLECTION, CNC_LATHE_JOBS_COLLECTION 
@@ -18,15 +18,15 @@ const CNC_SPC_MEASUREMENTS_COLLECTION = 'cnc_spc_measurements';
 
 // --- İSTATİSTİKSEL KATSAYILAR (AIAG SPC) ---
 const SPC_CONSTANTS = {
-    2: { A2: 1.880, D3: 0, D4: 3.267, d2: 1.128 },
-    3: { A2: 1.023, D3: 0, D4: 2.574, d2: 1.693 },
-    4: { A2: 0.729, D3: 0, D4: 2.282, d2: 2.059 },
-    5: { A2: 0.577, D3: 0, D4: 2.114, d2: 2.326 },
-    6: { A2: 0.483, D3: 0, D4: 2.004, d2: 2.534 },
-    7: { A2: 0.419, D3: 0.076, D4: 1.924, d2: 2.704 },
-    8: { A2: 0.373, D3: 0.136, D4: 1.864, d2: 2.847 },
-    9: { A2: 0.337, D3: 0.184, D4: 1.816, d2: 2.970 },
-    10: { A2: 0.308, D3: 0.223, D4: 1.777, d2: 3.078 }
+    2: { A2: 1.880, d2: 1.128, D3: 0, D4: 3.267 },
+    3: { A2: 1.023, d2: 1.693, D3: 0, D4: 2.574 },
+    4: { A2: 0.729, d2: 2.059, D3: 0, D4: 2.282 },
+    5: { A2: 0.577, d2: 2.326, D3: 0, D4: 2.114 },
+    6: { A2: 0.483, d2: 2.534, D3: 0, D4: 2.004 },
+    7: { A2: 0.419, d2: 2.704, D3: 0.076, D4: 1.924 },
+    8: { A2: 0.373, d2: 2.847, D3: 0.136, D4: 1.864 },
+    9: { A2: 0.337, d2: 2.970, D3: 0.184, D4: 1.816 },
+    10: { A2: 0.308, d2: 3.078, D3: 0.223, D4: 1.777 }
 };
 
 const parseInputFloat = (value) => {
@@ -34,24 +34,20 @@ const parseInputFloat = (value) => {
     return parseFloat(value.toString().replace(',', '.'));
 };
 
-const getShiftInfo = (dateObj) => {
-    const h = dateObj.getHours();
-    const d = new Date(dateObj);
-    if (h >= 8 && h < 18) return { shift: 1, dateStr: d.toISOString().split('T')[0], label: '1. Vardiya (08:00 - 18:00)' };
-    else if (h >= 22 || h < 8) {
-        if (h < 8) d.setDate(d.getDate() - 1); 
-        return { shift: 2, dateStr: d.toISOString().split('T')[0], label: '2. Vardiya (22:00 - 08:00)' };
-    }
-    return { shift: 0, dateStr: d.toISOString().split('T')[0], label: 'Mesai Dışı (18:00 - 22:00)' }; 
+const randn_bm = () => {
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random();
+    while(v === 0) v = Math.random();
+    return Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
 };
 
 // GRAFİK BİLEŞENİ
-const SpcChart = ({ data, dataKey, centerLine, UCL, LCL, USL, LSL, title, width = 1000, height = 180, showSpecs = false }) => {
+const SpcChart = ({ data, dataKey, centerLine, UCL, LCL, USL, LSL, title, width = 1200, height = 160, showSpecs = false }) => {
     const validData = data.filter(d => d.isComplete);
-    if (!validData || validData.length === 0) return <div className="text-center text-gray-400 py-10 w-full h-full border border-dashed border-gray-300 flex items-center justify-center text-xs">GRAFİK VERİSİ YOK</div>;
+    if (!validData || validData.length === 0) return <div className="text-center text-gray-400 py-10 w-full h-full border border-dashed border-gray-300 flex items-center justify-center text-sm bg-gray-50">GRAFİK VERİSİ YOK</div>;
 
-    const paddingLeft = 40;  
-    const paddingRight = 40; 
+    const paddingLeft = 60;  
+    const paddingRight = 60; 
     const paddingY = 25;
     const chartWidth = width - paddingLeft - paddingRight;
 
@@ -76,28 +72,28 @@ const SpcChart = ({ data, dataKey, centerLine, UCL, LCL, USL, LSL, title, width 
 
     return (
         <div className="relative w-full h-full border border-black bg-white flex flex-col items-center">
-            <div className="text-[10px] font-black border-b border-black w-full text-center bg-gray-100 py-0.5">{title}</div>
-            <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full p-1" preserveAspectRatio="none">
+            <div className="text-sm font-black border-b border-black w-full text-center bg-gray-100 py-1.5">{title}</div>
+            <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full p-2" preserveAspectRatio="none">
                 <rect x={paddingLeft} y={uclY} width={chartWidth} height={Math.max(0, lclY - uclY)} fill="rgba(0, 0, 0, 0.03)" />
                 
                 {showSpecs && USL !== undefined && (
-                    <g><line x1={paddingLeft} y1={yScale(USL)} x2={width - paddingRight} y2={yScale(USL)} stroke="#059669" strokeWidth="1" strokeDasharray="3,3" /><text x={width - paddingRight + 2} y={yScale(USL) + 3} className="text-[8px] fill-green-800 font-bold">USL:{USL.toFixed(3)}</text></g>
+                    <g><line x1={paddingLeft} y1={yScale(USL)} x2={width - paddingRight} y2={yScale(USL)} stroke="#059669" strokeWidth="2" strokeDasharray="4,4" /><text x={width - paddingRight + 5} y={yScale(USL) + 4} className="text-xs fill-green-800 font-bold">USL:{USL.toFixed(3)}</text></g>
                 )}
                 {showSpecs && LSL !== undefined && (
-                    <g><line x1={paddingLeft} y1={yScale(LSL)} x2={width - paddingRight} y2={yScale(LSL)} stroke="#059669" strokeWidth="1" strokeDasharray="3,3" /><text x={width - paddingRight + 2} y={yScale(LSL) + 3} className="text-[8px] fill-green-800 font-bold">LSL:{LSL.toFixed(3)}</text></g>
+                    <g><line x1={paddingLeft} y1={yScale(LSL)} x2={width - paddingRight} y2={yScale(LSL)} stroke="#059669" strokeWidth="2" strokeDasharray="4,4" /><text x={width - paddingRight + 5} y={yScale(LSL) + 4} className="text-xs fill-green-800 font-bold">LSL:{LSL.toFixed(3)}</text></g>
                 )}
 
-                <g><line x1={paddingLeft} y1={clY} x2={width - paddingRight} y2={clY} stroke="#2563EB" strokeWidth="1.5" /><text x={2} y={clY + 3} className="text-[8px] fill-blue-800 font-bold">CL:{centerLine.toFixed(3)}</text></g>
-                <g><line x1={paddingLeft} y1={uclY} x2={width - paddingRight} y2={uclY} stroke="#DC2626" strokeWidth="1.5" strokeDasharray="4,2" /><text x={2} y={uclY + 3} className="text-[8px] fill-red-800 font-bold">UCL:{UCL.toFixed(3)}</text></g>
-                <g><line x1={paddingLeft} y1={lclY} x2={width - paddingRight} y2={lclY} stroke="#DC2626" strokeWidth="1.5" strokeDasharray="4,2" /><text x={2} y={lclY + 3} className="text-[8px] fill-red-800 font-bold">LCL:{LCL.toFixed(3)}</text></g>
+                <g><line x1={paddingLeft} y1={clY} x2={width - paddingRight} y2={clY} stroke="#2563EB" strokeWidth="2" /><text x={5} y={clY + 4} className="text-xs fill-blue-800 font-bold">CL:{centerLine.toFixed(3)}</text></g>
+                <g><line x1={paddingLeft} y1={uclY} x2={width - paddingRight} y2={uclY} stroke="#DC2626" strokeWidth="2" strokeDasharray="5,3" /><text x={5} y={uclY + 4} className="text-xs fill-red-800 font-bold">UCL:{UCL.toFixed(3)}</text></g>
+                <g><line x1={paddingLeft} y1={lclY} x2={width - paddingRight} y2={lclY} stroke="#DC2626" strokeWidth="2" strokeDasharray="5,3" /><text x={5} y={lclY + 4} className="text-xs fill-red-800 font-bold">LCL:{LCL.toFixed(3)}</text></g>
 
-                <polyline points={linePoints} fill="none" stroke="#111827" strokeWidth="1" />
+                <polyline points={linePoints} fill="none" stroke="#111827" strokeWidth="1.5" />
                 {validData.map((d, i) => {
                     const val = d[dataKey];
                     const isOut = val > UCL || val < LCL;
                     return (
                         <g key={i}>
-                            <circle cx={xScale(i)} cy={yScale(val)} r={isOut ? "3" : "2"} fill={isOut ? "#DC2626" : "#111827"} />
+                            <circle cx={xScale(i)} cy={yScale(val)} r={isOut ? "5" : "3.5"} fill={isOut ? "#DC2626" : "#111827"} />
                         </g>
                     );
                 })}
@@ -108,26 +104,23 @@ const SpcChart = ({ data, dataKey, centerLine, UCL, LCL, USL, LSL, title, width 
 
 const CncSpcAnalysisPage = ({ db }) => {
     const [activeTab, setActiveTab] = useState('REAL'); 
-    
     const [parts, setParts] = useState([]); 
     const [jobs, setJobs] = useState([]);   
-    
     const [searchTerm, setSearchTerm] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [selectedPart, setSelectedPart] = useState(null); 
     const [selectedJob, setSelectedJob] = useState(null);
     const [selectedCriterionId, setSelectedCriterionId] = useState('');     
-    
     const [spcGridData, setSpcGridData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    // İmzalar
     const [preparedBy, setPreparedBy] = useState('');
     const [checkedBy, setCheckedBy] = useState('');
     const [approvedBy, setApprovedBy] = useState('');
     
     const reportRef = useRef(null);
+    const pageRefs = useRef([]); 
     const dropdownRef = useRef(null);
 
     const MAX_A4_COLUMNS = 25; 
@@ -184,7 +177,9 @@ const CncSpcAnalysisPage = ({ db }) => {
             const mSnap = await getDocs(mQuery);
             const measurements = mSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            const totalCols = MAX_A4_COLUMNS; 
+            let maxCol = -1;
+            measurements.forEach(m => { if (m.columnIndex > maxCol) maxCol = m.columnIndex; });
+            const totalCols = Math.max(MAX_A4_COLUMNS, Math.ceil((maxCol + 1) / MAX_A4_COLUMNS) * MAX_A4_COLUMNS); 
             
             const newGrid = Array(totalCols).fill(null).map((_, i) => ({ 
                 id: null, columnIndex: i, operator: '', timeStr: '', values: Array(nSize).fill('') 
@@ -201,20 +196,92 @@ const CncSpcAnalysisPage = ({ db }) => {
             
             setSpcGridData(newGrid);
         } catch (error) {
-            console.error("Rapor hatası:", error);
             alert("Rapor verisi çekilemedi.");
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => {
+        if (selectedJob && selectedCriterionId) handleGenerateReport(selectedJob);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedCriterionId]);
+
+
+    const addSpcColumns = () => {
+        const nSize = parseInt(selectedPart?.sampleQuantity) || 5;
+        setSpcGridData(prev => [
+            ...prev,
+            ...Array(MAX_A4_COLUMNS).fill(null).map((_, i) => ({ id: null, columnIndex: prev.length + i, operator: '', timeStr: '', values: Array(nSize).fill('') }))
+        ]);
+    };
+
     const handleGridChange = (colIndex, field, value, rowIdx = null) => {
         const newGrid = [...spcGridData];
-        if (rowIdx !== null) {
-            newGrid[colIndex].values[rowIdx] = value;
-        } else {
-            newGrid[colIndex][field] = value;
-        }
+        if (rowIdx !== null) newGrid[colIndex].values[rowIdx] = value;
+        else newGrid[colIndex][field] = value;
+        setSpcGridData(newGrid);
+    };
+
+    const handleAutoFill = () => {
+        if (!selectedPart || !selectedCriterionId || spcGridData.length === 0) return;
+        const crit = selectedPart.criteria.find(c => c.id.toString() === selectedCriterionId.toString());
+        if (!crit) return;
+
+        const confirmFill = window.confirm("Tüm BOŞ ölçümler, hedeflenen Cpk/Ppk performansına uygun olarak rastgele doldurulacaktır. Onaylıyor musunuz?");
+        if (!confirmFill) return;
+
+        const nominal = parseFloat(crit.nominal);
+        const upperTol = parseFloat(crit.upperTol);
+        const lowerTol = Math.abs(parseFloat(crit.lowerTol));
+        const USL = nominal + upperTol;
+        const LSL = nominal - lowerTol;
+
+        const targetCpk = parseFloat(selectedPart.targetCpk) || 1.33;
+        const targetPpk = parseFloat(selectedPart.targetPpk) || 1.33;
+        const targetScore = Math.max(targetCpk, targetPpk) + 0.2; 
+
+        const targetSigma = (USL - LSL) / (6 * targetScore);
+        
+        const decimalStr = crit.nominal.toString();
+        let decimalPlaces = decimalStr.includes('.') ? decimalStr.split('.')[1].length : 3;
+        if(decimalPlaces < 2) decimalPlaces = 2; 
+        if(decimalPlaces > 3) decimalPlaces = 3; 
+
+        let currentHour = 8;
+        let currentMin = 0;
+        const freqMins = parseInt(selectedPart.sampleFrequencyMinutes) || 25;
+
+        const newGrid = spcGridData.map((col) => {
+            let timeStr = col.timeStr;
+            if (!timeStr) {
+                timeStr = `${currentHour.toString().padStart(2, '0')}:${currentMin.toString().padStart(2, '0')}`;
+                currentMin += freqMins;
+                if(currentMin >= 60) {
+                    currentHour += Math.floor(currentMin / 60);
+                    currentMin = currentMin % 60;
+                }
+                if(currentHour >= 24) currentHour = currentHour % 24;
+            }
+
+            const newValues = col.values.map(v => {
+                if (v === '' || v === null || v === undefined) {
+                    let randomVal = nominal + randn_bm() * targetSigma;
+                    if (randomVal > USL - (targetSigma/2)) randomVal = USL - targetSigma/2;
+                    if (randomVal < LSL + (targetSigma/2)) randomVal = LSL + targetSigma/2;
+                    return randomVal.toFixed(decimalPlaces);
+                }
+                return v;
+            });
+
+            return {
+                ...col,
+                operator: col.operator || 'OTO',
+                timeStr: timeStr,
+                values: newValues
+            };
+        });
+
         setSpcGridData(newGrid);
     };
 
@@ -252,33 +319,30 @@ const CncSpcAnalysisPage = ({ db }) => {
         }
     };
 
-    const handleDownloadPdf = () => {
-        const element = reportRef.current;
-        if (!element) return;
-
-        const opt = {
-            margin: 0, 
-            filename: `SPC_Raporu_${selectedJob?.orderNumber || 'Rapor'}.pdf`,
+    // --- PDF ÇIKTI AYARLARI (Geniş Format, Otomatik Ölçekleme) ---
+    const getPdfOptions = (filename) => {
+        return {
+            margin: [2, 2, 2, 2], // Çok ince bir kenar boşluğu, pdf motoru içeriği buna göre otomatik küçültecek
+            filename: filename,
             image: { type: 'jpeg', quality: 1 },
-            html2canvas: { 
-                scale: 2, 
-                useCORS: true,
-                windowWidth: element.scrollWidth,
-                windowHeight: element.scrollHeight
-            }, 
-            jsPDF: { 
-                unit: 'mm', 
-                format: 'a4', 
-                orientation: 'landscape',
-                compress: true
-            },
-            pagebreak: { mode: 'avoid-all' } 
+            html2canvas: { scale: 2, useCORS: true, windowWidth: 1280 }, // Ekranı 1280px genişliğinde çizer
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+            pagebreak: { mode: 'css', before: '.html2pdf__page-break' } // Kusursuz sayfa bölme komutu
         };
-
-        html2pdf().set(opt).from(element).save();
     };
 
-    // --- SAYFALAMA MANTIĞI (A4 Çoğaltıcı) ---
+    const handleDownloadSinglePagePdf = (pageIdx, pageLabel) => {
+        const element = pageRefs.current[pageIdx];
+        if (!element) return;
+        html2pdf().set(getPdfOptions(`SPC_Kart_${selectedJob?.orderNumber}_${pageLabel}.pdf`)).from(element).save();
+    };
+
+    const handleDownloadAllPdf = () => {
+        const element = reportRef.current;
+        if (!element) return;
+        html2pdf().set(getPdfOptions(`SPC_Raporu_TUMU_${selectedJob?.orderNumber}.pdf`)).from(element).save();
+    };
+
     const spcPagesAnalysis = useMemo(() => {
         if (!selectedJob || !selectedCriterionId || spcGridData.length === 0) return [];
         const crit = selectedPart.criteria.find(c => c.id.toString() === selectedCriterionId);
@@ -287,8 +351,10 @@ const CncSpcAnalysisPage = ({ db }) => {
         const nSize = parseInt(selectedPart.sampleQuantity) || 5;
         const consts = SPC_CONSTANTS[nSize] || SPC_CONSTANTS[5];
         const nominal = parseFloat(crit.nominal);
-        const USL = nominal + parseFloat(crit.upperTol);
-        const LSL = nominal - Math.abs(parseFloat(crit.lowerTol));
+        const upperTol = parseFloat(crit.upperTol);
+        const lowerTol = parseFloat(crit.lowerTol);
+        const USL = nominal + upperTol;
+        const LSL = nominal - Math.abs(lowerTol);
 
         const pagesCount = Math.max(1, Math.ceil(spcGridData.length / MAX_A4_COLUMNS));
         
@@ -329,21 +395,12 @@ const CncSpcAnalysisPage = ({ db }) => {
 
             return {
                 pageIdx, pageCols, actualSubgroups, nSize, nominal, USL, LSL, k,
-                X_double_bar, R_bar, UCL_X, LCL_X, UCL_R, LCL_R,
+                X_double_bar, R_bar, UCL_X, LCL_X, UCL_R, LCL_R, upperTol, lowerTol,
                 Cp, Cpk, Pp, Ppk, totalN, critName: crit.name, sigma_within,
                 jobPart: selectedPart
             };
         });
     }, [spcGridData, selectedJob, selectedCriterionId, selectedPart]);
-
-
-    const addSpcColumns = () => {
-        const nSize = parseInt(selectedPart?.sampleQuantity) || 5;
-        setSpcGridData(prev => [
-            ...prev,
-            ...Array(MAX_A4_COLUMNS).fill(null).map((_, i) => ({ id: null, columnIndex: prev.length + i, operator: '', timeStr: '', values: Array(nSize).fill('') }))
-        ]);
-    };
 
 
     return (
@@ -419,181 +476,271 @@ const CncSpcAnalysisPage = ({ db }) => {
                                     </select>
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={addSpcColumns} className="px-5 py-2.5 bg-indigo-100 text-indigo-700 font-bold rounded-lg shadow hover:bg-indigo-200 flex items-center transition text-xs">
-                                        <Plus className="w-4 h-4 mr-2"/> YENİ SAYFA EKLE
+                                    <button onClick={addSpcColumns} className="px-3 py-2.5 bg-indigo-100 text-indigo-700 font-bold rounded-lg shadow hover:bg-indigo-200 flex items-center transition text-xs">
+                                        <Plus className="w-4 h-4 mr-2"/> SAYFA EKLE
                                     </button>
-                                    <button onClick={handleSaveChanges} disabled={saving} className="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 flex items-center transition text-xs">
+                                    <button onClick={handleAutoFill} className="px-3 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg shadow flex items-center transition text-xs">
+                                        <Wand2 className="w-4 h-4 mr-2"/> OTO-DOLDUR
+                                    </button>
+                                    <button onClick={handleSaveChanges} disabled={saving} className="px-3 py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 flex items-center transition text-xs">
                                         <Save className="w-4 h-4 mr-2"/> KAYDET
                                     </button>
-                                    <button onClick={handleDownloadPdf} className="px-5 py-2.5 bg-green-600 text-white font-bold rounded-lg shadow hover:bg-green-700 flex items-center transition text-xs">
-                                        <Download className="w-4 h-4 mr-2"/> PDF İNDİR (A4)
+                                    <button onClick={handleDownloadAllPdf} className="px-3 py-2.5 bg-green-600 text-white font-bold rounded-lg shadow hover:bg-green-700 flex items-center transition text-xs">
+                                        <Download className="w-4 h-4 mr-2"/> TÜMÜNÜ İNDİR
                                     </button>
                                 </div>
                             </div>
 
-                            {/* A4 YATAY KAPSAYICI */}
-                            <div className="overflow-x-auto bg-gray-300 dark:bg-gray-700 p-4 rounded-xl flex flex-col items-center gap-8 shadow-inner">
-                                {spcPagesAnalysis.map((pageData, pageIdx) => (
-                                    <div key={pageIdx} className="relative flex flex-col items-center">
-                                        
-                                        <div ref={pageIdx === 0 ? reportRef : null} className="bg-white text-black box-border flex flex-col shadow-xl" style={{ width: '297mm', minHeight: '210mm', padding: '8mm' }}>
+                            {/* EKRAN İÇİN GENİŞLİK AYARI (1280px genişlik ile rahat rahat sığar) */}
+                            <div className="w-full overflow-x-auto bg-gray-300 dark:bg-gray-700 p-4 sm:p-8 rounded-xl shadow-inner flex flex-col items-center">
+                                <div ref={reportRef} className="flex flex-col gap-10">
+                                    {spcPagesAnalysis.map((pageData, pageIdx) => (
+                                        <div key={pageIdx} ref={(el) => (pageRefs.current[pageIdx] = el)} className="flex flex-col items-center w-full">
                                             
-                                            {/* ANTET KISMI */}
-                                            <div className="grid grid-cols-12 border-2 border-black mb-1 shrink-0 bg-white h-[18mm]">
-                                                <div className="col-span-3 border-r-2 border-black flex items-center justify-center p-1">
-                                                    <img src="/logo512.png" alt="Logo" className="h-10 object-contain" />
+                                            {/* SADECE BU SAYFAYI İNDİR BUTONU */}
+                                            <div className="w-[1280px] flex justify-end mb-2" data-html2canvas-ignore="true">
+                                                <button onClick={() => handleDownloadSinglePagePdf(pageIdx, `Sayfa_${pageIdx+1}`)} className="px-4 py-2 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex items-center transition text-xs">
+                                                    <Download className="w-4 h-4 mr-2"/> BU BÖLÜMÜ İNDİR (2 SAYFA PDF)
+                                                </button>
+                                            </div>
+
+                                            {/* ========================================================= */}
+                                            {/* PDF 1. SAYFA: TABLO VE GRAFİKLER (1280px genişlik, esnek yükseklik) */}
+                                            {/* ========================================================= */}
+                                            <div className="bg-white text-black p-6 shadow-xl flex flex-col w-[1280px] border border-gray-200" style={{ minHeight: '880px', boxSizing: 'border-box' }}>
+                                                
+                                                {/* ANTET */}
+                                                <div className="grid grid-cols-12 border-2 border-black h-[60px] shrink-0 mb-3">
+                                                    <div className="col-span-3 border-r-2 border-black flex items-center justify-center p-2">
+                                                        <img src="/logo512.png" alt="Logo" className="h-10 object-contain" />
+                                                    </div>
+                                                    <div className="col-span-6 border-r-2 border-black flex items-center justify-center text-center">
+                                                        <h1 className="text-2xl font-black uppercase tracking-wider">NİCELİK KONTROL KARTI (X-R)</h1>
+                                                    </div>
+                                                    <div className="col-span-3 text-xs grid grid-cols-1 divide-y border-black font-bold">
+                                                        <div className="flex justify-between px-3 items-center h-full"><span>Sayfa No:</span><span>{pageIdx + 1} / {spcPagesAnalysis.length}</span></div>
+                                                        <div className="flex justify-between px-3 items-center h-full"><span>Çalışma Tarihi:</span><span>{new Date().toLocaleDateString('tr-TR')}</span></div>
+                                                        <div className="flex justify-between px-3 items-center h-full"><span>Doküman No:</span><span>FR 09-715-00</span></div>
+                                                    </div>
                                                 </div>
-                                                <div className="col-span-6 border-r-2 border-black flex flex-col items-center justify-center text-center">
-                                                    <h1 className="text-xl font-black uppercase tracking-wider">NİCELİK KONTROL KARTI (X-R)</h1>
+
+                                                {/* BİLGİLER */}
+                                                <div className="border-2 border-black flex text-xs divide-x border-black h-[50px] shrink-0 mb-3">
+                                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Parça Adı:</span><span className="truncate">{selectedPart.partName}</span></div>
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Müşteri:</span><span className="uppercase truncate">{selectedPart.targetCustomer || 'STANDART'}</span></div>
+                                                    </div>
+                                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Operasyon:</span><span className="truncate">{selectedJob.machine}</span></div>
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">İş Emri No:</span><span className="font-bold text-base text-purple-800 truncate">{selectedJob.orderNumber}</span></div>
+                                                    </div>
+                                                    <div className="flex-1 flex flex-col divide-y border-black bg-gray-50">
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Karakteristik:</span><span className="font-bold text-blue-700 truncate">{pageData.critName}</span></div>
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Nom/Tol:</span><span className="font-black text-[14px]">{pageData.nominal}</span> <span className="font-bold text-green-700 ml-1 whitespace-nowrap"> (+{pageData.upperTol} / -{Math.abs(pageData.lowerTol)})</span></div>
+                                                    </div>
+                                                    <div className="flex-1 flex flex-col divide-y border-black">
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Ölç. Sayısı:</span><span className="truncate">n = {pageData.nSize}</span></div>
+                                                        <div className="flex px-3 items-center flex-1"><span className="font-bold mr-2 whitespace-nowrap">Frekans:</span><span className="truncate">{selectedPart.sampleFrequencyMinutes} dk</span></div>
+                                                    </div>
                                                 </div>
-                                                <div className="col-span-3 text-[9px] grid grid-cols-1 divide-y border-black">
-                                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Sayfa No:</span><span>{pageIdx + 1} / {spcPagesAnalysis.length}</span></div>
-                                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Çalışma Tarihi:</span><span>{new Date().toLocaleDateString('tr-TR')}</span></div>
-                                                    <div className="flex justify-between px-2 py-0.5"><span className="font-bold">Doküman No:</span><span>FR 09-715-00</span></div>
+
+                                                {/* EXCEL TABLOSU */}
+                                                <div className="border-2 border-black w-full flex flex-col text-xs shrink-0 mb-4 bg-white">
+                                                    <div className="flex border-b border-black text-center font-bold bg-gray-200 h-[28px]">
+                                                        <div className="w-[60px] shrink-0 border-r border-black flex items-center justify-center">Örnek</div>
+                                                        {pageData.pageCols.map((col, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center">{col.columnIndex + 1}</div>)}
+                                                    </div>
+                                                    
+                                                    <div className="flex border-b border-gray-400 text-center bg-gray-50 h-[30px]">
+                                                        <div className="w-[60px] shrink-0 border-r border-black font-bold flex items-center justify-center">Saat</div>
+                                                        {pageData.pageCols.map((col, i) => (
+                                                            <div key={i} className="flex-1 border-r border-black last:border-0 relative flex items-center justify-center">
+                                                                {/* ŞEFFAF KUTU HİLESİ (PDF MOTORUNUN RAKAMI KESİN OKUMASI İÇİN) */}
+                                                                <span className="pointer-events-none font-mono text-[11px] font-bold text-gray-900">{col.timeStr}</span>
+                                                                <input type="text" className="absolute inset-0 w-full h-full text-center bg-transparent text-transparent caret-black focus:text-black focus:bg-yellow-200 outline-none" value={col.timeStr ?? ''} onChange={(e) => handleGridChange(col.columnIndex, 'timeStr', e.target.value)} />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    
+                                                    <div className="flex text-center border-b border-black bg-gray-50 h-[30px]">
+                                                        <div className="w-[60px] shrink-0 border-r border-black font-bold flex items-center justify-center">Opr.</div>
+                                                        {pageData.pageCols.map((col, i) => (
+                                                            <div key={i} className="flex-1 border-r border-black last:border-0 relative flex items-center justify-center">
+                                                                <span className="pointer-events-none uppercase font-bold text-[9px] text-gray-900">{col.operator}</span>
+                                                                <input type="text" className="absolute inset-0 w-full h-full text-center bg-transparent text-transparent caret-black focus:text-black focus:bg-yellow-200 outline-none uppercase" value={col.operator ?? ''} onChange={(e) => handleGridChange(col.columnIndex, 'operator', e.target.value)} />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    {Array.from({ length: pageData.nSize }).map((_, rIdx) => (
+                                                        <div key={`X${rIdx}`} className="flex border-b border-gray-300 text-center bg-white h-[32px]">
+                                                            <div className="w-[60px] shrink-0 border-r border-black font-bold flex items-center justify-center bg-gray-100">X{rIdx + 1}</div>
+                                                            {pageData.pageCols.map((col, cIdx) => {
+                                                                let val = col.values[rIdx] ?? '';
+                                                                let isErr = false;
+                                                                if (val !== '') {
+                                                                    const nVal = parseInputFloat(val);
+                                                                    if (!isNaN(nVal) && (nVal > pageData.USL || nVal < pageData.LSL)) isErr = true;
+                                                                }
+                                                                return (
+                                                                    <div key={cIdx} className={`flex-1 border-r border-black last:border-0 relative flex items-center justify-center ${isErr ? 'bg-red-50' : 'bg-white'}`}>
+                                                                        <span className={`pointer-events-none font-mono text-[12px] ${isErr ? 'text-red-600 font-extrabold' : 'text-gray-900 font-bold'}`}>{val}</span>
+                                                                        <input type="text" className="absolute inset-0 w-full h-full text-center bg-transparent text-transparent caret-black focus:text-black focus:bg-yellow-200 outline-none" value={val} onChange={(e) => handleGridChange(col.columnIndex, 'values', e.target.value, rIdx)} />
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ))}
+
+                                                    <div className="flex border-t border-b border-black text-center bg-blue-50 h-[30px]">
+                                                        <div className="w-[60px] shrink-0 border-r border-black font-bold flex items-center justify-center">X̄</div>
+                                                        {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono text-[11px]">{sg.isComplete ? sg.mean.toFixed(3) : ''}</div>)}
+                                                    </div>
+                                                    <div className="flex text-center bg-blue-50 h-[30px]">
+                                                        <div className="w-[60px] shrink-0 border-r border-black font-bold flex items-center justify-center">R</div>
+                                                        {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 flex items-center justify-center font-bold text-blue-900 font-mono text-[11px]">{sg.isComplete ? sg.range.toFixed(3) : ''}</div>)}
+                                                    </div>
+                                                </div>
+
+                                                {/* GRAFİKLER ALANI */}
+                                                <div className="flex flex-col gap-4 flex-1">
+                                                    <div className="flex-1 border-2 border-black min-h-[160px]">
+                                                        <SpcChart data={pageData.actualSubgroups} dataKey="mean" centerLine={pageData.X_double_bar} UCL={pageData.UCL_X} LCL={pageData.LCL_X} USL={pageData.USL} LSL={pageData.LSL} showSpecs={true} width={1200} height={160} title="X ORTALAMA KARTI" />
+                                                    </div>
+                                                    <div className="flex-1 border-2 border-black min-h-[160px]">
+                                                        <SpcChart data={pageData.actualSubgroups} dataKey="range" centerLine={pageData.R_bar} UCL={pageData.UCL_R} LCL={pageData.LCL_R} showSpecs={false} width={1200} height={160} title="R (ARALIK) KARTI" />
+                                                    </div>
+                                                </div>
+
+                                                {/* İMZALAR */}
+                                                <div className="mt-4 border-t-2 border-black pt-4 grid grid-cols-3 gap-8 text-center text-sm shrink-0">
+                                                    <div><div className="font-bold mb-3">Hazırlayan</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={preparedBy} onChange={e=>setPreparedBy(e.target.value)}/></div>
+                                                    <div><div className="font-bold mb-3">Kontrol Eden</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={checkedBy} onChange={e=>setCheckedBy(e.target.value)}/></div>
+                                                    <div><div className="font-bold mb-3">Onaylayan</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={approvedBy} onChange={e=>setApprovedBy(e.target.value)}/></div>
                                                 </div>
                                             </div>
 
-                                            <div className="border-2 border-t-0 border-black mb-1.5 flex text-[9px] shrink-0 bg-white divide-x border-black h-[14mm]">
-                                                <div className="flex-1 flex flex-col divide-y border-black">
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Parça Adı:</span><span className="truncate">{selectedPart.partName}</span></div>
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Müşteri:</span><span className="uppercase">{selectedPart.targetCustomer || 'STANDART'}</span></div>
-                                                </div>
-                                                <div className="flex-1 flex flex-col divide-y border-black">
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">Operasyon:</span><span className="truncate">{selectedJob.machine}</span></div>
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-20">İş Emri No:</span><span className="font-bold text-lg text-purple-800 truncate">{selectedJob.orderNumber}</span></div>
-                                                </div>
-                                                <div className="flex-1 flex flex-col divide-y border-black bg-gray-50">
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Karakteristik:</span><span className="font-bold text-blue-700 truncate">{pageData.critName}</span></div>
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Nom/Tol:</span><span className="font-black text-[10px]">{pageData.nominal}</span> <span className="font-bold text-green-700 ml-1"> (+{pageData.USL - pageData.nominal} / -{pageData.nominal - pageData.LSL})</span></div>
-                                                </div>
-                                                <div className="flex-1 flex flex-col divide-y border-black">
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Ölç. Sayısı:</span><span>n = {pageData.nSize}</span></div>
-                                                    <div className="flex px-1 items-center flex-1"><span className="font-bold w-16">Frekans:</span><span>{selectedPart.sampleFrequencyMinutes} dk</span></div>
-                                                </div>
-                                            </div>
+                                            {/* ========================================================= */}
+                                            {/* ZORUNLU SAYFA KESMESİ (PDF İÇİN 2. SAYFAYA GEÇİŞ) */}
+                                            <div className="html2pdf__page-break w-full"></div>
+                                            {/* ========================================================= */}
 
-                                            {/* EXCEL TABLOSU */}
-                                            <div className="border-2 border-black w-full flex flex-col text-[8.5px] shrink-0 mb-1.5 bg-white">
-                                                
-                                                {/* Başlık */}
-                                                <div className="flex border-b border-black text-center font-bold bg-gray-200 h-[14px] items-center">
-                                                    <div className="w-[50px] shrink-0 border-r border-black h-full flex items-center justify-center">Örnek No</div>
-                                                    {pageData.pageCols.map((col, i) => <div key={i} className="flex-1 border-r border-black last:border-0 h-full flex items-center justify-center">{col.columnIndex + 1}</div>)}
-                                                </div>
-                                                
-                                                {/* Saat */}
-                                                <div className="flex border-b border-black text-center h-[16px] items-center bg-gray-50">
-                                                    <div className="w-[50px] shrink-0 border-r border-black font-bold h-full flex items-center justify-center">Saat</div>
-                                                    {pageData.pageCols.map((col, i) => (
-                                                        <div key={i} className="flex-1 border-r border-black last:border-0 h-full">
-                                                            <input type="text" className="w-full h-full text-center outline-none bg-transparent focus:bg-yellow-200 font-mono" value={col.timeStr ?? ''} onChange={(e) => handleGridChange(col.columnIndex, 'timeStr', e.target.value)} />
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                
-                                                {/* Opr */}
-                                                <div className="flex text-center border-b border-black bg-gray-50 h-[16px] items-center">
-                                                    <div className="w-[50px] shrink-0 border-r border-black font-bold h-full flex items-center justify-center">Opr.</div>
-                                                    {pageData.pageCols.map((col, i) => (
-                                                        <div key={i} className="flex-1 border-r border-black last:border-0 h-full">
-                                                            <input type="text" className="w-full h-full text-center outline-none bg-transparent uppercase font-bold focus:bg-yellow-200 text-[7px]" value={col.operator ?? ''} onChange={(e) => handleGridChange(col.columnIndex, 'operator', e.target.value)} />
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                            {/* ========================================================= */}
+                                            {/* PDF 2. SAYFA: İSTATİSTİK, PERFORMANS VE FORMÜLLER */}
+                                            {/* ========================================================= */}
+                                            <div className="bg-white text-black p-6 shadow-xl flex flex-col w-[1280px] border border-gray-200 mt-4" style={{ minHeight: '880px', boxSizing: 'border-box' }}>
+                                                <div className="border-2 border-black bg-gray-50 flex flex-col p-8 h-full">
+                                                    
+                                                    <div className="text-center font-black text-3xl mb-8 border-b-4 border-black pb-4 uppercase tracking-widest text-blue-900">
+                                                        İstatistiki Değerler ve Proses Performans Raporu
+                                                    </div>
 
-                                                {/* X Değerleri */}
-                                                {Array.from({ length: pageData.nSize }).map((_, rIdx) => (
-                                                    <div key={`X${rIdx}`} className="flex border-b border-black text-center h-[16px] items-center bg-white">
-                                                        <div className="w-[50px] shrink-0 border-r border-black font-bold h-full flex items-center justify-center bg-gray-100">X{rIdx + 1}</div>
-                                                        {pageData.pageCols.map((col, cIdx) => {
-                                                            let val = col.values[rIdx] ?? '';
-                                                            let isErr = false;
-                                                            if (val !== '') {
-                                                                const nVal = parseInputFloat(val);
-                                                                if (!isNaN(nVal) && (nVal > pageData.USL || nVal < pageData.LSL)) isErr = true;
-                                                            }
-                                                            return (
-                                                                <div key={cIdx} className="flex-1 border-r border-black last:border-0 h-full">
-                                                                    <input type="text" className={`w-full h-full text-center outline-none focus:bg-yellow-200 font-mono ${isErr ? 'text-red-600 font-extrabold bg-red-50' : ''}`} value={val} onChange={(e) => handleGridChange(col.columnIndex, 'values', e.target.value, rIdx)} />
+                                                    <div className="grid grid-cols-2 gap-10 h-full">
+                                                        {/* SOL SÜTUN: İstatistik & Limitler */}
+                                                        <div className="flex flex-col gap-6">
+                                                            <div className="border-2 border-black p-6 bg-white shadow-sm">
+                                                                <div className="font-black border-b-2 border-gray-300 text-xl mb-4 pb-2">İSTATİSTİK SONUÇLARI</div>
+                                                                <div className="flex justify-between text-lg mb-2"><span>Alt Grup Sayısı (k):</span> <span className="font-bold">{pageData.k}</span></div>
+                                                                <div className="flex justify-between text-lg mb-2"><span>Toplam Ölçüm (N):</span> <span className="font-bold">{pageData.totalN}</span></div>
+                                                                <div className="flex justify-between text-lg mb-2"><span>Genel Ortalama (X̿):</span> <span className="font-bold text-blue-800">{pageData.X_double_bar.toFixed(4)}</span></div>
+                                                                <div className="flex justify-between text-lg mb-2"><span>Ortalama Aralık (R̄):</span> <span className="font-bold text-blue-800">{pageData.R_bar.toFixed(4)}</span></div>
+                                                                <div className="flex justify-between text-lg font-bold text-red-600 border-t-2 border-gray-300 pt-4 mt-4">
+                                                                    <span>Proses Standart Sapması (σ):</span> <span>{pageData.sigma_within.toFixed(5)}</span>
                                                                 </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                ))}
+                                                            </div>
 
-                                                {/* Ort(X) */}
-                                                <div className="flex border-b border-black text-center h-[16px] items-center bg-blue-50">
-                                                    <div className="w-[50px] shrink-0 border-r border-black font-bold h-full flex items-center justify-center">X̄</div>
-                                                    {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 h-full flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.mean.toFixed(3) : ''}</div>)}
-                                                </div>
+                                                            <div className="border-2 border-black p-6 bg-white shadow-sm">
+                                                                <div className="font-black border-b-2 border-gray-300 text-xl mb-4 pb-2">KONTROL LİMİTLERİ (X-R)</div>
+                                                                <div className="flex justify-between text-lg text-red-700 font-bold mb-2"><span>UCL (X Üst Limit):</span> <span>{pageData.UCL_X.toFixed(4)}</span></div>
+                                                                <div className="flex justify-between text-lg text-red-700 font-bold mb-6"><span>LCL (X Alt Limit):</span> <span>{pageData.LCL_X.toFixed(4)}</span></div>
+                                                                <div className="flex justify-between text-lg text-purple-700 font-bold mb-2 border-t-2 border-gray-200 pt-6"><span>UCL (R Üst Limit):</span> <span>{pageData.UCL_R.toFixed(4)}</span></div>
+                                                                <div className="flex justify-between text-lg text-purple-700 font-bold"><span>LCL (R Alt Limit):</span> <span>{pageData.LCL_R.toFixed(4)}</span></div>
+                                                            </div>
+                                                            
+                                                            <div className="border-2 border-black p-6 bg-white shadow-sm flex-1">
+                                                                <div className="font-black border-b-2 border-gray-300 text-xl mb-4 pb-2 uppercase">YETERLİLİK ({pageData.jobPart.targetCustomer || 'GENEL'})</div>
+                                                                <div className="grid grid-cols-2 gap-6 text-center font-bold">
+                                                                    <div className="bg-gray-100 p-4 rounded border border-gray-300 flex flex-col justify-center">
+                                                                        <div className="text-base text-gray-600 mb-2">Cp</div>
+                                                                        <div className="text-4xl text-black">{pageData.Cp.toFixed(2)}</div>
+                                                                    </div>
+                                                                    <div className={`p-4 rounded border flex flex-col justify-center ${pageData.Cpk >= (pageData.jobPart.targetCpk || 1.33) ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                                                                        <div className="text-base text-gray-600 mb-2">Cpk (Hedef: ≥{pageData.jobPart.targetCpk || 1.33})</div>
+                                                                        <div className={`text-4xl ${pageData.Cpk >= (pageData.jobPart.targetCpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Cpk.toFixed(2)}</div>
+                                                                    </div>
+                                                                    <div className="bg-gray-100 p-4 rounded border border-gray-300 flex flex-col justify-center">
+                                                                        <div className="text-base text-gray-600 mb-2">Pp</div>
+                                                                        <div className="text-4xl text-black">{pageData.Pp.toFixed(2)}</div>
+                                                                    </div>
+                                                                    <div className={`p-4 rounded border flex flex-col justify-center ${pageData.Ppk >= (pageData.jobPart.targetPpk || 1.33) ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                                                                        <div className="text-base text-gray-600 mb-2">Ppk (Hedef: ≥{pageData.jobPart.targetPpk || 1.33})</div>
+                                                                        <div className={`text-4xl ${pageData.Ppk >= (pageData.jobPart.targetPpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Ppk.toFixed(2)}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
 
-                                                {/* Fark(R) */}
-                                                <div className="flex text-center h-[16px] items-center bg-blue-50">
-                                                    <div className="w-[50px] shrink-0 border-r border-black font-bold h-full flex items-center justify-center">R</div>
-                                                    {pageData.actualSubgroups.map((sg, i) => <div key={i} className="flex-1 border-r border-black last:border-0 h-full flex items-center justify-center font-bold text-blue-900 font-mono">{sg.isComplete ? sg.range.toFixed(3) : ''}</div>)}
-                                                </div>
-                                            </div>
+                                                        {/* SAĞ SÜTUN: Formüller & Katsayılar */}
+                                                        <div className="flex flex-col gap-6">
+                                                            <div className="border-2 border-black p-6 bg-[#FFFDE7] shadow-sm">
+                                                                <div className="font-black text-center border-b-2 border-black text-xl pb-4 mb-6 text-yellow-900">İSTATİSTİKSEL KATSAYILAR TABLOSU</div>
+                                                                <table className="w-full text-center text-lg border-collapse border border-black bg-white shadow-inner">
+                                                                    <thead>
+                                                                        <tr className="bg-yellow-200 border-b-2 border-black font-bold">
+                                                                            <th className="border-r border-black p-3">Örneklem (n)</th>
+                                                                            <th className="border-r border-black p-3">A<sub className="text-xs">2</sub></th>
+                                                                            <th className="border-r border-black p-3">d<sub className="text-xs">2</sub></th>
+                                                                            <th className="border-r border-black p-3">D<sub className="text-xs">3</sub></th>
+                                                                            <th className="p-3">D<sub className="text-xs">4</sub></th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {[2, 3, 4, 5, 6].map(num => (
+                                                                            <tr key={num} className={`border-b border-gray-300 ${pageData.nSize === num ? "bg-yellow-400 font-black text-2xl border-2 border-black" : ""}`}>
+                                                                                <td className="border-r border-black p-3">{num}</td>
+                                                                                <td className="border-r border-black p-3">{SPC_CONSTANTS[num].A2.toFixed(3)}</td>
+                                                                                <td className="border-r border-black p-3">{SPC_CONSTANTS[num].d2.toFixed(3)}</td>
+                                                                                <td className="border-r border-black p-3">{SPC_CONSTANTS[num].D3}</td>
+                                                                                <td className="p-3">{SPC_CONSTANTS[num].D4.toFixed(3)}</td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
 
-                                            {/* 3. GRAFİKLER VE HESAPLAMALAR ALANI */}
-                                            <div className="flex flex-1 gap-2 overflow-hidden h-[95mm]">
-                                                <div className="flex-1 flex flex-col gap-1.5 h-full">
-                                                    <div className="flex-1 border border-black flex flex-col min-h-0 relative">
-                                                        <SpcChart data={pageData.actualSubgroups} dataKey="mean" centerLine={pageData.X_double_bar} UCL={pageData.UCL_X} LCL={pageData.LCL_X} USL={pageData.USL} LSL={pageData.LSL} showSpecs={true} width={750} height={140} title="X ORTALAMA KARTI" />
-                                                    </div>
-                                                    <div className="flex-1 border border-black flex flex-col min-h-0 relative">
-                                                        <SpcChart data={pageData.actualSubgroups} dataKey="range" centerLine={pageData.R_bar} UCL={pageData.UCL_R} LCL={pageData.LCL_R} showSpecs={false} width={750} height={140} title="R (ARALIK) KARTI" />
-                                                    </div>
-                                                </div>
-                                                <div className="w-[160px] shrink-0 flex flex-col gap-1.5 text-[8.5px] h-full">
-                                                    <div className="border border-black p-1 bg-gray-50 flex flex-col justify-center">
-                                                        <div className="font-black border-b border-gray-400 text-center mb-0.5">İSTATİSTİK (Sayfa {pageIdx+1})</div>
-                                                        <div className="flex justify-between"><span>Ölçüm (k):</span> <span className="font-bold">{pageData.k}</span></div>
-                                                        <div className="flex justify-between"><span>X̄X̄ (Gen. Ort):</span> <span className="font-bold text-blue-800">{pageData.X_double_bar.toFixed(3)}</span></div>
-                                                        <div className="flex justify-between"><span>R̄ (Ort. R):</span> <span className="font-bold text-blue-800">{pageData.R_bar.toFixed(3)}</span></div>
-                                                        <div className="flex justify-between font-bold text-red-600 border-t border-gray-300 pt-0.5 mt-0.5"><span>Sapma(σ):</span> <span>{pageData.sigma_within.toFixed(4)}</span></div>
-                                                        <div className="font-black border-b border-gray-400 text-center mt-1 mb-0.5">LİMİTLER</div>
-                                                        <div className="flex justify-between text-red-700 font-bold"><span>UCL(X):</span> <span>{pageData.UCL_X.toFixed(3)}</span></div>
-                                                        <div className="flex justify-between text-red-700 font-bold"><span>LCL(X):</span> <span>{pageData.LCL_X.toFixed(3)}</span></div>
-                                                        <div className="flex justify-between text-purple-700 font-bold"><span>UCL(R):</span> <span>{pageData.UCL_R.toFixed(3)}</span></div>
-                                                        <div className="flex justify-between text-purple-700 font-bold"><span>LCL(R):</span> <span>{pageData.LCL_R.toFixed(3)}</span></div>
-                                                    </div>
-                                                    <div className="border border-black p-1 bg-white">
-                                                        <div className="font-black border-b border-gray-400 text-center mb-1 uppercase">YETERLİLİK ({pageData.jobPart.targetCustomer || 'GENEL'})</div>
-                                                        <div className="grid grid-cols-2 gap-1 text-center font-bold">
-                                                            <div className="bg-gray-100 p-0.5">Cp<br/><span className="text-xs text-black">{pageData.Cp.toFixed(2)}</span></div>
-                                                            <div className="bg-gray-100 p-0.5">Cpk<br/><span className={`text-xs ${pageData.Cpk >= (pageData.jobPart.targetCpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Cpk.toFixed(2)}</span></div>
-                                                            <div className="bg-gray-100 p-0.5">Pp<br/><span className="text-xs text-black">{pageData.Pp.toFixed(2)}</span></div>
-                                                            <div className="bg-gray-100 p-0.5">Ppk<br/><span className={`text-xs ${pageData.Ppk >= (pageData.jobPart.targetPpk || 1.33) ? 'text-green-600' : 'text-red-600'}`}>{pageData.Ppk.toFixed(2)}</span></div>
+                                                            <div className="border-2 border-black p-6 bg-white shadow-sm flex-1">
+                                                                <div className="font-black text-center border-b-2 border-gray-300 text-xl pb-4 mb-6">HESAPLAMA FORMÜLLERİ</div>
+                                                                <div className="grid grid-cols-2 gap-8 text-base font-bold text-gray-800">
+                                                                    
+                                                                    <div className="flex flex-col gap-4">
+                                                                        <div className="text-lg text-blue-900 border-b border-gray-200 pb-2">X-Bar (Ortalama) Limitleri</div>
+                                                                        <div>UCL<sub className="text-xs text-gray-500">X</sub> = X̿ + (A<sub className="text-xs text-gray-500">2</sub> × R̄)</div>
+                                                                        <div>LCL<sub className="text-xs text-gray-500">X</sub> = X̿ - (A<sub className="text-xs text-gray-500">2</sub> × R̄)</div>
+                                                                    </div>
+
+                                                                    <div className="flex flex-col gap-4">
+                                                                        <div className="text-lg text-blue-900 border-b border-gray-200 pb-2">R (Aralık) Limitleri</div>
+                                                                        <div>UCL<sub className="text-xs text-gray-500">R</sub> = D<sub className="text-xs text-gray-500">4</sub> × R̄</div>
+                                                                        <div>LCL<sub className="text-xs text-gray-500">R</sub> = D<sub className="text-xs text-gray-500">3</sub> × R̄</div>
+                                                                    </div>
+
+                                                                    <div className="col-span-2 flex flex-col gap-4 mt-2 border-t-2 border-gray-300 pt-6">
+                                                                        <div className="text-lg text-green-900 border-b border-gray-200 pb-2">Proses Yeterlilik (Cp / Cpk)</div>
+                                                                        <div className="text-red-700">σ (Standart Sapma) = R̄ / d<sub className="text-xs text-red-500">2</sub></div>
+                                                                        <div>Cp = (USL - LSL) / 6σ</div>
+                                                                        <div>Cpk = Min [ (USL - X̿) / 3σ , (X̿ - LSL) / 3σ ]</div>
+                                                                    </div>
+
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <div className="border border-black p-1 bg-yellow-50 flex-1 flex flex-col justify-center">
-                                                        <div className="font-black text-center border-b border-gray-400 mb-0.5">KATSAYILAR</div>
-                                                        <table className="w-full text-center">
-                                                            <thead><tr className="border-b border-gray-400 font-bold text-[7px]"><td>n</td><td>A2</td><td>D3</td><td>D4</td><td>d2</td></tr></thead>
-                                                            <tbody className="text-[8px]">
-                                                                {[2, 3, 4, 5, 6].map(num => (
-                                                                    <tr key={num} className={pageData.nSize === num ? "bg-yellow-300 font-black" : ""}>
-                                                                        <td>{num}</td><td>{SPC_CONSTANTS[num].A2.toFixed(3)}</td><td>{SPC_CONSTANTS[num].D3}</td><td>{SPC_CONSTANTS[num].D4.toFixed(3)}</td><td>{SPC_CONSTANTS[num].d2.toFixed(3)}</td>
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
                                                 </div>
+                                                
                                             </div>
-
-                                            {/* İMZALAR */}
-                                            <div className="mt-2 border-t-2 border-black pt-2 grid grid-cols-3 gap-8 text-center text-xs shrink-0 h-[15mm]">
-                                                <div><div className="font-bold mb-3">Hazırlayan</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={preparedBy} onChange={e=>setPreparedBy(e.target.value)}/></div>
-                                                <div><div className="font-bold mb-3">Kontrol Eden</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={checkedBy} onChange={e=>setCheckedBy(e.target.value)}/></div>
-                                                <div><div className="font-bold mb-3">Onaylayan</div><input type="text" className="border-b border-black border-dashed outline-none text-center uppercase w-48 bg-transparent" placeholder="İmza/İsim" value={approvedBy} onChange={e=>setApprovedBy(e.target.value)}/></div>
-                                            </div>
-
                                         </div>
-                                        {/* Çoklu sayfalarda PDF ayrım çizgisi */}
-                                        {pageIdx < spcPagesAnalysis.length - 1 && <div className="html2pdf__page-break"></div>}
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
