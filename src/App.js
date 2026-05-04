@@ -26,12 +26,12 @@ import {
 
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar
+// İkonlar (Clock eklendi)
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio // YENİ EKLENDİ: Canlı yayın ikonu için Radio eklendi
+    Menu, X, Radio, Clock
 } from 'lucide-react';
 
 // Sayfalar
@@ -69,7 +69,10 @@ import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
 
-import CanliDurum from './pages/CanliDurum'; // YENİ EKLENDİ: Yeni sayfamızı import ettik
+import CanliDurum from './pages/CanliDurum';
+
+// YENİ EKLENDİ: CamOperatorDashboard import edildi
+import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -528,7 +531,6 @@ const App = () => {
         
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
-            // YENİ EKLENDİ: Canlı Durum menü elemanı eklendi. (Görmesini istemediğin roller varsa 'roles' kısmından çıkarabilirsin)
             { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
@@ -543,6 +545,10 @@ const App = () => {
             { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { path: '/cam-job-entry', label: 'İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
+            
+            // YENİ EKLENDİ: CamOperatorDashboard için menü öğesi
+            { path: '/cam-operator-dashboard', label: 'CAM Süre Takip', icon: Clock, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI] },
+            
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: canSeeAdmin },
             { path: '/admin/layout', label: 'Yerleşim', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
@@ -676,7 +682,6 @@ const App = () => {
                             : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
                         } />
 
-                        {/* YENİ EKLENDİ: Sayfa Rotası */}
                         <Route path="/canli-durum" element={<CanliDurum />} />
 
                         <Route path="/forklift" element={
@@ -703,6 +708,10 @@ const App = () => {
                         <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
                         <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
+                        
+                        {/* YENİ EKLENDİ: CamOperatorDashboard Rotası */}
+                        <Route path="/cam-operator-dashboard" element={<CamOperatorDashboard db={db} loggedInUser={loggedInUser} />} />
+
                         <Route path="/cnc-torna" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
                         <Route path="/cnc-torna-history" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
                         <Route path="/cnc-part-manager" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncPartManager db={db} /> : <Navigate to="/" replace />} />
