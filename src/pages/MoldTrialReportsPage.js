@@ -2,44 +2,83 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import html2pdf from 'html2pdf.js'; 
 import { 
     Search, Activity, Camera, Save, 
-    Thermometer, Gauge, Clock, 
+    Gauge, Clock, 
     CheckCircle, FileText, Trash2,
     Image as ImageIcon, Plus, PlayCircle,
     X, ChevronLeft, ChevronRight, 
     Edit3, Type, Circle as CircleIcon, Check, 
-    MessageSquare, ThumbsUp, ThumbsDown, AlertTriangle
+    MessageSquare, ThumbsUp, ThumbsDown, AlertTriangle, Edit2, PlusCircle, Download
 } from 'lucide-react';
 import { 
-    collection, addDoc, query, where, limit, orderBy, onSnapshot, updateDoc, doc 
+    collection, addDoc, query, where, orderBy, onSnapshot, updateDoc, doc, deleteDoc
 } from '../config/firebase.js'; 
 import { PROJECT_COLLECTION } from '../config/constants.js'; 
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-// --- SABİTLER ---
 const TRIAL_PHASES = ['T0', 'T1', 'T2', 'T3', 'T4', 'SERİ ONAY'];
-const DEFECT_TYPES = [
-    'Çapak (Flash)', 'Çöküntü (Sink Mark)', 'Yanık (Burn Mark)', 
-    'Eksik Baskı (Short Shot)', 'İtici İzi', 'Akış İzi (Flow Mark)', 
-    'Ölçü Hatası', 'Çarpılma (Warpage)', 'Yüzey Hatası'
-];
 const MOLD_TRIAL_REPORTS_COLLECTION = 'mold_trial_reports';
+
+// --- Yardımcı Dosya Sıkıştırma Fonksiyonları ---
+const compressAndConvertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+        if (file.type.startsWith('video/')) {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1200; 
+                const MAX_HEIGHT = 1200; 
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                resolve(compressedBase64);
+            };
+        };
+        reader.onerror = error => reject(error);
+    });
+};
 
 const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     // --- STATE'LER ---
     const [selectedMold, setSelectedMold] = useState(null);
     const [listFilter, setListFilter] = useState('TRIALS'); 
     const [searchTerm, setSearchTerm] = useState('');
-    
-    // Varsayılan sekme 'QUICK_NOTES' (Rapor)
     const [activeTab, setActiveTab] = useState('QUICK_NOTES'); 
     const [isSaving, setIsSaving] = useState(false);
-    
-    // VERİ YÖNETİMİ
     const [reports, setReports] = useState([]); 
 
-    // GALERİ (LIGHTBOX) STATE'İ
+    // GALERİ STATE'İ
     const [lightboxIndex, setLightboxIndex] = useState(null); 
     const [previewImage, setPreviewImage] = useState(null); 
 
@@ -48,9 +87,16 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const [editTool, setEditTool] = useState('PEN');
     const [drawingColor, setDrawingColor] = useState('#ef4444');
 
-    // SATIR İÇİ YORUM STATE'LERİ
+    // SATIR İÇİ YORUM/NOT DÜZENLEME STATE'LERİ
     const [commentingNoteId, setCommentingNoteId] = useState(null); 
     const [commentText, setCommentText] = useState(''); 
+    const [editingNoteId, setEditingNoteId] = useState(null);
+    const [editingNoteText, setEditingNoteText] = useState('');
+    const [editingComment, setEditingComment] = useState({ noteId: null, commentId: null, text: '' });
+
+    // PARAMETRE VE HATA LİSTESİ DÜZENLEME PENCERELERİ
+    const [editingParamGroup, setEditingParamGroup] = useState(null); 
+    const [isDefectEditorOpen, setIsDefectEditorOpen] = useState(false); 
 
     // Refler
     const fileInputRef = useRef(null);
@@ -60,7 +106,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const startPos = useRef({ x: 0, y: 0 });
     const snapshot = useRef(null);
 
-    // Form Verileri
+    // Form Verileri (Dinamik Yapıya Çevrildi)
     const getInitialTrialData = (phase = 'T0') => ({
         id: null,
         trialCode: `TRY-${new Date().getFullYear()}-${Math.floor(Math.random()*10000)}`,
@@ -69,14 +115,21 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         machine: '',
         material: '',
         cavity: '',
-        
-        temps: { nozzle: '', zone1: '', zone2: '', zone3: '', zone4: '', moldFixed: '', moldMoving: '' },
-        pressures: { injection: '', holding: '', holdingTime: '', backPressure: '' },
-        speeds: { injectionSpeed: '', switchPoint: '', cushion: '' },
-        times: { cooling: '', cycle: '' },
-        
+        parameterGroups: [
+            { id: 'group_temp', name: 'Sıcaklıklar', icon: 'Thermometer', color: 'red', fields: [{ id: 'f1', label: 'Zone 1', value: '' }, { id: 'f2', label: 'Zone 2', value: '' }, { id: 'f3', label: 'Zone 3', value: '' }, { id: 'f4', label: 'Nozzle', value: '' }] },
+            { id: 'group_press', name: 'Basınçlar', icon: 'Gauge', color: 'blue', fields: [{ id: 'f5', label: 'Enjeksiyon Basıncı', value: '' }, { id: 'f6', label: 'Ütüleme Basıncı', value: '' }, { id: 'f7', label: 'Geri Basınç', value: '' }] },
+            { id: 'group_speed', name: 'Hız', icon: 'Activity', color: 'green', fields: [{ id: 'f8', label: 'Enjeksiyon Hızı', value: '' }, { id: 'f9', label: 'Geçiş Noktası', value: '' }] },
+            { id: 'group_time', name: 'Zaman', icon: 'Clock', color: 'purple', fields: [{ id: 'f10', label: 'Soğutma Süresi', value: '' }, { id: 'f11', label: 'Çevrim Süresi', value: '' }] }
+        ],
+        defectTypes: [
+            { id: 'd1', label: 'Çapak (Flash)', selected: false },
+            { id: 'd2', label: 'Çöküntü (Sink Mark)', selected: false },
+            { id: 'd3', label: 'Yanık (Burn Mark)', selected: false },
+            { id: 'd4', label: 'Eksik Baskı (Short Shot)', selected: false },
+            { id: 'd5', label: 'İtici İzi', selected: false },
+            { id: 'd6', label: 'Ölçü Hatası', selected: false }
+        ],
         media: [], 
-        defects: [],
         result: 'WAITING', 
         notes: '',
         quickNotes: [] 
@@ -97,8 +150,6 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setReports(fetchedReports);
-        }, (error) => {
-            console.error("Veri çekme hatası:", error);
         });
         return () => unsubscribe();
     }, [selectedMold, db]);
@@ -107,7 +158,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         if (selectedMold) {
             if (reports.length > 0) {
                 if (!trialData.id && trialData.machine === '') {
-                    setTrialData({ ...reports[0] });
+                    setTrialData({ ...getInitialTrialData(reports[0].phase || 'T0'), ...reports[0] });
                 }
             } else {
                 if (!trialData.id && trialData.machine === '') {
@@ -120,7 +171,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handlePhaseChange = (newPhase) => {
         const existingReport = reports.find(r => r.phase === newPhase);
         if (existingReport) {
-            setTrialData({ ...existingReport });
+            setTrialData({ ...getInitialTrialData(newPhase), ...existingReport });
         } else {
             setTrialData({
                 ...getInitialTrialData(newPhase),
@@ -131,7 +182,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         }
     };
 
-    // --- FİLTRELEME MANTIĞI ---
+    // --- FİLTRELEME ---
     const filteredMolds = useMemo(() => {
         if (!projects || projects.length === 0) return [];
         let filtered = projects;
@@ -169,87 +220,83 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         setActiveTab('QUICK_NOTES'); 
     };
 
-    const toggleDefect = (defect) => {
-        setTrialData(prev => {
-            if (prev.defects.includes(defect)) {
-                return { ...prev, defects: prev.defects.filter(d => d !== defect) };
-            } else {
-                return { ...prev, defects: [...prev.defects, defect] };
-            }
-        });
+    // --- DİNAMİK PARAMETRE YÖNETİMİ ---
+    const addParameterGroup = () => {
+        const newGroupId = `group_${Date.now()}`;
+        const newGroup = { id: newGroupId, name: 'Yeni Kategori', icon: 'FileText', color: 'gray', fields: [] };
+        setTrialData(prev => ({ ...prev, parameterGroups: [...(prev.parameterGroups || []), newGroup] }));
+        setEditingParamGroup(newGroupId); 
     };
 
-    // --- DOSYA YÜKLEME VE SIKIŞTIRMA ---
+    const deleteParameterGroup = (groupId) => {
+        if(window.confirm("Bu parametre grubunu tamamen silmek istediğinize emin misiniz?")) {
+            setTrialData(prev => ({ ...prev, parameterGroups: (prev.parameterGroups || []).filter(g => g.id !== groupId) }));
+        }
+    };
+
+    const updateGroupName = (groupId, newName) => {
+        setTrialData(prev => ({ ...prev, parameterGroups: (prev.parameterGroups || []).map(g => g.id === groupId ? { ...g, name: newName } : g) }));
+    };
+
+    const addParameterField = (groupId) => {
+        const newField = { id: `fld_${Date.now()}`, label: 'Yeni Parametre', value: '' };
+        setTrialData(prev => ({ ...prev, parameterGroups: (prev.parameterGroups || []).map(g => g.id === groupId ? { ...g, fields: [...(g.fields || []), newField] } : g) }));
+    };
+
+    const updateParameterField = (groupId, fieldId, key, newValue) => {
+        setTrialData(prev => ({
+            ...prev,
+            parameterGroups: (prev.parameterGroups || []).map(g => {
+                if (g.id === groupId) {
+                    return { ...g, fields: (g.fields || []).map(f => f.id === fieldId ? { ...f, [key]: newValue } : f) };
+                }
+                return g;
+            })
+        }));
+    };
+
+    const deleteParameterField = (groupId, fieldId) => {
+        setTrialData(prev => ({ ...prev, parameterGroups: (prev.parameterGroups || []).map(g => g.id === groupId ? { ...g, fields: (g.fields || []).filter(f => f.id !== fieldId) } : g) }));
+    };
+
+    // --- DİNAMİK HATA/SONUÇ YÖNETİMİ ---
+    const addDefectType = () => {
+        const newDefect = { id: `def_${Date.now()}`, label: 'Yeni Hata Kriteri', selected: false };
+        setTrialData(prev => ({ ...prev, defectTypes: [...(prev.defectTypes || []), newDefect] }));
+    };
+
+    const updateDefectLabel = (defectId, newLabel) => {
+        setTrialData(prev => ({ ...prev, defectTypes: (prev.defectTypes || []).map(d => d.id === defectId ? { ...d, label: newLabel } : d) }));
+    };
+
+    const toggleDefectSelection = (defectId) => {
+        setTrialData(prev => ({ ...prev, defectTypes: (prev.defectTypes || []).map(d => d.id === defectId ? { ...d, selected: !d.selected } : d) }));
+    };
+
+    const deleteDefectType = (defectId) => {
+        setTrialData(prev => ({ ...prev, defectTypes: (prev.defectTypes || []).filter(d => d.id !== defectId) }));
+    };
+
+    // --- DOSYA YÜKLEME ---
     const handleTriggerFileUpload = () => fileInputRef.current.click();
-
-    const compressAndConvertToBase64 = (file) => {
-        return new Promise((resolve, reject) => {
-            if (file.type.startsWith('video/')) {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = error => reject(error);
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = (event) => {
-                const img = new Image();
-                img.src = event.target.result;
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1200; 
-                    const MAX_HEIGHT = 1200; 
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > height) {
-                        if (width > MAX_WIDTH) {
-                            height *= MAX_WIDTH / width;
-                            width = MAX_WIDTH;
-                        }
-                    } else {
-                        if (height > MAX_HEIGHT) {
-                            width *= MAX_HEIGHT / height;
-                            height = MAX_HEIGHT;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-                    resolve(compressedBase64);
-                };
-            };
-            reader.onerror = error => reject(error);
-        });
-    };
 
     const handleFileChange = async (event) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
         const newMediaItems = await Promise.all(files.map(async (file) => {
             const base64 = await compressAndConvertToBase64(file);
-            return {
-                id: Date.now() + Math.random(),
-                url: base64, 
-                type: file.type.startsWith('video') ? 'video' : 'image'
-            };
+            return { id: Date.now() + Math.random(), url: base64, type: file.type.startsWith('video') ? 'video' : 'image' };
         }));
-        setTrialData(prev => ({ ...prev, media: [...prev.media, ...newMediaItems] }));
+        setTrialData(prev => ({ ...prev, media: [...(prev.media || []), ...newMediaItems] }));
         event.target.value = ''; 
     };
 
     const handleRemoveMedia = (id) => {
-        setTrialData(prev => ({ ...prev, media: prev.media.filter(item => item.id !== id) }));
+        setTrialData(prev => ({ ...prev, media: (prev.media || []).filter(item => item.id !== id) }));
         if (lightboxIndex !== null) setLightboxIndex(null);
     };
 
-    // --- KAYDETME MANTIĞI (SESSİZ VEYA UYARILI) ---
+    // --- KAYDETME MANTIĞI ---
     const saveTrialDataToDB = async (dataToSave, silent = false) => {
         if (!selectedMold) return;
         setIsSaving(true);
@@ -268,10 +315,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             if (docId) {
                 await updateDoc(doc(db, MOLD_TRIAL_REPORTS_COLLECTION, docId), reportData);
             } else {
-                const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), {
-                    ...reportData,
-                    createdAt: new Date().toISOString()
-                });
+                const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), { ...reportData, createdAt: new Date().toISOString() });
                 docId = docRef.id;
                 setTrialData(prev => ({ ...prev, id: docId }));
             }
@@ -282,14 +326,9 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             else if (dataToSave.result === 'REVISION') newStatus = 'TASHİH';
             else if (dataToSave.result === 'WAITING') newStatus = 'DENEME';
 
-            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), {
-                status: newStatus
-            });
+            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), { status: newStatus });
 
-            if (!silent) {
-                alert(`${dataToSave.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
-            }
-
+            if (!silent) alert(`${dataToSave.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
         } catch (error) {
             console.error("Hata:", error);
             if (!silent) alert("Hata: " + error.message);
@@ -298,7 +337,208 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         }
     };
 
-    // --- HIZLI NOT & YORUM İŞLEMLERİ (OTOMATİK SESSİZ KAYIT) ---
+    // --- SUNUM PDF OLUŞTURMA MANTIĞI (KESİN ÇÖZÜM) ---
+    const handleDownloadPresentation = () => {
+        const element = document.createElement('div');
+        element.style.background = "#0f172a"; 
+        
+        // CSS Tanımları
+        const styles = `
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;700;800&display=swap');
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                .pdf-root { background: #0f172a; width: 1123px; }
+                .slide-container { 
+                    width: 1123px; 
+                    height: 792px; /* Tam 794px yerine 792px yapıyoruz ki taşma olmasın */
+                    background: #0f172a; 
+                    color: #f8fafc; 
+                    padding: 50px; 
+                    position: relative; 
+                    display: flex; 
+                    flex-direction: column;
+                    overflow: hidden;
+                    font-family: 'Urbanist', sans-serif;
+                }
+                /* Sayfa sonu kuralı: Slaytlar arasına boş sayfa eklememesi için */
+                .page-break { page-break-before: always; height: 0; display: block; width: 100%; border: none; margin: 0; padding: 0; }
+                
+                .slide-title { font-size: 38px; font-weight: 800; color: #deff9a; margin-bottom: 20px; border-bottom: 2px solid rgba(222, 255, 154, 0.2); padding-bottom: 10px; text-transform: uppercase; flex-shrink: 0; }
+                .content-area { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+                .cover-slide { text-align: center; justify-content: center; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); }
+                .cover-slide h1 { font-size: 60px; margin-bottom: 10px; color: #deff9a; }
+                .cover-slide p { font-size: 22px; color: #94a3b8; }
+                .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+                .param-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+                .param-card h4 { color: #deff9a; margin-bottom: 15px; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+                .param-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 15px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+                .param-label { color: #94a3b8; }
+                .observation-img { width: 100%; height: 460px; object-fit: contain; border-radius: 12px; background: #000; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+                .observation-text { font-size: 22px; font-weight: 500; line-height: 1.4; color: #f1f5f9; text-align: center; }
+                .text-notes-list { list-style: none; width: 100%; }
+                .text-notes-list li { margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 18px; border-radius: 12px; border-left: 6px solid #deff9a; }
+                .full-image-slide { width: 100%; height: 580px; display: flex; justify-content: center; align-items: center; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid rgba(255,255,255,0.1); }
+                .full-image-slide img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                .footer { position: absolute; bottom: 25px; left: 50px; right: 50px; display: flex; justify-content: space-between; font-size: 12px; color: #64748b; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; }
+            </style>
+        `;
+
+        let html = `<div class="pdf-root">${styles}`;
+
+        // Slide 1: Kapak
+        html += `
+            <div class="slide-container cover-slide">
+                <p style="text-transform: uppercase; letter-spacing: 4px; color: #deff9a; font-weight: bold; margin-bottom: 20px;">Teknik Deneme Raporu</p>
+                <h1>${selectedMold.moldName}</h1>
+                <p>Proje: ${selectedMold.projectCode} | Faz: ${trialData.phase}</p>
+                <div style="margin-top: 40px; padding: 15px 40px; background: rgba(222, 255, 154, 0.1); display: inline-block; border-radius: 50px; font-weight: bold; color: #deff9a; font-size: 20px; border: 1px solid #deff9a;">
+                    DURUM: ${trialData.result === 'APPROVED' ? 'ONAYLANDI' : trialData.result === 'REJECTED' ? 'REDDEDİLDİ' : 'TASHİH GEREKLİ'}
+                </div>
+                <div class="footer"><span>Rapor Tarihi: ${trialData.date.split(' ')[0]}</span><span>Hazırlayan: ${loggedInUser.name}</span></div>
+            </div>
+        `;
+
+        // Slide 2: Proses Özeti
+        const selectedDefects = (trialData.defectTypes || []).filter(d => d.selected);
+        html += `
+            <div class="page-break"></div>
+            <div class="slide-container">
+                <h2 class="slide-title">Proses Özeti</h2>
+                <div class="content-area">
+                    <div class="param-grid">
+                        <div class="param-card">
+                            <h4>Genel Bilgiler</h4>
+                            <div class="param-item"><span class="param-label">Deneme Makinesi</span><span>${trialData.machine || '-'}</span></div>
+                            <div class="param-item"><span class="param-label">Hammadde Tipi</span><span>${trialData.material || '-'}</span></div>
+                            <div class="param-item"><span class="param-label">Göz Sayısı</span><span>${trialData.cavity || '-'}</span></div>
+                        </div>
+                        <div class="param-card">
+                            <h4>İşaretlenen Hata Kriterleri</h4>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                ${selectedDefects.length > 0 ? selectedDefects.map(d => `
+                                    <div style="padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: bold; background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444;">
+                                        ✖ ${d.label}
+                                    </div>
+                                `).join('') : '<div style="color: #a7f3d0; font-weight: bold; font-size: 16px;">✔ Herhangi bir hata tespit edilmedi.</div>'}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 30px; background: rgba(255,255,255,0.03); padding: 25px; border-radius: 12px; border-left: 6px solid #deff9a; flex: 1; overflow: hidden;">
+                        <h4 style="margin-bottom: 10px; color: #deff9a; font-size: 18px;">Genel Deneme Özeti</h4>
+                        <p style="font-size: 18px; line-height: 1.6;">${trialData.notes || 'Genel değerlendirme notu girilmemiş.'}</p>
+                    </div>
+                </div>
+                <div class="footer"><span>${selectedMold.moldName}</span><span>Sayfa 2</span></div>
+            </div>
+        `;
+
+        // Slide 3: Parametreler
+        html += `
+            <div class="page-break"></div>
+            <div class="slide-container">
+                <h2 class="slide-title">Üretim Parametreleri</h2>
+                <div class="content-area">
+                    <div class="param-grid">
+                        ${(trialData.parameterGroups || []).map(group => `
+                            <div class="param-card">
+                                <h4>${group.name}</h4>
+                                ${(group.fields || []).map(f => `
+                                    <div class="param-item"><span class="param-label">${f.label}</span><span style="font-weight: bold; color: white;">${f.value || '-'}</span></div>
+                                `).join('')}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="footer"><span>Teknik Veri Sayfası</span><span>Sayfa 3</span></div>
+            </div>
+        `;
+
+        let pageCounter = 4;
+        const notesWithImages = (trialData.quickNotes || []).filter(n => (n.images && n.images.length > 0) || n.image);
+        const notesWithoutImages = (trialData.quickNotes || []).filter(n => !((n.images && n.images.length > 0) || n.image));
+
+        // Resimli Gözlemler
+        notesWithImages.forEach((note, index) => {
+            const noteImg = (note.images && note.images.length > 0) ? note.images[0] : note.image;
+            html += `
+                <div class="page-break"></div>
+                <div class="slide-container">
+                    <h2 class="slide-title">Kritik Gözlem #${index + 1}</h2>
+                    <div class="content-area">
+                        <img src="${noteImg}" class="observation-img" />
+                        <div class="observation-text">${note.text}</div>
+                    </div>
+                    <div class="footer"><span>Gözlem Detayı | ${note.createdBy}</span><span>Sayfa ${pageCounter++}</span></div>
+                </div>
+            `;
+        });
+
+        // Resimsiz Notlar (CHUNKİNG: 3 adet ile sınırlandırıldı ki uzun yazılarda taşma yapmasın)
+        if (notesWithoutImages.length > 0) {
+            const chunkSize = 3; 
+            for (let i = 0; i < notesWithoutImages.length; i += chunkSize) {
+                const chunk = notesWithoutImages.slice(i, i + chunkSize);
+                html += `
+                    <div class="page-break"></div>
+                    <div class="slide-container">
+                        <h2 class="slide-title">Diğer Gözlemler ve Notlar ${notesWithoutImages.length > chunkSize ? `(Kısım ${Math.floor(i/chunkSize) + 1})` : ''}</h2>
+                        <div class="content-area" style="justify-content: flex-start; padding-top: 10px;">
+                            <ul class="text-notes-list">
+                                ${chunk.map(n => `
+                                    <li>
+                                        <strong style="font-size: 19px; display: block; color: white; line-height: 1.4;">${n.text}</strong>
+                                        <div style="font-size: 13px; color: #64748b; margin-top: 6px;">Ekleyen: ${n.createdBy} | Tarih: ${n.createdAt}</div>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        <div class="footer"><span>Ek Gözlem Kayıtları</span><span>Sayfa ${pageCounter++}</span></div>
+                    </div>
+                `;
+            }
+        }
+
+        // Galeri
+        const galleryImages = (trialData.media || []).filter(m => m.type === 'image');
+        galleryImages.forEach((img, index) => {
+            html += `
+                <div class="page-break"></div>
+                <div class="slide-container">
+                    <h2 class="slide-title">Süreç Medya Galerisi (${index + 1} / ${galleryImages.length})</h2>
+                    <div class="content-area">
+                        <div class="full-image-slide">
+                            <img src="${img.url}" />
+                        </div>
+                    </div>
+                    <div class="footer"><span>Genel Galeri</span><span>Sayfa ${pageCounter++}</span></div>
+                </div>
+            `;
+        });
+
+        html += `</div>`;
+        element.innerHTML = html;
+
+        const opt = {
+            margin: 0,
+            filename: `Kalıp_Deneme_Sunumu_${selectedMold.moldName.replace(/\s+/g, '_')}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { 
+                scale: 2, 
+                useCORS: true, 
+                letterRendering: true, 
+                width: 1123, 
+                windowWidth: 1123,
+                backgroundColor: '#0f172a' 
+            },
+            jsPDF: { unit: 'px', format: [1123, 793], orientation: 'landscape', compress: true },
+            pagebreak: { mode: 'css', before: '.page-break' }
+        };
+
+        html2pdf().set(opt).from(element).save();
+    };
+
+
+    // --- NOT & YORUM İŞLEMLER ---
     const handleQuickNoteImageUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -312,75 +552,100 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         const newNote = {
             id: Date.now(),
             text: newQuickNoteText,
-            image: newQuickNoteImage,
+            images: newQuickNoteImage ? [newQuickNoteImage] : [],
             comments: [],
             createdAt: getCurrentDateTimeString(),
             createdBy: loggedInUser?.name || 'Anonim'
         };
-        const updatedData = {
-            ...trialData,
-            quickNotes: [newNote, ...(trialData.quickNotes || [])] 
-        };
+        const updatedData = { ...trialData, quickNotes: [newNote, ...(trialData.quickNotes || [])] };
         setTrialData(updatedData);
-        setNewQuickNoteText('');
-        setNewQuickNoteImage(null);
-        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
+        setNewQuickNoteText(''); setNewQuickNoteImage(null);
+        await saveTrialDataToDB(updatedData, true); 
     };
 
-    const handleStartCommenting = (noteId) => {
-        setCommentingNoteId(noteId);
-        setCommentText('');
+    const handleDeleteQuickNote = async (noteId) => {
+        if(!window.confirm("Bu notu tamamen silmek istediğinize emin misiniz?")) return;
+        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).filter(n => n.id !== noteId) };
+        setTrialData(updatedData);
+        await saveTrialDataToDB(updatedData, true);
     };
 
+    const startEditingNote = (note) => { setEditingNoteId(note.id); setEditingNoteText(note.text); };
+
+    const saveEditedNoteText = async () => {
+        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).map(note => note.id === editingNoteId ? { ...note, text: editingNoteText } : note) };
+        setTrialData(updatedData);
+        setEditingNoteId(null);
+        await saveTrialDataToDB(updatedData, true);
+    };
+
+    const handleAddImageToExistingNote = async (noteId, event) => {
+        const files = Array.from(event.target.files);
+        if (files.length === 0) return;
+        const newImages = await Promise.all(files.map(async (file) => await compressAndConvertToBase64(file)));
+        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).map(note => note.id === noteId ? { ...note, images: [...(note.images || []), ...(note.image ? [note.image] : []), ...newImages].filter((v, i, a) => a.indexOf(v) === i), image: null } : note ) };
+        setTrialData(updatedData);
+        event.target.value = '';
+        await saveTrialDataToDB(updatedData, true);
+    };
+
+    const handleDeleteImageFromNote = async (noteId, imgIndex) => {
+        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).map(note => { if (note.id === noteId) { const newImgs = [...(note.images || [])]; newImgs.splice(imgIndex, 1); return { ...note, images: newImgs }; } return note; }) };
+        setTrialData(updatedData);
+        await saveTrialDataToDB(updatedData, true);
+    };
+
+    const handleStartCommenting = (noteId) => { setCommentingNoteId(noteId); setCommentText(''); };
+    
     const handleSubmitComment = async (noteId) => {
         if (!commentText.trim()) return;
+        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).map(note => note.id === noteId ? { ...note, comments: [...(note.comments || []), { id: Date.now(), text: commentText, createdBy: loggedInUser?.name || 'Anonim', createdAt: getCurrentDateTimeString() }] } : note) };
+        setTrialData(updatedData);
+        setCommentingNoteId(null); setCommentText('');
+        await saveTrialDataToDB(updatedData, true); 
+    };
+
+    const handleCancelComment = () => { setCommentingNoteId(null); setCommentText(''); };
+    
+    const startEditingComment = (noteId, comment) => {
+        setEditingComment({ noteId, commentId: comment.id, text: comment.text });
+    };
+
+    const saveEditedComment = async () => {
         const updatedData = {
             ...trialData,
-            quickNotes: trialData.quickNotes.map(note => {
-                if (note.id === noteId) {
-                    return {
-                        ...note,
-                        comments: [...(note.comments || []), {
-                            id: Date.now(),
-                            text: commentText,
-                            createdBy: loggedInUser?.name || 'Anonim',
-                            createdAt: getCurrentDateTimeString()
-                        }]
-                    };
+            quickNotes: (trialData.quickNotes || []).map(note => {
+                if (note.id === editingComment.noteId) {
+                    return { ...note, comments: (note.comments || []).map(c => c.id === editingComment.commentId ? { ...c, text: editingComment.text } : c) };
                 }
                 return note;
             })
         };
         setTrialData(updatedData);
-        setCommentingNoteId(null);
-        setCommentText('');
-        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
+        setEditingComment({ noteId: null, commentId: null, text: '' });
+        await saveTrialDataToDB(updatedData, true);
     };
 
-    const handleCancelComment = () => {
-        setCommentingNoteId(null);
-        setCommentText('');
-    };
-    
-    const handleDeleteQuickNote = async (noteId) => {
-        // DÜZELTME: Yanlışlıkla basılmayı engellemek için silme işlemi öncesi onay istenir.
-        if(!window.confirm("Bu notu silmek istediğinize emin misiniz?")) return;
-        
+    const handleDeleteComment = async (noteId, commentId) => {
+        if(!window.confirm("Bu yorumu silmek istediğinize emin misiniz?")) return;
         const updatedData = {
             ...trialData,
-            quickNotes: trialData.quickNotes.filter(n => n.id !== noteId)
+            quickNotes: (trialData.quickNotes || []).map(note => {
+                if (note.id === noteId) { return { ...note, comments: (note.comments || []).filter(c => c.id !== commentId) }; }
+                return note;
+            })
         };
         setTrialData(updatedData);
-        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
+        await saveTrialDataToDB(updatedData, true);
     };
 
     const handleResultChange = async (newResult) => {
         const updatedData = { ...trialData, result: newResult };
         setTrialData(updatedData);
-        await saveTrialDataToDB(updatedData, true); // Sessiz kayıt
+        await saveTrialDataToDB(updatedData, true); 
     };
 
-    // --- GÖRSEL DÜZENLEME ---
+    // --- GÖRSEL DÜZENLEME (DRAWING) ---
     const handleStartEditing = () => { setIsEditing(true); setTimeout(loadImageToCanvas, 50); };
 
     const loadImageToCanvas = () => {
@@ -459,22 +724,12 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         setIsEditing(false);
     };
 
-    const handleNextMedia = (e) => {
-        if(e) e.stopPropagation();
-        if (trialData.media.length > 0) setLightboxIndex((prev) => (prev + 1) % trialData.media.length);
-    };
-
-    const handlePrevMedia = (e) => {
-        if(e) e.stopPropagation();
-        if (trialData.media.length > 0) setLightboxIndex((prev) => (prev - 1 + trialData.media.length) % trialData.media.length);
-    };
+    const handleNextMedia = (e) => { if(e) e.stopPropagation(); if (trialData.media.length > 0) setLightboxIndex((prev) => (prev + 1) % trialData.media.length); };
+    const handlePrevMedia = (e) => { if(e) e.stopPropagation(); if (trialData.media.length > 0) setLightboxIndex((prev) => (prev - 1 + trialData.media.length) % trialData.media.length); };
 
     // --- RENDER BİLEŞENLERİ ---
     const MoldListItem = ({ mold }) => (
-        <div 
-            onClick={() => handleMoldSelect(mold)}
-            className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 transition group ${selectedMold?.id === mold.id ? 'bg-blue-50 dark:bg-gray-700 border-l-4 border-l-blue-600' : ''}`}
-        >
+        <div onClick={() => handleMoldSelect(mold)} className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 transition group ${selectedMold?.id === mold.id ? 'bg-blue-50 dark:bg-gray-700 border-l-4 border-l-blue-600' : ''}`}>
             <div className="flex justify-between items-start mb-1">
                 <span className="font-bold text-gray-800 dark:text-gray-200 text-sm truncate w-2/3">{mold.moldName}</span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
@@ -482,31 +737,46 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                     (mold.status && (mold.status.includes('RET') || mold.status === 'REJECTED')) ? 'bg-red-100 text-red-800' :
                     (mold.status && mold.status.toString().toUpperCase().includes('DENEME')) ? 'bg-yellow-100 text-yellow-800' : 
                     'bg-gray-100 text-gray-600'
-                }`}>
-                    {mold.status || 'BELİRSİZ'}
-                </span>
+                }`}>{mold.status || 'BELİRSİZ'}</span>
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
-                <span>{mold.projectCode || 'Kod Yok'}</span>
-                <span>T{mold.trialCount || '0'}</span>
+                <span>{mold.projectCode || 'Kod Yok'}</span><span>T{mold.trialCount || '0'}</span>
             </div>
         </div>
     );
 
     return (
-        <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans">
+        <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans text-sm">
             
+            {/* DEFECT EDİTÖR MODAL */}
+            {isDefectEditorOpen && (
+                <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden">
+                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
+                            <h3 className="font-black text-gray-800 dark:text-white flex items-center">Hata Kriterlerini Düzenle</h3>
+                            <button onClick={() => setIsDefectEditorOpen(false)} className="text-gray-500 hover:text-red-500 transition"><X className="w-6 h-6"/></button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto max-h-[60vh] space-y-3">
+                            {(trialData.defectTypes || []).map(defect => (
+                                <div key={defect.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                                    <input type="text" className="flex-1 font-bold text-sm bg-transparent outline-none dark:text-white border-b border-dashed border-gray-300 dark:border-gray-600 focus:border-blue-500 px-1" value={defect.label} onChange={e => updateDefectLabel(defect.id, e.target.value)} placeholder="Hata Kriteri Adı..." />
+                                    <button onClick={() => deleteDefectType(defect.id)} className="text-gray-400 hover:bg-red-50 hover:text-red-500 p-2 rounded transition"><Trash2 className="w-5 h-5"/></button>
+                                </div>
+                            ))}
+                            <button onClick={addDefectType} className="w-full py-4 border-2 border-dashed border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-400 rounded-xl hover:bg-blue-50 dark:hover:bg-gray-800 transition flex items-center justify-center font-bold text-sm mt-4"><Plus className="w-5 h-5 mr-2"/> Yeni Hata Sebebi Ekle</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {previewImage && (
-                <div 
-                    className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in"
-                    onClick={() => setPreviewImage(null)}
-                >
+                <div className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in" onClick={() => setPreviewImage(null)}>
                     <button className="absolute top-4 right-4 text-white hover:text-red-500 transition"><X className="w-10 h-10" /></button>
                     <img src={previewImage} alt="Önizleme" className="max-w-full max-h-[90vh] rounded shadow-2xl object-contain" />
                 </div>
             )}
 
-            {lightboxIndex !== null && trialData.media[lightboxIndex] && (
+            {lightboxIndex !== null && trialData.media && trialData.media[lightboxIndex] && (
                 <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-0 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-50">
                         <div className="flex gap-2">
@@ -618,6 +888,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
                         <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 dark:bg-gray-900/50">
                             
+                            {/* RAPOR SEKMESİ */}
                             {activeTab === 'QUICK_NOTES' && (
                                 <div className="space-y-6 animate-in fade-in">
                                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-orange-200 dark:border-gray-700">
@@ -630,77 +901,160 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                             </div>
                                         </div>
                                         
-                                        <h3 className="text-sm font-bold text-orange-600 mb-2 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Notlar</h3>
+                                        <h3 className="text-sm font-bold text-orange-600 mb-2 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Yeni Rapor Notu Ekle</h3>
                                         <div className="flex gap-2">
                                             <input type="file" ref={quickNoteFileInputRef} className="hidden" accept="image/*" onChange={handleQuickNoteImageUpload} />
                                             <button onClick={() => quickNoteFileInputRef.current.click()} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300">{newQuickNoteImage ? <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" /> : <Camera className="w-5 h-5" />}</button>
-                                            <div className="flex-1 flex gap-2"><input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} /><button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Ekle</button></div>
+                                            <div className="flex-1 flex gap-2"><input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} /><button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Notu Kaydet</button></div>
                                         </div>
                                     </div>
-                                    <div className="space-y-4">
-                                        {trialData.quickNotes && trialData.quickNotes.length > 0 ? (
-                                            trialData.quickNotes.map(note => (
+                                    
+                                    <div className="space-y-4 pb-10">
+                                        {(trialData.quickNotes || []).length > 0 ? (
+                                            (trialData.quickNotes || []).map(note => (
                                                 <div key={note.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-4">
-                                                    {note.image && (<div className="w-full md:w-32 h-32 flex-shrink-0 cursor-pointer" onClick={() => setPreviewImage(note.image)}><img src={note.image} alt="Not Görseli" className="w-full h-full object-cover rounded-lg border" /></div>)}
+                                                    
+                                                    {(note.images || []).length > 0 && (
+                                                        <div className="w-full md:w-32 h-32 flex flex-col gap-1 shrink-0 overflow-y-auto custom-scrollbar">
+                                                            {note.images.map((imgUrl, imgIdx) => (
+                                                                <div key={imgIdx} className="w-full h-full shrink-0 relative group">
+                                                                    <img src={imgUrl} alt="Not Görseli" className="w-full h-full object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => setPreviewImage(imgUrl)} />
+                                                                    <button onClick={() => handleDeleteImageFromNote(note.id, imgIdx)} className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition"><X className="w-3 h-3"/></button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {/* Eski not uyumluluğu */}
+                                                    {note.image && !(note.images && note.images.length > 0) && (
+                                                        <div className="w-full md:w-32 h-32 flex-shrink-0 cursor-pointer" onClick={() => setPreviewImage(note.image)}><img src={note.image} alt="Not Görseli" className="w-full h-full object-cover rounded-lg border" /></div>
+                                                    )}
+
                                                     <div className="flex-1">
-                                                        <div className="flex justify-between items-start"><p className="font-bold text-gray-800 dark:text-white text-lg">{note.text}</p><button onClick={() => handleDeleteQuickNote(note.id)} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button></div>
+                                                        <div className="flex justify-between items-start">
+                                                            {editingNoteId === note.id ? (
+                                                                <div className="flex-1 flex gap-2">
+                                                                    <textarea className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white text-sm" value={editingNoteText} onChange={e=>setEditingNoteText(e.target.value)}></textarea>
+                                                                    <button onClick={saveEditedNoteText} className="px-3 bg-green-500 text-white rounded font-bold"><Check className="w-4 h-4"/></button>
+                                                                    <button onClick={()=>setEditingNoteId(null)} className="px-3 bg-gray-300 text-gray-700 rounded font-bold"><X className="w-4 h-4"/></button>
+                                                                </div>
+                                                            ) : (
+                                                                <p className="font-bold text-gray-800 dark:text-white text-lg">{note.text}</p>
+                                                            )}
+                                                            
+                                                            <div className="flex items-center gap-2 ml-4">
+                                                                <label className="cursor-pointer text-gray-400 hover:text-green-500 transition" title="Fotoğraf Ekle">
+                                                                    <PlusCircle className="w-5 h-5"/>
+                                                                    <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleAddImageToExistingNote(note.id, e)} />
+                                                                </label>
+                                                                <button onClick={() => startEditingNote(note)} className="text-gray-400 hover:text-blue-500 transition"><Edit2 className="w-4 h-4"/></button>
+                                                                <button onClick={() => handleDeleteQuickNote(note.id)} className="text-gray-400 hover:text-red-500 transition"><Trash2 className="w-4 h-4"/></button>
+                                                            </div>
+                                                        </div>
                                                         <div className="text-xs text-gray-500 mt-1 flex items-center"><span>{note.createdBy}</span><span className="mx-2">•</span><span>{note.createdAt}</span></div>
+                                                        
+                                                        {/* ALT YORUMLAR */}
                                                         <div className="mt-3 bg-gray-50 dark:bg-gray-900/50 p-2 rounded-lg border border-gray-100 dark:border-gray-700">
-                                                            {note.comments && note.comments.map(comment => (<div key={comment.id} className="text-xs text-gray-600 dark:text-gray-300 border-b last:border-0 border-gray-200 dark:border-gray-700 py-1"><strong>{comment.createdBy}:</strong> {comment.text}</div>))}
+                                                            {(note.comments || []).map(comment => (
+                                                                <div key={comment.id} className="text-xs text-gray-600 dark:text-gray-300 border-b last:border-0 border-gray-200 dark:border-gray-700 py-1.5 flex justify-between group/comment">
+                                                                    {editingComment.commentId === comment.id ? (
+                                                                        <div className="flex gap-2 w-full">
+                                                                            <input type="text" className="flex-1 p-1 bg-white dark:bg-gray-800 border rounded dark:text-white dark:border-gray-600" value={editingComment.text} onChange={e => setEditingComment({...editingComment, text: e.target.value})} autoFocus />
+                                                                            <button onClick={saveEditedComment} className="text-green-600"><Check className="w-4 h-4"/></button>
+                                                                            <button onClick={() => setEditingComment({noteId: null, commentId: null, text: ''})} className="text-gray-500"><X className="w-4 h-4"/></button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <>
+                                                                            <div><strong>{comment.createdBy}:</strong> {comment.text}</div>
+                                                                            <div className="opacity-0 group-hover/comment:opacity-100 flex gap-2">
+                                                                                <button onClick={() => startEditingComment(note.id, comment)} className="text-gray-400 hover:text-blue-500"><Edit2 className="w-3 h-3"/></button>
+                                                                                <button onClick={() => handleDeleteComment(note.id, comment.id)} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3"/></button>
+                                                                            </div>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+
                                                             {commentingNoteId === note.id ? (
                                                                 <div className="mt-2 flex gap-2 animate-in fade-in">
-                                                                    <input type="text" className="flex-1 p-1 text-xs border rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Yorumunuzu yazın..." value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment(note.id)} autoFocus />
+                                                                    <input type="text" className="flex-1 p-1.5 text-xs border rounded dark:bg-gray-800 dark:text-white dark:border-gray-600" placeholder="Yorumunuzu yazın..." value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment(note.id)} autoFocus />
                                                                     <button onClick={() => handleSubmitComment(note.id)} className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Kaydet</button>
                                                                     <button onClick={handleCancelComment} className="px-2 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400">İptal</button>
                                                                 </div>
-                                                            ) : (<button onClick={() => handleStartCommenting(note.id)} className="text-xs text-blue-500 hover:text-blue-700 mt-1 font-bold">+ Yorum Ekle</button>)}
+                                                            ) : (<button onClick={() => handleStartCommenting(note.id)} className="text-xs text-blue-500 hover:text-blue-700 mt-1 font-bold">+ Alt Yorum Ekle</button>)}
                                                         </div>
                                                     </div>
                                                 </div>
                                             ))
-                                        ) : (<div className="text-center text-gray-400 py-10">Henüz not eklenmemiş.</div>)}
+                                        ) : (<div className="text-center text-gray-400 py-10 font-medium">Henüz bir not eklenmemiş.</div>)}
                                     </div>
                                 </div>
                             )}
 
+                            {/* PARAMETRELER SEKMESİ */}
                             {activeTab === 'PARAMS' && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 animate-in fade-in">
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-red-600 mb-3 flex items-center"><Thermometer className="w-4 h-4 mr-2"/> Sıcaklıklar</h3>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {Object.keys(trialData.temps).map(key => (<div key={key}><label className="text-xs text-gray-500 uppercase">{key}</label><input type="text" className="w-full p-2 border rounded" value={trialData.temps[key]} onChange={e => setTrialData({...trialData, temps: {...trialData.temps, [key]: e.target.value}})} /></div>))}
-                                        </div>
+                                <div className="space-y-6 animate-in fade-in">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-lg font-bold dark:text-white flex items-center"><FileText className="w-5 h-5 mr-2 text-blue-600"/> Üretim Parametreleri</h3>
+                                        <button onClick={addParameterGroup} className="px-3 py-1.5 bg-blue-100 text-blue-700 font-bold rounded-lg flex items-center hover:bg-blue-200 transition text-xs"><PlusCircle className="w-4 h-4 mr-1"/> Kategori Ekle</button>
                                     </div>
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-blue-600 mb-3 flex items-center"><Gauge className="w-4 h-4 mr-2"/> Basınçlar</h3>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {Object.keys(trialData.pressures).map(key => (<div key={key}><label className="text-xs text-gray-500 uppercase">{key}</label><input type="text" className="w-full p-2 border rounded" value={trialData.pressures[key]} onChange={e => setTrialData({...trialData, pressures: {...trialData.pressures, [key]: e.target.value}})} /></div>))}
-                                        </div>
-                                    </div>
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-green-600 mb-3 flex items-center"><Activity className="w-4 h-4 mr-2"/> Hız</h3>
-                                        <div className="grid grid-cols-1 gap-3">
-                                            {Object.keys(trialData.speeds).map(key => (<div key={key}><label className="text-xs text-gray-500 uppercase">{key}</label><input type="text" className="w-full p-2 border rounded" value={trialData.speeds[key]} onChange={e => setTrialData({...trialData, speeds: {...trialData.speeds, [key]: e.target.value}})} /></div>))}
-                                        </div>
-                                    </div>
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-purple-600 mb-3 flex items-center"><Clock className="w-4 h-4 mr-2"/> Zaman</h3>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {Object.keys(trialData.times).map(key => (<div key={key}><label className="text-xs text-gray-500 uppercase">{key}</label><input type="text" className="w-full p-2 border rounded" value={trialData.times[key]} onChange={e => setTrialData({...trialData, times: {...trialData.times, [key]: e.target.value}})} /></div>))}
-                                        </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
+                                        {(trialData.parameterGroups || []).map(group => (
+                                            <div key={group.id} className="h-full">
+                                                {editingParamGroup === group.id ? (
+                                                    // DÜZENLEME MODU
+                                                    <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm h-full flex flex-col">
+                                                        <div className="flex items-center gap-2 mb-4 border-b border-blue-200 dark:border-blue-800 pb-3">
+                                                            <input type="text" className="font-black text-lg text-gray-800 dark:text-white bg-transparent outline-none w-full border-b border-dashed border-gray-400 focus:border-blue-500 px-1 uppercase" value={group.name} onChange={e => updateGroupName(group.id, e.target.value)} placeholder="Kategori Adı" />
+                                                            <button onClick={() => setEditingParamGroup(null)} className="text-blue-600 font-bold text-xs bg-white dark:bg-gray-800 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm hover:bg-blue-100 transition">KAYDET</button>
+                                                        </div>
+                                                        <div className="flex flex-col gap-2 mb-4 flex-1">
+                                                            {(group.fields || []).map(field => (
+                                                                <div key={field.id} className="flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-200">
+                                                                    <input type="text" className="flex-1 text-sm font-bold text-gray-700 dark:text-gray-200 bg-transparent outline-none px-2" value={field.label} onChange={e => updateParameterField(group.id, field.id, 'label', e.target.value)} placeholder="Parametre Adı" />
+                                                                    <button onClick={() => deleteParameterField(group.id, field.id)} className="text-gray-400 hover:text-red-500 p-1 rounded transition"><Trash2 className="w-4 h-4"/></button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex justify-between items-center mt-auto pt-2">
+                                                            <button onClick={() => addParameterField(group.id)} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-blue-100"><Plus className="w-3 h-3 mr-1"/> Parametre Ekle</button>
+                                                            <button onClick={() => { deleteParameterGroup(group.id); setEditingParamGroup(null); }} className="text-xs font-bold text-red-500 flex items-center p-1.5 hover:underline"><Trash2 className="w-3 h-3 mr-1"/> Kategoriyi Sil</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    // GÖRÜNÜM & VERİ GİRİŞ MODU
+                                                    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 h-full">
+                                                        <div className="flex justify-between items-center mb-5 border-b dark:border-gray-700 pb-3">
+                                                            <h3 className="font-bold text-gray-800 dark:text-gray-200 uppercase text-sm tracking-wider">{group.name}</h3>
+                                                            <button onClick={() => setEditingParamGroup(group.id)} className="text-gray-400 hover:text-blue-500 transition p-1.5 rounded-md hover:bg-gray-100"><Edit2 className="w-4 h-4"/></button>
+                                                        </div>
+                                                        <div className="flex flex-col gap-3">
+                                                            {(group.fields || []).map(field => (
+                                                                <div key={field.id} className="flex items-center justify-between gap-4">
+                                                                    <label className="text-[11px] font-black text-gray-400 dark:text-gray-500 uppercase flex-1 truncate" title={field.label}>{field.label}</label>
+                                                                    <input type="text" className="w-2/3 font-bold text-sm text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-900 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500 transition" value={field.value} onChange={e => updateParameterField(group.id, field.id, 'value', e.target.value)} placeholder="..." />
+                                                                </div>
+                                                            ))}
+                                                            {(group.fields || []).length === 0 && <div className="text-xs text-gray-400 italic">Parametre bulunmuyor. Düzenleme ikonuna tıklayın.</div>}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
                             
+                            {/* GALERİ SEKMESİ */}
                             {activeTab === 'GALLERY' && (
                                 <div className="space-y-6">
                                     <input type="file" multiple accept="image/*,video/*" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
                                     <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 p-10 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-                                        <ImageIcon className="w-16 h-16 mb-4 opacity-50" /><p className="text-lg font-medium">Fotoğraf / Video Yükle</p><button onClick={handleTriggerFileUpload} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
+                                        <ImageIcon className="w-16 h-16 mb-4 opacity-50" /><p className="text-lg font-medium">Fotoğraf / Video Yükle</p><button onClick={handleTriggerFileUpload} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition mt-3"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
                                     </div>
-                                    {trialData.media.length > 0 && (
-                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-in fade-in">
-                                            {trialData.media.map((media, index) => (
+                                    {(trialData.media || []).length > 0 && (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-in fade-in pb-20">
+                                            {(trialData.media || []).map((media, index) => (
                                                 <div key={media.id} onClick={() => setLightboxIndex(index)} className="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black aspect-square cursor-zoom-in hover:brightness-110 transition">
                                                     <button onClick={(e) => { e.stopPropagation(); handleRemoveMedia(media.id); }} className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-full shadow-md z-20 opacity-0 group-hover:opacity-100 transition"><Trash2 className="w-4 h-4" /></button>
                                                     {media.type === 'image' ? <img src={media.url} className="w-full h-full object-cover" alt="img" /> : <div className="w-full h-full flex items-center justify-center bg-gray-900"><PlayCircle className="w-10 h-10 text-white opacity-80" /></div>}
@@ -711,26 +1065,41 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                 </div>
                             )}
 
+                            {/* DİNAMİK SONUÇ SEKMESİ */}
                             {activeTab === 'RESULT' && (
-                                <div className="space-y-6">
+                                <div className="space-y-6 pb-20">
                                     <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4">Görülen Hatalar</h3>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{DEFECT_TYPES.map(defect => (<div key={defect} onClick={() => toggleDefect(defect)} className={`p-3 rounded-lg border text-sm cursor-pointer transition flex items-center ${trialData.defects.includes(defect) ? 'bg-red-50 border-red-500 text-red-700 font-bold' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}>{trialData.defects.includes(defect) ? <CheckCircle className="w-4 h-4 mr-2"/> : <div className="w-4 h-4 mr-2 border border-gray-400 rounded-full"></div>}{defect}</div>))}</div>
+                                        <div className="flex justify-between items-center mb-5 border-b dark:border-gray-700 pb-3">
+                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase tracking-wider">Hata Kriterleri ve Uygunluk</h3>
+                                            <button onClick={() => setIsDefectEditorOpen(true)} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-lg flex items-center hover:bg-gray-200 transition text-xs border border-gray-200 dark:border-gray-600"><Edit2 className="w-4 h-4 mr-1.5"/> Listeyi Düzenle</button>
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                            {(trialData.defectTypes || []).map(defect => (
+                                                <div key={defect.id} onClick={() => toggleDefectSelection(defect.id)} className={`p-3 rounded-xl border text-sm transition flex items-center cursor-pointer ${defect.selected ? 'bg-red-50 border-red-500 text-red-700 font-bold shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-400'}`}>
+                                                    <div className="mr-3 shrink-0">
+                                                        {defect.selected ? <CheckCircle className="w-5 h-5"/> : <div className="w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded-full"></div>}
+                                                    </div>
+                                                    <span className="truncate">{defect.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                     <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4">Sonuç ve Rapor</h3>
-                                        <textarea className="w-full p-3 border rounded-lg h-32 bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-600" placeholder="Genel notlar..." value={trialData.notes} onChange={(e) => setTrialData({...trialData, notes: e.target.value})}></textarea>
+                                        <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4 uppercase tracking-wider">Genel Deneme Özeti</h3>
+                                        <textarea className="w-full p-4 border rounded-xl h-40 bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Deneme sonucuna dair genel özet notları buraya girebilirsiniz..." value={trialData.notes} onChange={(e) => setTrialData({...trialData, notes: e.target.value})}></textarea>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* ALT PANEL: RAPOR SEKMESİNDE İKEN GİZLENİR */}
+                        {/* ALT PANEL */}
                         {activeTab !== 'QUICK_NOTES' && (
-                            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
-                                <div className="text-xs text-gray-500">Raporlayan: <strong>{loggedInUser?.name}</strong></div>
-                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center transition disabled:opacity-50">
-                                    <Save className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'RAPORU KAYDET'}
+                            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center animate-in fade-in slide-in-from-bottom-2 shrink-0">
+                                <button onClick={handleDownloadPresentation} className="px-5 py-2.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-bold rounded-xl flex items-center transition text-sm shadow-sm border border-blue-200 dark:border-blue-800">
+                                    <Download className="w-5 h-5 mr-2" /> SUNUM OLARAK İNDİR (PDF)
+                                </button>
+                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl shadow-lg flex items-center transition disabled:opacity-50 text-sm">
+                                    <Save className="w-5 h-5 mr-2" /> {isSaving ? 'KAYDEDİLİYOR...' : 'TÜMÜNÜ KAYDET'}
                                 </button>
                             </div>
                         )}
