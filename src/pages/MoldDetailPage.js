@@ -7,7 +7,7 @@ import {
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2, Clock, HelpCircle,
-    ListChecks, Layers 
+    ListChecks, Layers, Timer, Check
 } from 'lucide-react'; 
 
 import { 
@@ -33,7 +33,6 @@ import View3DModal from '../components/Modals/View3DModal.js';
 import MoldEvaluationModal from '../components/Modals/MoldEvaluationModal.js'; 
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js'; 
 
-// --- YENİ BİLEŞEN ---
 import MaterialChecklistTab from '../components/Shared/MaterialChecklistTab.js';
 
 const calculateDurationText = (startStr, endStr) => {
@@ -178,17 +177,33 @@ const MoldDetailPage = ({
     const [selectedTaskForCritical, setSelectedTaskForCritical] = useState(null);
     const [uploadingPdfTaskId, setUploadingPdfTaskId] = useState(null);
 
+    // YENİ: Parça süresi giriş state'leri
+    const [taskTimeInputs, setTaskTimeInputs] = useState({}); // { taskId: { h: '', m: '' } }
+
     useEffect(() => {
         if (mold) {
             setLocalTrialReportUrl(mold.trialReportUrl || '');
-            setLocalProductImageUrl(mold.productImageUrl || '');
+            setProductImageUrlState(mold.productImageUrl || '');
             setLocalProjectManager(mold.projectManager || '');
             setLocalMoldDesigner(mold.moldDesigner || '');
             setLocalCamResponsible(mold.camResponsible || ''); 
             setLocalDeadline(mold.moldDeadline || '');
             setLocalPriority(mold.priority || '');
+
+            // Mevcut süreleri inputlara yükle
+            const initialInputs = {};
+            mold.tasks?.forEach(t => {
+                const totalMins = Math.round((parseFloat(t.estimatedCamTime) || 0) * 60);
+                initialInputs[t.id] = {
+                    h: Math.floor(totalMins / 60).toString(),
+                    m: (totalMins % 60).toString()
+                };
+            });
+            setTaskTimeInputs(initialInputs);
         }
     }, [mold]);
+
+    const setProductImageUrlState = (url) => setLocalProductImageUrl(url);
 
     useEffect(() => {
         if (!db || !mold?.id) return;
@@ -217,6 +232,25 @@ const MoldDetailPage = ({
     const canManageMaterials = isAdmin || loggedInUser.role === ROLES.GIRIS_KALITE || loggedInUser.role === ROLES.DEPO_SORUMLUSU || loggedInUser.role === ROLES.TAKIMHANE_SORUMLUSU;
 
     if (!mold) return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
+
+    // --- YENİ: Parça Bazlı Tahmini Süreyi Kaydetme Fonksiyonu ---
+    const handleSaveTaskEstimatedTime = async (taskId) => {
+        const input = taskTimeInputs[taskId] || { h: '0', m: '0' };
+        const totalHours = parseFloat(input.h || 0) + (parseFloat(input.m || 0) / 60);
+        
+        try {
+            const updatedTasks = mold.tasks.map(t => {
+                if (t.id === taskId) return { ...t, estimatedCamTime: totalHours.toFixed(1) };
+                return t;
+            });
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            alert("Öngörülen süre başarıyla güncellendi.");
+        } catch (error) {
+            console.error("Süre kaydetme hatası:", error);
+            alert("Kaydedilirken bir hata oluştu.");
+        }
+    };
 
     const handleDeleteOperation = async (task, operationId) => {
         if (!window.confirm("Bu operasyonu silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
@@ -664,6 +698,13 @@ const MoldDetailPage = ({
                                                         <ShieldAlert className="w-5 h-5" />
                                                     </span>
                                                 )}
+                                                {/* TOPLAM TAHMİNİ SÜRE GÖSTERİMİ */}
+                                                {task.estimatedCamTime > 0 && (
+                                                    <span className="ml-2 flex items-center text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full" title="Öngörülen İşleme Süresi">
+                                                        <Timer className="w-3 h-3 mr-1" />
+                                                        {task.estimatedCamTime}s
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="col-span-6 md:col-span-2">
                                                 <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getStatusClasses(summary.status)}`}>
@@ -716,6 +757,49 @@ const MoldDetailPage = ({
                                                         </div>
                                                     </div>
                                                 )}
+
+                                                {/* YENİ: PARÇA BAZLI TAHMİNİ SÜRE GİRİŞ ALANI */}
+                                                <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                    <div className="flex items-center">
+                                                        <Timer className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mr-2" />
+                                                        <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Öngörülen CAM İşleme Süresi:</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1">
+                                                            <input 
+                                                                type="number" 
+                                                                placeholder="Saat" 
+                                                                className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
+                                                                value={taskTimeInputs[task.id]?.h || ''}
+                                                                onChange={(e) => setTaskTimeInputs({
+                                                                    ...taskTimeInputs,
+                                                                    [task.id]: { ...taskTimeInputs[task.id], h: e.target.value }
+                                                                })}
+                                                            />
+                                                            <span className="text-xs text-gray-500 font-bold uppercase">S</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <input 
+                                                                type="number" 
+                                                                placeholder="Dk" 
+                                                                max="59"
+                                                                className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
+                                                                value={taskTimeInputs[task.id]?.m || ''}
+                                                                onChange={(e) => setTaskTimeInputs({
+                                                                    ...taskTimeInputs,
+                                                                    [task.id]: { ...taskTimeInputs[task.id], m: e.target.value }
+                                                                })}
+                                                            />
+                                                            <span className="text-xs text-gray-500 font-bold uppercase">D</span>
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => handleSaveTaskEstimatedTime(task.id)}
+                                                            className="ml-2 flex items-center px-4 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg hover:bg-indigo-700 transition shadow-sm"
+                                                        >
+                                                            <Check className="w-3 h-3 mr-1" /> SÜREYİ GÜNCELLE
+                                                        </button>
+                                                    </div>
+                                                </div>
 
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                                                     <div className="flex items-center">
@@ -786,6 +870,7 @@ const MoldDetailPage = ({
                                                                             <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
                                                                             <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
                                                                             <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
+                                                                            
                                                                             {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
                                                                             {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
                                                                             {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
@@ -866,28 +951,6 @@ const MoldDetailPage = ({
                                                                         </div>
                                                                     </div>
                                                                 )}
-
-                                                                {operation.reworkHistory && operation.reworkHistory.length > 0 && (
-                                                                    <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-900/30">
-                                                                        <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-2">⚠️ Hata ve Yeniden İşleme Geçmişi:</p>
-                                                                        <div className="space-y-2">
-                                                                            {operation.reworkHistory.map((history) => (
-                                                                                <div key={history.id} className="bg-red-50 dark:bg-red-900/10 p-2 rounded text-xs border border-red-100 dark:border-red-900/30">
-                                                                                    <div className="flex justify-between text-red-700 dark:text-red-400 font-semibold">
-                                                                                        <span>{history.reason}</span>
-                                                                                        <span>{formatDateTime(history.date)}</span>
-                                                                                    </div>
-                                                                                    <div className="text-gray-600 dark:text-gray-400 mt-1">
-                                                                                        {history.description}
-                                                                                    </div>
-                                                                                    <div className="text-gray-500 dark:text-gray-500 mt-1 italic">
-                                                                                        Bildiren: {history.reportedBy} (Sıfırlanan İlerleme: %{history.previousProgress})
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
                                                                 
                                                             </div>
                                                         );
@@ -903,7 +966,6 @@ const MoldDetailPage = ({
                 </>
             )}
 
-            {/* YENİ EKLENEN SEKME */}
             {activeTab === 'materials' && (
                 <MaterialChecklistTab 
                     mold={mold} 
@@ -914,7 +976,6 @@ const MoldDetailPage = ({
                 />
             )}
 
-            {/* Diğer Modallar */}
             {renderModal()}
             
             {isCriticalModalOpen && (

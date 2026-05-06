@@ -3,11 +3,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Layers, Plus, GripVertical, Trash2, 
-    MonitorPlay, Lock, Search, ChevronDown, Activity 
+    MonitorPlay, Lock, Search, ChevronDown, Activity, CalendarDays
 } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, addDoc, deleteDoc } from '../config/firebase.js';
 import { MACHINES_COLLECTION, PROJECT_COLLECTION, MACHINE_TASKS_COLLECTION, ROLES, OPERATION_STATUS } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
+
+// İçe aktarılan yeni sekmeler
+import CamPlanningTab from './CamPlanningTab'; 
+import CamTimelineTab from './CamTimelineTab'; 
 
 // --- YETKİ KONTROLLERİ ---
 const BLOCKED_ROLES = [ROLES.CNC_TORNA_OPERATORU, ROLES.CNC_TORNA_SORUMLUSU, ROLES.TAKIMHANE_SORUMLUSU];
@@ -88,6 +92,9 @@ const SearchableSelect = ({ options, value, onChange, placeholder, disabled }) =
 };
 
 const MachineQueuePage = ({ db, loggedInUser }) => {
+    // 3 SEKMELİ YAPI EKLENDİ
+    const [activeTab, setActiveTab] = useState('PLANNING'); 
+
     const [machines, setMachines] = useState([]);
     const [projects, setProjects] = useState([]);
     const [machineTasks, setMachineTasks] = useState([]);
@@ -119,7 +126,6 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
         return () => { unsubMachines(); unsubProjects(); unsubTasks(); };
     }, [db, canView]);
 
-    // --- SADECE AKTİF ÇALIŞAN (IN_PROGRESS) İŞLERİ GETİRME ---
     const getActiveOperationForMachine = (machine) => {
         let workingOp = null;
 
@@ -134,7 +140,6 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
                 project.tasks.forEach(task => {
                     if (task.operations && Array.isArray(task.operations)) {
                         task.operations.forEach(op => {
-                            // KESİN KURAL: Sadece ÇALIŞIYOR durumundakileri al
                             const isWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
                             
                             if (isWorking) {
@@ -172,7 +177,6 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
         return workingOp;
     };
 
-    // Modal Dropdown Mappings
     const projectOptions = useMemo(() => projects.map(p => ({
         value: p.id,
         label: p.moldName,
@@ -290,200 +294,237 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
         );
     }
 
-    if (loading) return <div className="p-8 text-center text-gray-500 font-bold animate-pulse">İş kuyruğu yükleniyor...</div>;
+    if (loading) return <div className="p-8 text-center text-gray-500 font-bold animate-pulse">İş akış verileri yükleniyor...</div>;
 
     return (
         <div className="p-4 md:p-6 max-w-[1800px] mx-auto min-h-screen">
             
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                <div>
-                    <h1 className="text-2xl font-black text-gray-900 dark:text-white flex items-center tracking-tight">
-                        <Layers className="w-6 h-6 mr-3 text-indigo-500" /> İş Akış Planı (Tezgah Kuyruğu)
-                    </h1>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">
-                        Kalıp alt parçalarını tezgahlara atayın, sürükleyip bırakarak sırasını belirleyin.
-                    </p>
-                </div>
-                
-                {canEdit ? (
-                    <button 
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg font-bold shadow-md shadow-indigo-200 dark:shadow-none transition-all flex items-center text-sm"
-                    >
-                        <Plus className="w-4 h-4 mr-2" /> Yeni İş Ata
-                    </button>
-                ) : (
-                    <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 font-bold flex items-center border border-gray-200 dark:border-gray-600">
-                        <Lock className="w-3 h-3 mr-2" /> Görüntüleme Modu
-                    </div>
-                )}
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center">
+                    <MonitorPlay className="w-8 h-8 mr-3 text-indigo-600" /> İş Akış ve Üretim Planlama
+                </h1>
             </div>
 
-            <div className="space-y-2">
-                {machines.map((machine) => {
-                    const machineJobs = machineTasks.filter(t => t.machineId === machine.id);
-                    const waitingJobs = machineJobs.filter(t => t.status === TASK_STATUS.WAITING).sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-                    
-                    const workingJob = getActiveOperationForMachine(machine);
-
-                    return (
-                        <div key={machine.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col xl:flex-row">
-                            
-                            <div 
-                                className="xl:w-48 bg-gray-50 dark:bg-gray-900/80 p-2 border-b xl:border-b-0 xl:border-r border-gray-200 dark:border-gray-700 flex xl:flex-col justify-between items-center xl:items-start"
-                                onDragOver={handleDragOver}
-                                onDrop={(e) => handleDrop(e, machine.id, waitingJobs.length)} 
-                            >
-                                <div>
-                                    {machine.category && machine.category.toLowerCase() !== 'tezgah' && (
-                                        <div className="text-[9px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{machine.category}</div>
-                                    )}
-                                    <h3 className="text-sm font-black text-gray-800 dark:text-white flex items-center truncate mt-0.5">
-                                        <MonitorPlay className="w-4 h-4 mr-1.5 text-indigo-500 flex-shrink-0" /> {machine.name}
-                                    </h3>
-                                </div>
-                                <div className="mt-0 xl:mt-2 text-[10px] font-bold text-gray-500 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
-                                    Planlanan: {waitingJobs.length}
-                                </div>
-                            </div>
-
-                            <div className="flex-1 p-2 overflow-x-auto custom-scrollbar flex gap-2 items-stretch min-h-[90px] bg-[#f8fafc] dark:bg-[#0f172a]/50">
-                                
-                                {workingJob ? (
-                                    <div className="min-w-[180px] w-[180px] bg-green-50 dark:bg-green-900/20 border-2 border-green-500 rounded-lg p-2 shadow-sm relative flex flex-col flex-shrink-0">
-                                        <div className="absolute -top-2.5 left-2 bg-green-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded flex items-center shadow-sm">
-                                            <div className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-ping"></div>
-                                            CANLI ÜRETİM
-                                        </div>
-                                        <div className="mt-1.5 mb-1 flex-1">
-                                            <div className="text-[9px] font-bold text-green-600 dark:text-green-400 uppercase truncate">{workingJob.projectName}</div>
-                                            <div className="text-xs font-black text-green-900 dark:text-green-100 leading-tight line-clamp-2" title={workingJob.partName}>{workingJob.partName}</div>
-                                            {workingJob.opName && <div className="text-[9px] font-bold text-green-700 dark:text-green-300 mt-0.5 truncate">Op: {workingJob.opName}</div>}
-                                        </div>
-                                        <div className="mt-auto pt-1.5 flex items-center justify-between border-t border-green-200 dark:border-green-800/50">
-                                            <div className="text-[9px] font-bold text-green-700 dark:text-green-500 truncate w-full text-center">
-                                                CAM: {workingJob.camOperator.split(' ')[0]} 
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="min-w-[160px] w-[160px] border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-2 flex flex-col items-center justify-center text-center flex-shrink-0 bg-white/50 dark:bg-gray-800/50">
-                                        <Activity className="w-5 h-5 text-gray-300 dark:text-gray-600 mb-1" />
-                                        <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400">Tezgah Boş</div>
-                                    </div>
-                                )}
-
-                                <div className="h-full w-px bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0"></div>
-
-                                {waitingJobs.map((task, index) => (
-                                    <div 
-                                        key={task.id}
-                                        draggable={canEdit}
-                                        onDragStart={(e) => handleDragStart(e, task)}
-                                        onDragOver={handleDragOver}
-                                        onDrop={(e) => handleDrop(e, machine.id, index)}
-                                        className={`min-w-[160px] w-[160px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 shadow-sm flex flex-col flex-shrink-0 group ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md' : 'cursor-default'} transition-all`}
-                                    >
-                                        <div className="flex justify-between items-start mb-1">
-                                            <div className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[9px] font-black px-1.5 py-0.5 rounded">
-                                                {index + 1}. SIRA
-                                            </div>
-                                            {canEdit && (
-                                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-gray-400">
-                                                    <GripVertical className="w-3.5 h-3.5" />
-                                                </div>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="mb-2 flex-1">
-                                            <div className="text-[9px] font-bold text-gray-400 uppercase truncate mb-0.5">{task.projectName}</div>
-                                            <div className="text-xs font-bold text-gray-800 dark:text-gray-100 leading-tight line-clamp-2" title={task.partName}>{task.partName}</div>
-                                        </div>
-
-                                        <div className="mt-auto pt-1 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                                            <div className="text-[8px] font-medium text-gray-400">{task.createdAt.split(' ')[0]}</div>
-                                            
-                                            {canEdit && (
-                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={() => handleDeleteTask(task.id)} className="p-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded transition" title="Sıradan Çıkar">
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-
-                                {canEdit && (
-                                    <div 
-                                        onDragOver={handleDragOver}
-                                        onDrop={(e) => handleDrop(e, machine.id, waitingJobs.length)}
-                                        className="min-w-[40px] flex-1 rounded-lg border-2 border-transparent hover:border-dashed hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
-                                    ></div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
+            {/* SEKME (TAB) MENÜSÜ GÜNCELLENDİ (3 Sekme) */}
+            <div className="flex bg-white dark:bg-gray-800 p-1.5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-fit mb-6 gap-1 overflow-x-auto">
+                <button 
+                    onClick={() => setActiveTab('PLANNING')} 
+                    className={`px-5 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap text-sm ${activeTab === 'PLANNING' ? 'bg-indigo-100 text-indigo-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                >
+                    <Layers className="w-4 h-4 mr-2" /> Gelişmiş Üretim Planlama
+                </button>
+                <button 
+                    onClick={() => setActiveTab('TIMELINE')} 
+                    className={`px-5 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap text-sm ${activeTab === 'TIMELINE' ? 'bg-purple-100 text-purple-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                >
+                    <CalendarDays className="w-4 h-4 mr-2" /> Zaman Çizelgesi (Gantt)
+                </button>
+                <button 
+                    onClick={() => setActiveTab('QUEUE')} 
+                    className={`px-5 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap text-sm ${activeTab === 'QUEUE' ? 'bg-blue-100 text-blue-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                >
+                    <GripVertical className="w-4 h-4 mr-2" /> Manuel Kuyruk Yönetimi
+                </button>
             </div>
 
-            {isAddModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md min-h-[480px] shadow-2xl flex flex-col">
-                        
-                        <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900 rounded-t-2xl">
-                            <h2 className="text-lg font-bold text-gray-800 dark:text-white">Tezgaha Yeni İş Ata</h2>
-                            <button onClick={() => setIsAddModalOpen(false)} className="text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 p-1 rounded-md transition">✕</button>
+            {/* SEKMELERİN İÇERİĞİ KONTROLÜ */}
+            {activeTab === 'PLANNING' && <CamPlanningTab projects={projects} machines={machines} db={db} />}
+            {activeTab === 'TIMELINE' && <CamTimelineTab projects={projects} machines={machines} />}
+            
+            {activeTab === 'QUEUE' && (
+                /* ESKİ SÜRÜKLE BIRAK KUYRUK MODÜLÜ */
+                <div className="animate-in fade-in">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div>
+                            <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center tracking-tight">
+                                <GripVertical className="w-5 h-5 mr-3 text-blue-500" /> Manuel Tezgah Sıralama Kuyruğu
+                            </h2>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">
+                                Kalıp alt parçalarını tezgahlara atayın, sürükleyip bırakarak öncelik sırasını belirleyin.
+                            </p>
                         </div>
                         
-                        <div className="p-6 space-y-5 flex-1 relative">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">1. Kalıp / Proje Seçin</label>
-                                <SearchableSelect 
-                                    options={projectOptions}
-                                    value={newTask.projectId}
-                                    onChange={(val) => {
-                                        const proj = projects.find(p => p.id === val);
-                                        setNewTask({ ...newTask, projectId: val, projectName: proj ? proj.moldName : '', partName: '' });
-                                    }}
-                                    placeholder="Proje veya Müşteri Ara..."
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">2. Alt Parça Seçin</label>
-                                <SearchableSelect 
-                                    options={partOptions}
-                                    value={newTask.partName}
-                                    onChange={(val) => setNewTask({ ...newTask, partName: val })}
-                                    placeholder={newTask.projectId ? "Parça Ara..." : "Önce proje seçin"}
-                                    disabled={!newTask.projectId}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">3. İşleneceği Tezgah</label>
-                                <SearchableSelect 
-                                    options={machineOptions}
-                                    value={newTask.machineId}
-                                    onChange={(val) => setNewTask({ ...newTask, machineId: val })}
-                                    placeholder="Tezgah Ara..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="p-4 flex justify-end gap-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-2xl">
-                            <button onClick={() => setIsAddModalOpen(false)} className="px-5 py-2 text-gray-600 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm shadow-sm">İptal</button>
+                        {canEdit ? (
                             <button 
-                                onClick={handleAddTask} 
-                                disabled={isSaving || !newTask.projectId || !newTask.partName || !newTask.machineId} 
-                                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 text-sm"
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg font-bold shadow-md shadow-blue-200 dark:shadow-none transition-all flex items-center text-sm"
                             >
-                                {isSaving ? 'Ekleniyor...' : 'Kuyruğa Ekle'}
+                                <Plus className="w-4 h-4 mr-2" /> Yeni İş Ata
                             </button>
-                        </div>
-
+                        ) : (
+                            <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 font-bold flex items-center border border-gray-200 dark:border-gray-600">
+                                <Lock className="w-3 h-3 mr-2" /> Görüntüleme Modu
+                            </div>
+                        )}
                     </div>
+
+                    <div className="space-y-2">
+                        {machines.map((machine) => {
+                            const machineJobs = machineTasks.filter(t => t.machineId === machine.id);
+                            const waitingJobs = machineJobs.filter(t => t.status === TASK_STATUS.WAITING).sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                            
+                            const workingJob = getActiveOperationForMachine(machine);
+
+                            return (
+                                <div key={machine.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col xl:flex-row">
+                                    
+                                    <div 
+                                        className="xl:w-48 bg-gray-50 dark:bg-gray-900/80 p-2 border-b xl:border-b-0 xl:border-r border-gray-200 dark:border-gray-700 flex xl:flex-col justify-between items-center xl:items-start"
+                                        onDragOver={handleDragOver}
+                                        onDrop={(e) => handleDrop(e, machine.id, waitingJobs.length)} 
+                                    >
+                                        <div>
+                                            {machine.category && machine.category.toLowerCase() !== 'tezgah' && (
+                                                <div className="text-[9px] font-black text-gray-400 uppercase tracking-wider mb-0.5">{machine.category}</div>
+                                            )}
+                                            <h3 className="text-sm font-black text-gray-800 dark:text-white flex items-center truncate mt-0.5">
+                                                <MonitorPlay className="w-4 h-4 mr-1.5 text-blue-500 flex-shrink-0" /> {machine.name}
+                                            </h3>
+                                        </div>
+                                        <div className="mt-0 xl:mt-2 text-[10px] font-bold text-gray-500 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+                                            Planlanan: {waitingJobs.length}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 p-2 overflow-x-auto custom-scrollbar flex gap-2 items-stretch min-h-[90px] bg-[#f8fafc] dark:bg-[#0f172a]/50">
+                                        
+                                        {workingJob ? (
+                                            <div className="min-w-[180px] w-[180px] bg-green-50 dark:bg-green-900/20 border-2 border-green-500 rounded-lg p-2 shadow-sm relative flex flex-col flex-shrink-0">
+                                                <div className="absolute -top-2.5 left-2 bg-green-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded flex items-center shadow-sm">
+                                                    <div className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-ping"></div>
+                                                    CANLI ÜRETİM
+                                                </div>
+                                                <div className="mt-1.5 mb-1 flex-1">
+                                                    <div className="text-[9px] font-bold text-green-600 dark:text-green-400 uppercase truncate">{workingJob.projectName}</div>
+                                                    <div className="text-xs font-black text-green-900 dark:text-green-100 leading-tight line-clamp-2" title={workingJob.partName}>{workingJob.partName}</div>
+                                                    {workingJob.opName && <div className="text-[9px] font-bold text-green-700 dark:text-green-300 mt-0.5 truncate">Op: {workingJob.opName}</div>}
+                                                </div>
+                                                <div className="mt-auto pt-1.5 flex items-center justify-between border-t border-green-200 dark:border-green-800/50">
+                                                    <div className="text-[9px] font-bold text-green-700 dark:text-green-500 truncate w-full text-center">
+                                                        CAM: {workingJob.camOperator.split(' ')[0]} 
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="min-w-[160px] w-[160px] border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-2 flex flex-col items-center justify-center text-center flex-shrink-0 bg-white/50 dark:bg-gray-800/50">
+                                                <Activity className="w-5 h-5 text-gray-300 dark:text-gray-600 mb-1" />
+                                                <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400">Tezgah Boş</div>
+                                            </div>
+                                        )}
+
+                                        <div className="h-full w-px bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0"></div>
+
+                                        {waitingJobs.map((task, index) => (
+                                            <div 
+                                                key={task.id}
+                                                draggable={canEdit}
+                                                onDragStart={(e) => handleDragStart(e, task)}
+                                                onDragOver={handleDragOver}
+                                                onDrop={(e) => handleDrop(e, machine.id, index)}
+                                                className={`min-w-[160px] w-[160px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 shadow-sm flex flex-col flex-shrink-0 group ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md' : 'cursor-default'} transition-all`}
+                                            >
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <div className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[9px] font-black px-1.5 py-0.5 rounded">
+                                                        {index + 1}. SIRA
+                                                    </div>
+                                                    {canEdit && (
+                                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-gray-400">
+                                                            <GripVertical className="w-3.5 h-3.5" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                
+                                                <div className="mb-2 flex-1">
+                                                    <div className="text-[9px] font-bold text-gray-400 uppercase truncate mb-0.5">{task.projectName}</div>
+                                                    <div className="text-xs font-bold text-gray-800 dark:text-gray-100 leading-tight line-clamp-2" title={task.partName}>{task.partName}</div>
+                                                </div>
+
+                                                <div className="mt-auto pt-1 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                                                    <div className="text-[8px] font-medium text-gray-400">{task.createdAt.split(' ')[0]}</div>
+                                                    
+                                                    {canEdit && (
+                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => handleDeleteTask(task.id)} className="p-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded transition" title="Sıradan Çıkar">
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {canEdit && (
+                                            <div 
+                                                onDragOver={handleDragOver}
+                                                onDrop={(e) => handleDrop(e, machine.id, waitingJobs.length)}
+                                                className="min-w-[40px] flex-1 rounded-lg border-2 border-transparent hover:border-dashed hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                                            ></div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {isAddModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                            <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md min-h-[480px] shadow-2xl flex flex-col">
+                                
+                                <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900 rounded-t-2xl">
+                                    <h2 className="text-lg font-bold text-gray-800 dark:text-white">Tezgaha Yeni İş Ata</h2>
+                                    <button onClick={() => setIsAddModalOpen(false)} className="text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 p-1 rounded-md transition">✕</button>
+                                </div>
+                                
+                                <div className="p-6 space-y-5 flex-1 relative">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">1. Kalıp / Proje Seçin</label>
+                                        <SearchableSelect 
+                                            options={projectOptions}
+                                            value={newTask.projectId}
+                                            onChange={(val) => {
+                                                const proj = projects.find(p => p.id === val);
+                                                setNewTask({ ...newTask, projectId: val, projectName: proj ? proj.moldName : '', partName: '' });
+                                            }}
+                                            placeholder="Proje veya Müşteri Ara..."
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">2. Alt Parça Seçin</label>
+                                        <SearchableSelect 
+                                            options={partOptions}
+                                            value={newTask.partName}
+                                            onChange={(val) => setNewTask({ ...newTask, partName: val })}
+                                            placeholder={newTask.projectId ? "Parça Ara..." : "Önce proje seçin"}
+                                            disabled={!newTask.projectId}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">3. İşleneceği Tezgah</label>
+                                        <SearchableSelect 
+                                            options={machineOptions}
+                                            value={newTask.machineId}
+                                            onChange={(val) => setNewTask({ ...newTask, machineId: val })}
+                                            placeholder="Tezgah Ara..."
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="p-4 flex justify-end gap-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-2xl">
+                                    <button onClick={() => setIsAddModalOpen(false)} className="px-5 py-2 text-gray-600 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm shadow-sm">İptal</button>
+                                    <button 
+                                        onClick={handleAddTask} 
+                                        disabled={isSaving || !newTask.projectId || !newTask.partName || !newTask.machineId} 
+                                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 text-sm"
+                                    >
+                                        {isSaving ? 'Ekleniyor...' : 'Kuyruğa Ekle'}
+                                    </button>
+                                </div>
+
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
