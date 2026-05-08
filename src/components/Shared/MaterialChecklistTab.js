@@ -2,9 +2,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-    ListChecks, Plus, CheckCircle, Trash2, PackageCheck, PackageX, QrCode, FileSpreadsheet, ListPlus, Loader, Printer, Truck, MapPin, Package, ArrowRight
+    ListChecks, Plus, CheckCircle, Trash2, PackageCheck, PackageX, QrCode, FileSpreadsheet, ListPlus, Printer, Truck, Edit2
 } from 'lucide-react'; 
-import { collection, query, onSnapshot, doc, updateDoc, addDoc, getDoc } from '../../config/firebase.js'; 
+import { collection, query, onSnapshot, doc, updateDoc, addDoc } from '../../config/firebase.js'; 
 import { OPERATION_STATUS, MATERIAL_TYPES, PROJECT_COLLECTION, LOGISTICS_COLLECTION, LOGISTICS_STATUS, MACHINES_COLLECTION } from '../../config/constants.js';
 import { getCurrentDateTimeString } from '../../utils/dateUtils.js';
 import Modal from '../Modals/Modal.js';
@@ -12,65 +12,135 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import * as XLSX from 'xlsx';
 
-// --- BARKOD ETİKETİ BİLEŞENİ (ARKA PLAN YEDEK) ---
-const BarcodeLabel = React.forwardRef(({ material, moldName, customer }, ref) => {
+// --- BARKOD ETİKETİ BİLEŞENİ (99mm x 99mm Kare Format) ---
+const BarcodeLabel = React.forwardRef(({ material, moldName }, ref) => {
     if (!material) return null;
-    const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, dim: material.dimensions, erp: material.erpCode || '' });
+    const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, erp: material.erpCode || '' });
+
+    // 0 veya boş olmayan ölçüleri kontrol etme
+    const hasEn = material.dimObj?.en && String(material.dimObj.en).trim() !== '0';
+    const hasBoy = material.dimObj?.boy && String(material.dimObj.boy).trim() !== '0';
+    const hasKal = material.dimObj?.kal && String(material.dimObj.kal).trim() !== '0';
+    const hasCap = material.dimObj?.cap && String(material.dimObj.cap).trim() !== '0';
+    const hasAnyDim = hasEn || hasBoy || hasKal || hasCap;
+
+    // "Çelik Blok" veya gereksiz uzatmaları temizle
+    const cleanName = material.name.replace(/ÇELİK BLOK/gi, '').replace(/CELIK BLOK/gi, '').trim();
 
     return (
         <div style={{ display: 'none' }}>
             <div ref={ref} style={{
-                width: '100mm', height: '50mm', padding: '4mm', margin: '0', backgroundColor: 'white',
-                border: '1px solid black', display: 'flex', flexDirection: 'row', alignItems: 'center',
-                justifyContent: 'space-between', fontFamily: 'sans-serif', boxSizing: 'border-box', pageBreakAfter: 'always'
+                width: '99mm', height: '99mm', padding: '5mm 5mm 5mm 8mm', margin: '0', backgroundColor: 'white',
+                display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif', boxSizing: 'border-box', overflow: 'hidden'
             }}>
-                <div style={{ flex: 1, paddingRight: '10px', display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#555', textTransform: 'uppercase' }}>{customer || 'Müşteri'}</div>
-                    <div style={{ fontSize: '14px', fontWeight: '900', color: '#000', marginBottom: '4px', textTransform: 'uppercase' }}>{moldName}</div>
-                    <div style={{ width: '100%', height: '2px', backgroundColor: '#000', marginBottom: '4px' }}></div>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#000' }}>{material.name}</div>
-                    <div style={{ fontSize: '10px', color: '#333', marginBottom: '2px' }}>Tür: {material.type}</div>
-                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#000' }}>Ölçü: {material.dimensions || 'Belirtilmedi'}</div>
-                    <div style={{ marginTop: 'auto', fontSize: '8px', color: '#888' }}>ID: {material.id.substring(0,8).toUpperCase()} {material.erpCode ? ` | ERP: ${material.erpCode}` : ''}</div>
+                {/* YAZICI AYARLARI İÇİN CSS (2. sayfaya taşmayı engeller) */}
+                <style type="text/css" media="print">
+                    {`@page { size: 99mm 99mm; margin: 0; } body { margin: 0; }`}
+                </style>
+
+                {/* EN ÜST: KALIP NUMARASI */}
+                <div style={{ fontSize: '24px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', borderBottom: '3px solid black', paddingBottom: '4px', marginBottom: '8px' }}>
+                    {moldName}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <QRCodeSVG value={qrData} size={85} level={"H"} />
+
+                {/* ORTA: KALIP YÜZEYİ VE MALZEME TÜRÜ */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                    <div style={{ fontSize: '30px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', lineHeight: '1.1', marginBottom: '8px' }}>
+                        {material.moldSurface || 'YÜZEY BELİRTİLMEDİ'}
+                    </div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', color: '#222', textTransform: 'uppercase' }}>
+                        {cleanName}
+                    </div>
+                </div>
+
+                {/* ALT KISIM: SOLDA ÖLÇÜLER, SAĞDA BARKOD */}
+                <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '3px solid black', paddingTop: '6px' }}>
+                    
+                    {/* SOL TARAFTA ÖLÇÜLER */}
+                    <div style={{ fontSize: '16px', fontWeight: '900', lineHeight: '1.4', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                        {hasEn && <div>EN: {material.dimObj.en}</div>}
+                        {hasBoy && <div>BOY: {material.dimObj.boy}</div>}
+                        {hasKal && <div>KALINLIK: {material.dimObj.kal}</div>}
+                        {hasCap && <div>ÇAP: {material.dimObj.cap}</div>}
+                        {!hasAnyDim && (
+                            <div style={{ fontSize: '12px', color: '#888' }}>Ölçü Yok</div>
+                        )}
+                    </div>
+
+                    {/* SAĞ TARAFTA BARKOD */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingLeft: '5px' }}>
+                        <QRCodeSVG value={qrData} size={75} level={"H"} />
+                        <div style={{ fontSize: '9px', fontWeight: 'bold', marginTop: '3px' }}>{material.erpCode || material.id.substring(0,8).toUpperCase()}</div>
+                    </div>
+
                 </div>
             </div>
         </div>
     );
 });
 
-// --- BARKOD ÖNİZLEME MODALI ---
-const BarcodePreviewModal = ({ isOpen, onClose, material, moldName, customer }) => {
+// --- BARKOD ÖNİZLEME MODALI (99mm x 99mm) ---
+const BarcodePreviewModal = ({ isOpen, onClose, material, moldName }) => {
     const contentRef = useRef(null);
-    const handlePrint = useReactToPrint({ contentRef: contentRef, content: () => contentRef.current, documentTitle: `Barkod_${material?.name || 'Malzeme'}` });
+    const handlePrint = useReactToPrint({ contentRef: contentRef, content: () => contentRef.current, documentTitle: `Etiket_${material?.name || 'Malzeme'}` });
 
     if (!isOpen || !material) return null;
-    const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, dim: material.dimensions, erp: material.erpCode || '' });
+    const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, erp: material.erpCode || '' });
+
+    const hasEn = material.dimObj?.en && String(material.dimObj.en).trim() !== '0';
+    const hasBoy = material.dimObj?.boy && String(material.dimObj.boy).trim() !== '0';
+    const hasKal = material.dimObj?.kal && String(material.dimObj.kal).trim() !== '0';
+    const hasCap = material.dimObj?.cap && String(material.dimObj.cap).trim() !== '0';
+    const hasAnyDim = hasEn || hasBoy || hasKal || hasCap;
+    
+    const cleanName = material.name.replace(/ÇELİK BLOK/gi, '').replace(/CELIK BLOK/gi, '').trim();
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Barkod / Etiket Önizleme">
+        <Modal isOpen={isOpen} onClose={onClose} title="Etiket Önizleme (99 x 99 mm)">
             <div className="flex flex-col items-center space-y-5">
                 <div className="bg-gray-200 dark:bg-gray-700 p-6 rounded-xl flex justify-center w-full overflow-auto">
+                    
+                    {/* YAZDIRILACAK ALAN (ÖNİZLEME) */}
                     <div ref={contentRef} style={{
-                        width: '100mm', height: '50mm', padding: '4mm', margin: '0', backgroundColor: '#FFFFFF',
-                        color: '#000000', display: 'flex', flexDirection: 'row', alignItems: 'center',
-                        justifyContent: 'space-between', fontFamily: 'Arial, sans-serif', boxSizing: 'border-box'
+                        width: '99mm', height: '99mm', padding: '5mm 5mm 5mm 8mm', margin: '0 auto', backgroundColor: '#FFFFFF',
+                        color: '#000000', display: 'flex', flexDirection: 'column', fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', overflow: 'hidden'
                     }}>
-                        <div style={{ flex: 1, paddingRight: '10px', display: 'flex', flexDirection: 'column', height: '100%', justifyItems: 'flex-start' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>{customer || 'MÜŞTERİ BELİRTİLMEDİ'}</div>
-                            <div style={{ fontSize: '16px', fontWeight: '900', marginBottom: '4px', textTransform: 'uppercase', lineHeight: '1.1' }}>{moldName}</div>
-                            <div style={{ width: '100%', height: '2px', backgroundColor: '#000000', marginBottom: '6px' }}></div>
-                            <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '2px', lineHeight: '1.2' }}>{material.name}</div>
-                            <div style={{ fontSize: '11px', marginBottom: '4px' }}>Tür: {material.type}</div>
-                            <div style={{ fontSize: '12px', fontWeight: 'bold' }}>Ölçü: {material.dimensions || 'Belirtilmedi'}</div>
-                            <div style={{ marginTop: 'auto', fontSize: '9px', fontWeight: 'bold' }}>ID: {material.id.substring(0,8).toUpperCase()} {material.erpCode ? `| ERP: ${material.erpCode}` : ''}</div>
+                        {/* YAZICI AYARLARI İÇİN CSS (2. sayfaya taşmayı engeller) */}
+                        <style type="text/css" media="print">
+                            {`@page { size: 99mm 99mm; margin: 0; } body { margin: 0; }`}
+                        </style>
+
+                        <div style={{ fontSize: '24px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', borderBottom: '3px solid black', paddingBottom: '4px', marginBottom: '8px' }}>
+                            {moldName}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '35%' }}>
-                            <QRCodeSVG value={qrData} size={90} level={"H"} />
+
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                            <div style={{ fontSize: '30px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', lineHeight: '1.1', marginBottom: '8px' }}>
+                                {material.moldSurface || 'YÜZEY BELİRTİLMEDİ'}
+                            </div>
+                            <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', color: '#222', textTransform: 'uppercase' }}>
+                                {cleanName}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '3px solid black', paddingTop: '6px' }}>
+                            <div style={{ fontSize: '16px', fontWeight: '900', lineHeight: '1.4', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                {hasEn && <div>EN: {material.dimObj.en}</div>}
+                                {hasBoy && <div>BOY: {material.dimObj.boy}</div>}
+                                {hasKal && <div>KALINLIK: {material.dimObj.kal}</div>}
+                                {hasCap && <div>ÇAP: {material.dimObj.cap}</div>}
+                                {!hasAnyDim && (
+                                    <div style={{ fontSize: '12px', color: '#888' }}>Ölçü Yok</div>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingLeft: '5px' }}>
+                                <QRCodeSVG value={qrData} size={75} level={"H"} />
+                                <div style={{ fontSize: '9px', fontWeight: 'bold', marginTop: '3px' }}>{material.erpCode || material.id.substring(0,8).toUpperCase()}</div>
+                            </div>
                         </div>
                     </div>
+
                 </div>
                 <div className="flex justify-end gap-3 w-full border-t dark:border-gray-700 pt-4">
                     <button onClick={onClose} className="px-5 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm">İptal</button>
@@ -82,8 +152,16 @@ const BarcodePreviewModal = ({ isOpen, onClose, material, moldName, customer }) 
 };
 
 const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUser, db }) => {
+    // Manuel Malzeme Ekleme State
     const [isAddMaterialModalOpen, setIsAddMaterialModalOpen] = useState(false);
-    const [newMaterial, setNewMaterial] = useState({ name: '', type: MATERIAL_TYPES.CELIK, dimensions: '', quantity: 1, erpCode: '' });
+    const [newMaterial, setNewMaterial] = useState({ 
+        name: '', type: MATERIAL_TYPES.CELIK, moldSurface: '', en: '', boy: '', kalinlik: '', cap: '', quantity: 1, erpCode: '' 
+    });
+    
+    // Düzenleme State'i
+    const [isEditMaterialModalOpen, setIsEditMaterialModalOpen] = useState(false);
+    const [editingMaterial, setEditingMaterial] = useState(null);
+
     const [isSaving, setIsSaving] = useState(false);
     
     const [isBarcodePreviewOpen, setIsBarcodePreviewOpen] = useState(false);
@@ -106,20 +184,84 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
         return () => unsub();
     }, [db]);
 
+    const formatDimensions = (en, boy, kal, cap) => {
+        let dims = [];
+        if (en && en !== '0') dims.push(`E:${en}`);
+        if (boy && boy !== '0') dims.push(`B:${boy}`);
+        if (kal && kal !== '0') dims.push(`K:${kal}`);
+        if (cap && cap !== '0') dims.push(`Ç:${cap}`);
+        return dims.join(' x ');
+    };
+
     const handleAddMaterial = async () => {
         if (!newMaterial.name || !newMaterial.quantity) return alert("Malzeme adı ve adeti zorunludur.");
         setIsSaving(true);
         try {
+            const safeEn = String(newMaterial.en).trim();
+            const safeBoy = String(newMaterial.boy).trim();
+            const safeKal = String(newMaterial.kalinlik).trim();
+            const safeCap = String(newMaterial.cap).trim();
+
+            const dimensionsStr = formatDimensions(safeEn, safeBoy, safeKal, safeCap);
+            
             const materialEntry = {
                 id: `mat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                name: newMaterial.name, type: newMaterial.type, dimensions: newMaterial.dimensions,
-                quantity: parseInt(newMaterial.quantity), status: OPERATION_STATUS.HAMMADDE_BEKLIYOR,
-                addedAt: getCurrentDateTimeString(), addedBy: loggedInUser.name, erpCode: newMaterial.erpCode || ''
+                name: newMaterial.name, 
+                type: newMaterial.type, 
+                moldSurface: newMaterial.moldSurface.toUpperCase(),
+                dimensions: dimensionsStr,
+                dimObj: { en: safeEn, boy: safeBoy, kal: safeKal, cap: safeCap },
+                quantity: parseInt(newMaterial.quantity), 
+                status: OPERATION_STATUS.HAMMADDE_BEKLIYOR,
+                addedAt: getCurrentDateTimeString(), 
+                addedBy: loggedInUser.name, 
+                erpCode: newMaterial.erpCode || ''
             };
+
             const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
             await updateDoc(moldRef, { materials: [...materials, materialEntry] });
+            
             setIsAddMaterialModalOpen(false);
-            setNewMaterial({ name: '', type: MATERIAL_TYPES.CELIK, dimensions: '', quantity: 1, erpCode: '' });
+            setNewMaterial({ name: '', type: MATERIAL_TYPES.CELIK, moldSurface: '', en: '', boy: '', kalinlik: '', cap: '', quantity: 1, erpCode: '' });
+        } catch (error) { console.error(error); } finally { setIsSaving(false); }
+    };
+
+    const handleOpenEditModal = (mat) => {
+        setEditingMaterial({
+            ...mat,
+            en: mat.dimObj?.en || '',
+            boy: mat.dimObj?.boy || '',
+            kalinlik: mat.dimObj?.kal || '',
+            cap: mat.dimObj?.cap || ''
+        });
+        setIsEditMaterialModalOpen(true);
+    };
+
+    const handleSaveEditMaterial = async () => {
+        if (!editingMaterial.name || !editingMaterial.quantity) return alert("Malzeme adı ve adeti zorunludur.");
+        setIsSaving(true);
+        try {
+            const safeEn = String(editingMaterial.en).trim();
+            const safeBoy = String(editingMaterial.boy).trim();
+            const safeKal = String(editingMaterial.kalinlik).trim();
+            const safeCap = String(editingMaterial.cap).trim();
+
+            const dimensionsStr = formatDimensions(safeEn, safeBoy, safeKal, safeCap);
+
+            const updatedMaterials = materials.map(m => m.id === editingMaterial.id ? {
+                ...m,
+                name: editingMaterial.name,
+                type: editingMaterial.type,
+                moldSurface: editingMaterial.moldSurface.toUpperCase(),
+                dimensions: dimensionsStr,
+                dimObj: { en: safeEn, boy: safeBoy, kal: safeKal, cap: safeCap },
+                quantity: parseInt(editingMaterial.quantity),
+                erpCode: editingMaterial.erpCode || ''
+            } : m);
+
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, { materials: updatedMaterials });
+            setIsEditMaterialModalOpen(false);
         } catch (error) { console.error(error); } finally { setIsSaving(false); }
     };
 
@@ -177,6 +319,7 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
 
     const handleOpenBarcodePreview = (material) => { setSelectedMaterialForPrint(material); setIsBarcodePreviewOpen(true); };
 
+    // YENİ FORMATLI EXCEL VERİSİNİ OKUMA (Ölçü 0 ise atlama eklendi, Çap Eklendi)
     const handleExcelFileUpload = (e) => { 
         const file = e.target.files[0]; if (!file) return;
         const reader = new FileReader();
@@ -184,17 +327,40 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
             const data = new Uint8Array(event.target.result); const workbook = XLSX.read(data, { type: 'array' });
             const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: false, defval: '' });
             const parsedData = [];
+            
             jsonData.forEach(row => {
                 const obj = {}; Object.keys(row).forEach(k => { obj[k.toLowerCase().trim()] = String(row[k]).trim(); });
-                const stokAdi = obj['stokadi'] || obj['stok_adi'] || obj['isim'] || obj['name'] || ''; if (!stokAdi) return;
+                
+                const stokAdi = obj['stokadi'] || obj['stok_adi'] || obj['isim'] || obj['name'] || ''; 
+                if (!stokAdi) return;
+
                 const miktar = parseInt(obj['imiktar'] || obj['miktar'] || obj['adet'] || 1);
-                let dims = [];
-                if (obj['en'] && obj['en'] !== '0') dims.push(`E:${obj['en']}`);
-                if (obj['boy'] && obj['boy'] !== '0') dims.push(`B:${obj['boy']}`);
-                if (obj['kalinlik'] && obj['kalinlik'] !== '0') dims.push(`K:${obj['kalinlik']}`);
-                const dimensionsStr = dims.length > 0 ? dims.join(' x ') : (obj['olculer'] || '');
+                
+                const moldSurface = obj['kalıp yüzeyi'] || obj['kalipyuzeyi'] || obj['kalıp yuzeyi'] || obj['kalip yuzeyi'] || '';
+
+                const rawEn = String(obj['en'] || '').trim();
+                const rawBoy = String(obj['boy'] || '').trim();
+                const rawKal = String(obj['kalinlik'] || '').trim();
+                const rawCap = String(obj['çap'] || obj['cap'] || obj['discap'] || obj['iccap'] || '').trim();
+
+                const en = (rawEn && rawEn !== '0') ? rawEn : '';
+                const boy = (rawBoy && rawBoy !== '0') ? rawBoy : '';
+                const kalinlik = (rawKal && rawKal !== '0') ? rawKal : '';
+                const cap = (rawCap && rawCap !== '0') ? rawCap : '';
+
+                const dimensionsStr = formatDimensions(en, boy, kalinlik, cap);
+                
                 const type = stokAdi.toUpperCase().includes('ÇELİK') || stokAdi.toUpperCase().includes('CELIK') ? MATERIAL_TYPES.CELIK : MATERIAL_TYPES.STANDART_ELEMAN;
-                parsedData.push({ name: stokAdi, erpCode: obj['stokkodu'] || '', type, dimensions: dimensionsStr, quantity: isNaN(miktar) ? 1 : miktar });
+                
+                parsedData.push({ 
+                    name: stokAdi, 
+                    erpCode: obj['stokkodu'] || obj['kodu'] || '', 
+                    type, 
+                    moldSurface: moldSurface.toUpperCase(),
+                    dimensions: dimensionsStr, 
+                    dimObj: { en, boy, kal: kalinlik, cap }, 
+                    quantity: isNaN(miktar) ? 1 : miktar 
+                });
             });
             if (parsedData.length > 0) { setErpPreviewData(parsedData); setIsErpModalOpen(true); } else { alert("Uygun veri bulunamadı."); }
         };
@@ -206,8 +372,16 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
         try {
             const newEntries = erpPreviewData.map((item, index) => ({
                 id: `mat-erp-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-                name: item.name, type: item.type, dimensions: item.dimensions, quantity: item.quantity,
-                erpCode: item.erpCode, status: OPERATION_STATUS.HAMMADDE_BEKLIYOR, addedAt: getCurrentDateTimeString(), addedBy: loggedInUser.name + ' (ERP)'
+                name: item.name, 
+                type: item.type, 
+                moldSurface: item.moldSurface,
+                dimensions: item.dimensions, 
+                dimObj: item.dimObj,
+                quantity: item.quantity,
+                erpCode: item.erpCode, 
+                status: OPERATION_STATUS.HAMMADDE_BEKLIYOR, 
+                addedAt: getCurrentDateTimeString(), 
+                addedBy: loggedInUser.name + ' (ERP)'
             }));
             await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), { materials: [...materials, ...newEntries] });
             setIsErpModalOpen(false); setErpPreviewData([]);
@@ -237,7 +411,7 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Malzeme Adı</th>
+                            <th className="px-6 py-3 text-left text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Malzeme Adı & Yüzeyi</th>
                             <th className="px-6 py-3 text-left text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tür / Ölçü</th>
                             <th className="px-6 py-3 text-center text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Durum</th>
                             <th className="px-6 py-3 text-right text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">İşlemler</th>
@@ -249,12 +423,20 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                         ) : (
                             materials.map(mat => (
                                 <tr key={mat.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">
-                                        {mat.name} <span className="text-gray-500 text-xs ml-2">x{mat.quantity}</span>
-                                        <div className="text-[10px] text-gray-400 font-normal mt-0.5">ID: {mat.id.substring(0,8)} {mat.erpCode && `| ERP: ${mat.erpCode}`}</div>
+                                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
+                                        <div className="font-bold flex items-center">
+                                            {mat.name} <span className="text-gray-500 text-xs ml-2">x{mat.quantity}</span>
+                                        </div>
+                                        {mat.moldSurface && (
+                                            <div className="mt-1 inline-block bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-black text-[10px] px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-800">
+                                                YÜZEY: {mat.moldSurface}
+                                            </div>
+                                        )}
+                                        <div className="text-[10px] text-gray-400 font-normal mt-1">ID: {mat.id.substring(0,8)} {mat.erpCode && `| ERP: ${mat.erpCode}`}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                        {mat.type} <br/><span className="text-xs text-gray-500">{mat.dimensions || '-'}</span>
+                                        <span className="font-bold">{mat.type}</span> <br/>
+                                        <span className="text-xs text-gray-500">{mat.dimensions || 'Ölçü Yok'}</span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-center">
                                         {mat.status === OPERATION_STATUS.HAMMADDE_BEKLIYOR && <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-orange-100 text-orange-800"><PackageX className="w-3.5 h-3.5 inline mr-1" /> Siparişte</span>}
@@ -263,7 +445,7 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                                         {mat.status === OPERATION_STATUS.BUFFER_BEKLIYOR && <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-purple-100 text-purple-800"><CheckCircle className="w-3.5 h-3.5 inline mr-1" /> İstasyon'a Bırakıldı</span>}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex items-center justify-end gap-2">
+                                        <div className="flex items-center justify-end gap-1.5">
                                             {canManageMaterials && mat.status === OPERATION_STATUS.HAMMADDE_BEKLIYOR && (
                                                 <button onClick={() => handleUpdateMaterialStatus(mat.id, OPERATION_STATUS.DEPODA)} className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded transition" title="Depoya Alındı">
                                                     <CheckCircle className="w-4 h-4" />
@@ -276,18 +458,25 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                                                     className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 rounded transition flex items-center"
                                                     title="Forklift Çağır / Transfer Et"
                                                 >
-                                                    <Truck className="w-4 h-4 mr-1" /> <span className="text-xs font-bold">Taşı</span>
+                                                    <Truck className="w-4 h-4" />
                                                 </button>
                                             )}
 
                                             {(mat.status === OPERATION_STATUS.DEPODA || mat.status === OPERATION_STATUS.TASIMA_BEKLIYOR || mat.status === OPERATION_STATUS.BUFFER_BEKLIYOR) && (
                                                 <button onClick={() => handleOpenBarcodePreview(mat)} className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded transition flex items-center" title="Etiket Yazdır">
-                                                    <QrCode className="w-4 h-4 mr-1" /> <span className="text-xs font-bold">Barkod</span>
+                                                    <QrCode className="w-4 h-4" />
+                                                </button>
+                                            )}
+
+                                            {/* DÜZENLEME BUTONU */}
+                                            {canManageMaterials && (
+                                                <button onClick={() => handleOpenEditModal(mat)} className="p-1.5 bg-gray-50 text-gray-500 hover:bg-gray-100 rounded transition" title="Düzenle">
+                                                    <Edit2 className="w-4 h-4" />
                                                 </button>
                                             )}
 
                                             {canManageMaterials && (
-                                                <button onClick={() => handleDeleteMaterial(mat.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition"><Trash2 className="w-4 h-4" /></button>
+                                                <button onClick={() => handleDeleteMaterial(mat.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition" title="Sil"><Trash2 className="w-4 h-4" /></button>
                                             )}
                                         </div>
                                     </td>
@@ -328,34 +517,56 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 </Modal>
             )}
 
-            {/* EKSİK OLAN MODALLAR EKLENDİ */}
+            {/* YENİ MALZEME KAYDI MODALI */}
             {isAddMaterialModalOpen && (
                 <Modal isOpen={isAddMaterialModalOpen} onClose={() => setIsAddMaterialModalOpen(false)} title="Yeni Malzeme Kaydı">
                     <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme Türü</label>
-                            <select 
-                                value={newMaterial.type} 
-                                onChange={(e) => setNewMaterial({...newMaterial, type: e.target.value})}
-                                className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-sm"
-                            >
-                                {Object.values(MATERIAL_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme / Parça Adı <span className="text-red-500">*</span></label>
-                            <input type="text" value={newMaterial.name} onChange={(e) => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="Örn: 2738 Dişi Çekirdek Çeliği" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm" />
-                        </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Ölçüler (Opsiyonel)</label>
-                                <input type="text" value={newMaterial.dimensions} onChange={(e) => setNewMaterial({...newMaterial, dimensions: e.target.value})} placeholder="Örn: E:400 B:500 K:120" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme Türü</label>
+                                <select 
+                                    value={newMaterial.type} 
+                                    onChange={(e) => setNewMaterial({...newMaterial, type: e.target.value})}
+                                    className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-sm"
+                                >
+                                    {Object.values(MATERIAL_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Adet</label>
+                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Adet <span className="text-red-500">*</span></label>
                                 <input type="number" min="1" value={newMaterial.quantity} onChange={(e) => setNewMaterial({...newMaterial, quantity: e.target.value})} className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm text-center" />
                             </div>
                         </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme / Stok Adı <span className="text-red-500">*</span></label>
+                            <input type="text" value={newMaterial.name} onChange={(e) => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="Örn: 2738 Dişi Çekirdek Çeliği" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm" />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">Kalıp Yüzeyi (Hangi Parça?)</label>
+                            <input type="text" value={newMaterial.moldSurface} onChange={(e) => setNewMaterial({...newMaterial, moldSurface: e.target.value})} placeholder="Örn: MAÇA 1, ERKEK ÇEKİRDEK..." className="w-full p-2.5 border border-indigo-200 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-black text-sm uppercase" />
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2 border p-3 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">En</label>
+                                <input type="number" value={newMaterial.en} onChange={(e) => setNewMaterial({...newMaterial, en: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Boy</label>
+                                <input type="number" value={newMaterial.boy} onChange={(e) => setNewMaterial({...newMaterial, boy: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Kalınlık</label>
+                                <input type="number" value={newMaterial.kalinlik} onChange={(e) => setNewMaterial({...newMaterial, kalinlik: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Çap</label>
+                                <input type="number" value={newMaterial.cap} onChange={(e) => setNewMaterial({...newMaterial, cap: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                        </div>
+
                         <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
                             <button onClick={() => setIsAddMaterialModalOpen(false)} className="px-5 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm">İptal</button>
                             <button onClick={handleAddMaterial} disabled={isSaving || !newMaterial.name || !newMaterial.quantity} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 text-sm">Listeye Ekle</button>
@@ -364,9 +575,68 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 </Modal>
             )}
 
+            {/* MEVCUT MALZEMEYİ DÜZENLEME MODALI */}
+            {isEditMaterialModalOpen && editingMaterial && (
+                <Modal isOpen={isEditMaterialModalOpen} onClose={() => setIsEditMaterialModalOpen(false)} title="Malzeme Kaydını Düzenle">
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme Türü</label>
+                                <select 
+                                    value={editingMaterial.type} 
+                                    onChange={(e) => setEditingMaterial({...editingMaterial, type: e.target.value})}
+                                    className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-sm"
+                                >
+                                    {Object.values(MATERIAL_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Adet <span className="text-red-500">*</span></label>
+                                <input type="number" min="1" value={editingMaterial.quantity} onChange={(e) => setEditingMaterial({...editingMaterial, quantity: e.target.value})} className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm text-center" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Malzeme / Stok Adı <span className="text-red-500">*</span></label>
+                            <input type="text" value={editingMaterial.name} onChange={(e) => setEditingMaterial({...editingMaterial, name: e.target.value})} placeholder="Örn: 2738 Dişi Çekirdek Çeliği" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm" />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">Kalıp Yüzeyi (Hangi Parça?)</label>
+                            <input type="text" value={editingMaterial.moldSurface} onChange={(e) => setEditingMaterial({...editingMaterial, moldSurface: e.target.value})} placeholder="Örn: MAÇA 1, ERKEK ÇEKİRDEK..." className="w-full p-2.5 border border-indigo-200 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-black text-sm uppercase" />
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2 border p-3 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">En</label>
+                                <input type="number" value={editingMaterial.en} onChange={(e) => setEditingMaterial({...editingMaterial, en: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Boy</label>
+                                <input type="number" value={editingMaterial.boy} onChange={(e) => setEditingMaterial({...editingMaterial, boy: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Kalınlık</label>
+                                <input type="number" value={editingMaterial.kalinlik} onChange={(e) => setEditingMaterial({...editingMaterial, kalinlik: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Çap</label>
+                                <input type="number" value={editingMaterial.cap} onChange={(e) => setEditingMaterial({...editingMaterial, cap: e.target.value})} className="w-full p-2 border rounded outline-none font-bold text-sm" />
+                            </div>
+                        </div>
+
+                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
+                            <button onClick={() => setIsEditMaterialModalOpen(false)} className="px-5 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm">İptal</button>
+                            <button onClick={handleSaveEditMaterial} disabled={isSaving || !editingMaterial.name || !editingMaterial.quantity} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 text-sm">Değişiklikleri Kaydet</button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* ERP ÖNİZLEME MODALI */}
             {isErpModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-4xl max-h-[80vh] shadow-2xl flex flex-col overflow-hidden">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-5xl max-h-[80vh] shadow-2xl flex flex-col overflow-hidden">
                         <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
                             <h2 className="text-lg font-black text-gray-800 dark:text-white flex items-center">
                                 <ListPlus className="w-5 h-5 mr-2 text-emerald-600" /> ERP Verisi Önizleme ({erpPreviewData.length} Kayıt)
@@ -378,17 +648,22 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                                 <thead className="bg-gray-200 dark:bg-gray-700 sticky top-0 shadow-sm z-10">
                                     <tr>
                                         <th className="px-4 py-2 text-left text-xs font-black text-gray-600 dark:text-gray-300">Stok Kodu / İsim</th>
-                                        <th className="px-4 py-2 text-left text-xs font-black text-gray-600 dark:text-gray-300">Algılanan Tür</th>
-                                        <th className="px-4 py-2 text-left text-xs font-black text-gray-600 dark:text-gray-300">Ölçüler</th>
+                                        <th className="px-4 py-2 text-left text-xs font-black text-indigo-600 dark:text-indigo-400">Kalıp Yüzeyi (Parça)</th>
+                                        <th className="px-4 py-2 text-left text-xs font-black text-gray-600 dark:text-gray-300">Tür / Ölçüler</th>
                                         <th className="px-4 py-2 text-center text-xs font-black text-gray-600 dark:text-gray-300">Miktar</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                     {erpPreviewData.map((item, idx) => (
                                         <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                            <td className="px-4 py-2"><div className="text-xs font-bold text-gray-900 dark:text-white">{item.name}</div>{item.erpCode && <div className="text-[10px] text-indigo-500">{item.erpCode}</div>}</td>
-                                            <td className="px-4 py-2"><span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.type === MATERIAL_TYPES.CELIK ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>{item.type}</span></td>
-                                            <td className="px-4 py-2 text-xs font-mono text-gray-600 dark:text-gray-300">{item.dimensions || '-'}</td>
+                                            <td className="px-4 py-2"><div className="text-xs font-bold text-gray-900 dark:text-white">{item.name}</div>{item.erpCode && <div className="text-[10px] text-gray-500">{item.erpCode}</div>}</td>
+                                            <td className="px-4 py-2">
+                                                {item.moldSurface ? <span className="text-xs font-black text-indigo-700 bg-indigo-50 px-2 py-1 rounded">{item.moldSurface}</span> : <span className="text-[10px] text-gray-400">-</span>}
+                                            </td>
+                                            <td className="px-4 py-2">
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded mr-2 ${item.type === MATERIAL_TYPES.CELIK ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>{item.type}</span>
+                                                <span className="text-xs font-mono text-gray-600 dark:text-gray-300">{item.dimensions || '-'}</span>
+                                            </td>
                                             <td className="px-4 py-2 text-center text-sm font-black text-gray-800 dark:text-gray-200">{item.quantity}</td>
                                         </tr>
                                     ))}
@@ -406,8 +681,8 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 </div>
             )}
 
-            <BarcodePreviewModal isOpen={isBarcodePreviewOpen} onClose={() => setIsBarcodePreviewOpen(false)} material={selectedMaterialForPrint} moldName={mold.moldName} customer={mold.customer} />
-            <BarcodeLabel ref={printRef} material={selectedMaterialForPrint} moldName={mold.moldName} customer={mold.customer} />
+            <BarcodePreviewModal isOpen={isBarcodePreviewOpen} onClose={() => setIsBarcodePreviewOpen(false)} material={selectedMaterialForPrint} moldName={mold.moldName} />
+            <BarcodeLabel ref={printRef} material={selectedMaterialForPrint} moldName={mold.moldName} />
         </div>
     );
 };
