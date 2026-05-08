@@ -2,25 +2,22 @@
 
 import React, { useState, useMemo } from 'react';
 
-// İkonlar
 import { 
     Search, Users, Box, Calendar, Clock, CheckCircle, 
     BarChart2, PieChart, Monitor, TrendingUp, 
     CalendarDays, AlertOctagon, History, ClipboardList,
-    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle 
+    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle, Target 
 } from 'lucide-react';
 
-// Sabitler
 import { 
     OPERATION_STATUS, MOLD_STATUS, ROLES, 
     PROJECT_TYPES, PROJECT_TYPE_CONFIG 
 } from '../config/constants.js';
 
-// Yardımcı Fonksiyonlar
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
-// Bileşenler
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
+import ProjectCompletionAnalysis from '../components/Analysis/ProjectCompletionAnalysis.js'; 
 
 const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     
@@ -30,26 +27,21 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear()); 
     const [selectedTimelineMoldId, setSelectedTimelineMoldId] = useState('');
 
-    // --- KRİTİK DÜZELTME: VERİ TEMİZLİĞİ ---
-    // CNC Torna işleri (moldName olmayanlar) buraya girmemeli.
-    // Sayfanın geri kalanında "projects" yerine "validMoldProjects" kullanılacak.
     const validMoldProjects = useMemo(() => {
         if (!projects || !Array.isArray(projects)) return [];
         return projects.filter(p => 
             p && 
-            p.moldName && // Kalıp adı mutlaka olmalı
+            p.moldName && 
             typeof p.moldName === 'string' &&
-            Array.isArray(p.tasks) // Görev listesi olmalı
+            Array.isArray(p.tasks) 
         );
     }, [projects]);
 
-    // --- YETKİ KONTROLÜ ---
     const canViewReworkTab = 
         loggedInUser?.role === ROLES.ADMIN || 
         loggedInUser?.role === ROLES.KALIP_TASARIM_SORUMLUSU ||
         loggedInUser?.role === ROLES.SUPERVISOR;
 
-    // --- ORTAK VERİ HAZIRLIĞI ---
     const allCompletedOperations = useMemo(() => {
         return validMoldProjects.flatMap(mold => 
             mold.tasks.flatMap(task => 
@@ -83,10 +75,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         return Array.from(years).sort((a, b) => b - a); 
     }, [allCompletedOperations, validMoldProjects]);
 
-
-    // --- HESAPLAMALAR ---
-
-    // 1. Yıllık İstatistikler
     const yearlyStats = useMemo(() => {
         const operationsInYear = allCompletedOperations.filter(op => 
             op.finishDate && new Date(op.finishDate).getFullYear() === parseInt(selectedYear)
@@ -108,7 +96,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         return { totalOps: operationsInYear.length, totalHours: totalHours.toFixed(0), completedMolds: completedMoldsInYear, monthlyData, maxMonthlyOps };
     }, [allCompletedOperations, validMoldProjects, selectedYear]);
 
-    // 2. Hata Analizi
     const reworkAnalysis = useMemo(() => {
         if (!canViewReworkTab) return null;
         const allReworks = validMoldProjects.flatMap(mold => 
@@ -140,7 +127,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         };
     }, [validMoldProjects, canViewReworkTab]);
 
-    // 3. Üretim Logları
     const productionLogs = useMemo(() => {
         const logs = validMoldProjects.flatMap(mold => 
             mold.tasks.flatMap(task => 
@@ -185,7 +171,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         return logs;
     }, [validMoldProjects]);
 
-    // 4. Zaman Çizelgesi
     const timelineAnalysis = useMemo(() => {
         if (!selectedTimelineMoldId) return null;
         const mold = validMoldProjects.find(p => p.id === selectedTimelineMoldId);
@@ -224,8 +209,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         return { moldName: mold.moldName, noData: false, totalEffortHours, calendarDays, calendarHours, timelineData, minDate: new Date(minTime), maxDate: new Date(maxTime) };
     }, [selectedTimelineMoldId, validMoldProjects]);
 
-    // 5. Filtreleme (Kalıp Listesi için)
-    // --- HATA DÜZELTME: Artık sadece temiz veriyi (validMoldProjects) filtreliyor ---
     const filteredMolds = useMemo(() => {
         const lowerSearchTerm = (searchTerm || '').toLowerCase();
         return validMoldProjects
@@ -265,9 +248,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         const machineHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; const machineName = op.machineName && op.machineName !== 'SEÇ' ? op.machineName : 'Tezgahsız / Diğer'; machineHourDistribution[machineName] = (machineHourDistribution[machineName] || 0) + duration; });
         return { ...mold, stats: { firstStartDate, lastFinishDate, totalDurationDays, totalManHours: totalManHours.toFixed(1), averageQuality, deadlineStatus, deadlineColor, totalOps: allOps.length, completedOpsCount: completedOps.length, opDistribution, opHourDistribution, machineHourDistribution } };
     }, [selectedId, validMoldProjects, activeTab]);
-
-
-    // --- ALT BİLEŞENLER ---
 
     const WorkTypeAnalysisCard = () => {
         const [analysisYear, setAnalysisYear] = useState(availableYears.length > 0 ? availableYears[0] : new Date().getFullYear());
@@ -584,6 +564,10 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             <div className="flex space-x-4 border-b border-gray-200 dark:border-gray-700 mb-6 overflow-x-auto">
                 <button onClick={() => { setActiveTab('general'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'general' ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><TrendingUp className="w-4 h-4 inline mr-2" /> Genel / Yıllık</button>
                 <button onClick={() => { setActiveTab('work_types'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'work_types' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><PieChart className="w-4 h-4 inline mr-2" /> İş Tipi Dağılımı</button>
+                
+                {/* YENİ EKLENEN TESLİM SÜRELERİ SEKME BUTONU */}
+                <button onClick={() => { setActiveTab('completion'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'completion' ? 'border-teal-500 text-teal-600 dark:text-teal-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Target className="w-4 h-4 inline mr-2" /> Teslim Süreleri</button>
+                
                 <button onClick={() => { setActiveTab('timeline'); setSelectedTimelineMoldId(''); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'timeline' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Activity className="w-4 h-4 inline mr-2" /> Zaman Çizelgesi</button>
                 <button onClick={() => { setActiveTab('production_logs'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'production_logs' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><ClipboardList className="w-4 h-4 inline mr-2" /> Üretim Logları</button>
                 <button onClick={() => { setActiveTab('personnel'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel</button>
@@ -596,20 +580,19 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             {/* İÇERİK RENDER */}
             {activeTab === 'general' ? <GeneralAnalysisCard /> :
              activeTab === 'work_types' ? <WorkTypeAnalysisCard /> : 
+             /* DÜZELTME: BURAYA ARTIK FİLTRELENMEMİŞ ANA "projects" VERİSİ GÖNDERİLİYOR */
+             activeTab === 'completion' ? <ProjectCompletionAnalysis projects={projects} /> : 
              activeTab === 'timeline' ? <TimelineCard /> :
              activeTab === 'production_logs' ? <ProductionLogsCard /> :
              activeTab === 'rework' ? <ReworkAnalysisCard /> : 
              activeTab === 'personnel' ? (
-                // --- DÜZELTME: ARTIK SADECE "TEMİZ" VERİ GÖNDERİLİYOR ---
                 <PersonnelPerformanceAnalysis 
                     personnel={personnel} 
                     projects={validMoldProjects} 
                 />
              ) : (
                 <div className="flex flex-col lg:flex-row gap-6 h-full">
-                    {/* Kalıp Karnesi İçin Sol Menü */}
                     <SidebarList />
-                    {/* Kalıp Karnesi İçin Sağ Taraf */}
                     <div className="flex-1 border rounded-lg p-4 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-inner">
                         <MoldReportCard />
                     </div>
