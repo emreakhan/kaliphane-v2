@@ -1,17 +1,20 @@
 // src/pages/CamPlanningTab.js
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
-    Clock, Monitor, Layers, AlertCircle, CheckCircle2 
+    Clock, Monitor, Layers, AlertCircle, CheckCircle2, Search, ChevronDown 
 } from 'lucide-react';
 import { doc, updateDoc } from '../config/firebase.js';
 import { PROJECT_COLLECTION, OPERATION_STATUS } from '../config/constants.js';
 
-// Tezgah ismini temizlemek ve güvenli eşleştirme yapmak için yardımcı fonksiyon
 const cleanStr = (str) => String(str || '').replace(/[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]/g, '').toLowerCase();
 
 const CamPlanningTab = ({ projects, machines, db }) => {
     const [selectedMoldId, setSelectedMoldId] = useState('');
+    
+    // Akıllı arama state'leri
+    const [searchMoldTerm, setSearchMoldTerm] = useState('');
+    const [isMoldDropdownOpen, setIsMoldDropdownOpen] = useState(false);
 
     // Sadece tamamlanmamış kalıpları listele
     const activeMolds = useMemo(() => {
@@ -22,19 +25,37 @@ const CamPlanningTab = ({ projects, machines, db }) => {
         return activeMolds.find(m => m.id === selectedMoldId) || null;
     }, [activeMolds, selectedMoldId]);
 
+    // Seçim değiştiğinde input'a kalıp adını yaz
+    useEffect(() => {
+        if (selectedMoldId) {
+            const mold = activeMolds.find(m => m.id === selectedMoldId);
+            if (mold) setSearchMoldTerm(`${mold.moldName} - ${mold.projectCode}`);
+        } else {
+            setSearchMoldTerm('');
+        }
+    }, [selectedMoldId, activeMolds]);
+
+    // Arama filtresi
+    const filteredMolds = useMemo(() => {
+        return activeMolds.filter(m => 
+            m.moldName?.toLowerCase().includes(searchMoldTerm.toLowerCase()) || 
+            m.projectCode?.toLowerCase().includes(searchMoldTerm.toLowerCase())
+        );
+    }, [activeMolds, searchMoldTerm]);
+
     // Seçili Kalıbın Toplam Öngörülen Süresi
     const moldTotalEstimatedTime = useMemo(() => {
         if (!selectedMold || !selectedMold.tasks) return 0;
         return selectedMold.tasks.reduce((total, task) => total + (parseFloat(task.estimatedCamTime) || 0), 0);
     }, [selectedMold]);
 
-    // Tezgahların İş Yükü (Kuyruk ve Aktif Çalışan İşler)
+    // Tezgahların İş Yükü (Kuyruk + AKTİF ÇALIŞAN İŞLER)
     const machineBacklogs = useMemo(() => {
         const backlogs = machines.map(m => ({ 
             ...m, 
             totalHours: 0, 
             assignedTasks: [],
-            activeTask: null // Aktif çalışan işi tutmak için
+            activeTask: null
         }));
 
         projects.forEach(project => {
@@ -42,6 +63,7 @@ const CamPlanningTab = ({ projects, machines, db }) => {
             
             project.tasks?.forEach(task => {
                 let taskActiveMachineId = null;
+                const estTime = parseFloat(task.estimatedCamTime) || 0;
 
                 // 1. ADIM: Bu parçada aktif çalışan bir operasyon var mı kontrol et
                 if (task.operations && Array.isArray(task.operations)) {
@@ -63,8 +85,11 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                                         moldName: project.moldName,
                                         taskId: task.id,
                                         taskName: task.taskName,
-                                        opName: op.name || op.type || 'Operasyon'
+                                        opName: op.name || op.type || 'Operasyon',
+                                        estTime: estTime
                                     };
+                                    // HATA DÜZELTİLDİ: Aktif işin süresi artık tezgahın toplam iş yüküne ekleniyor!
+                                    m.totalHours += estTime; 
                                 }
                             });
                         }
@@ -77,9 +102,8 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                 if (task.plannedMachine && !isTaskCompleted) {
                     const targetMachine = backlogs.find(m => m.name === task.plannedMachine);
                     
-                    // Eğer bu parça o tezgahta ŞU AN aktif olarak işleniyorsa, kuyrukta da ayrıca göstermeyiz.
+                    // Eğer bu parça o tezgahta ŞU AN aktif olarak işleniyorsa, kuyrukta ayrıca göstermeyiz.
                     if (targetMachine && targetMachine.id !== taskActiveMachineId) {
-                        const estTime = parseFloat(task.estimatedCamTime) || 0;
                         targetMachine.totalHours += estTime;
                         targetMachine.assignedTasks.push({
                             moldId: project.id,
@@ -144,16 +168,48 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                     <h2 className="text-sm font-black text-gray-800 dark:text-white flex items-center mb-3 uppercase tracking-widest border-b dark:border-gray-700 pb-2">
                         <Layers className="w-4 h-4 mr-2 text-blue-500"/> Kalıp Seçimi
                     </h2>
-                    <select 
-                        className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-900 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                        value={selectedMoldId}
-                        onChange={(e) => setSelectedMoldId(e.target.value)}
-                    >
-                        <option value="">Planlanacak Kalıbı Seçin...</option>
-                        {activeMolds.map(m => (
-                            <option key={m.id} value={m.id}>{m.moldName} - {m.projectCode}</option>
-                        ))}
-                    </select>
+                    
+                    {/* YENİ: YAZARAK ARAMA YAPILABİLEN KALIP SEÇİMİ */}
+                    <div className="relative">
+                        <div className="relative">
+                            <input 
+                                type="text"
+                                className="w-full p-2.5 pl-3 pr-8 border rounded-lg bg-gray-50 dark:bg-gray-900 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 text-sm transition-all"
+                                placeholder="Kalıp Adı veya Kodu Ara..."
+                                value={searchMoldTerm}
+                                onChange={e => {
+                                    setSearchMoldTerm(e.target.value);
+                                    setIsMoldDropdownOpen(true);
+                                    if(selectedMoldId) setSelectedMoldId(''); // Yazmaya başlandığında seçimi temizle
+                                }}
+                                onFocus={() => setIsMoldDropdownOpen(true)}
+                                onBlur={() => setTimeout(() => setIsMoldDropdownOpen(false), 200)}
+                            />
+                            <Search className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                        </div>
+
+                        {isMoldDropdownOpen && (
+                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                                {filteredMolds.length > 0 ? (
+                                    filteredMolds.map(m => (
+                                        <div 
+                                            key={m.id}
+                                            onClick={() => {
+                                                setSelectedMoldId(m.id);
+                                                setIsMoldDropdownOpen(false);
+                                            }}
+                                            className="p-3 hover:bg-blue-50 dark:hover:bg-gray-700 cursor-pointer border-b last:border-b-0 border-gray-100 dark:border-gray-700 transition"
+                                        >
+                                            <div className="font-bold text-sm text-gray-800 dark:text-gray-200">{m.moldName}</div>
+                                            <div className="text-[10px] text-gray-400 font-bold uppercase">{m.projectCode}</div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="p-4 text-gray-500 italic text-center text-sm font-medium">Kalıp bulunamadı...</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     {selectedMold && (
                         <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800 flex justify-between items-center">
@@ -253,7 +309,7 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                         return (
                             <div key={machine.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row overflow-hidden hover:border-indigo-300 transition-colors shadow-sm">
                                 
-                                {/* Sol Kısım: Tezgah Bilgisi (Kompakt) */}
+                                {/* Sol Kısım: Tezgah Bilgisi */}
                                 <div className="lg:w-56 p-3 bg-gray-50 dark:bg-gray-900/50 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 flex flex-col justify-center shrink-0">
                                     <div className="font-extrabold text-sm text-gray-900 dark:text-white mb-2 flex items-center uppercase tracking-tight">
                                         <Monitor className="w-4 h-4 mr-1.5 text-indigo-600" /> {machine.name}
@@ -273,22 +329,25 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                                 {/* Sağ Kısım: İş Parçaları (Yatay Kaydırma) */}
                                 <div className="p-2 flex-1 flex gap-2 overflow-x-auto custom-scrollbar items-stretch bg-[#f8fafc] dark:bg-gray-800/30">
                                     
-                                    {/* 1. EĞER TEZGAH ŞU AN BİR PARÇA İŞLİYORSA (AKTİF İŞ) */}
+                                    {/* 1. AKTİF ÇALIŞAN İŞ */}
                                     {machine.activeTask && (
                                         <div className="min-w-[170px] max-w-[170px] bg-green-50 dark:bg-green-900/20 border-2 border-green-500 rounded-lg p-2 shadow-sm relative flex flex-col flex-shrink-0 justify-center">
                                             <div className="absolute -top-2 left-2 bg-green-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded flex items-center shadow-sm">
                                                 <div className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-ping"></div>
                                                 AKTİF İŞ
                                             </div>
-                                            <div className="mt-2">
+                                            <div className="mt-2 flex-1 flex flex-col">
                                                 <div className="text-[9px] font-bold text-green-700 dark:text-green-400 uppercase truncate mb-0.5" title={machine.activeTask.moldName}>{machine.activeTask.moldName}</div>
                                                 <div className="text-xs font-black text-green-900 dark:text-green-100 leading-tight line-clamp-2" title={machine.activeTask.taskName}>{machine.activeTask.taskName}</div>
-                                                <div className="text-[9px] font-bold text-green-600 dark:text-green-500 mt-1 truncate">Op: {machine.activeTask.opName}</div>
+                                                <div className="mt-auto flex justify-between items-center pt-2">
+                                                    <div className="text-[9px] font-bold text-green-600 dark:text-green-500 truncate">Op: {machine.activeTask.opName}</div>
+                                                    <div className="text-[9px] font-black text-green-800 bg-green-200/50 dark:bg-green-900/50 px-1.5 py-0.5 rounded">{machine.activeTask.estTime}s</div>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
 
-                                    {/* Ayrım Çizgisi (Hem aktif iş hem kuyruk varsa) */}
+                                    {/* Ayrım Çizgisi */}
                                     {machine.activeTask && machine.assignedTasks.length > 0 && (
                                         <div className="w-px bg-gray-300 dark:bg-gray-600 mx-0.5 flex-shrink-0"></div>
                                     )}
@@ -298,7 +357,7 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                                         machine.assignedTasks.map((t, idx) => (
                                             <div key={`${t.moldId}-${t.taskId}`} className="min-w-[160px] max-w-[160px] bg-white dark:bg-gray-700 p-2 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm relative group flex-shrink-0 flex flex-col justify-between hover:border-blue-300 transition-all">
                                                 <div className="absolute top-0 left-0 w-1 h-full bg-blue-500 rounded-l-lg"></div>
-                                                <div className="pl-1">
+                                                <div className="pl-1 flex-1">
                                                     <div className="text-[8px] font-black text-gray-500 uppercase bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded w-fit mb-1">{idx + 1}. SIRA</div>
                                                     <div className="text-[9px] font-bold text-blue-600 dark:text-blue-400 mb-0.5 truncate uppercase" title={t.moldName}>{t.moldName}</div>
                                                     <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight line-clamp-2" title={t.taskName}>{t.taskName}</div>
