@@ -4,9 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, onSnapshot } from '../config/firebase.js';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, 
-    PieChart, Pie, LineChart, Line 
+    PieChart, Pie, LineChart, Line, LabelList // LabelList EKLENDİ
 } from 'recharts';
-import { Clock, Filter, Layers, Zap, TrendingUp, Calendar, ListOrdered, Monitor, Percent, Calculator, ArrowRight } from 'lucide-react';
+import { Clock, Filter, Layers, Zap, TrendingUp, Calendar, ListOrdered, Monitor, Percent, Calculator, Target, Trophy, ArrowRight } from 'lucide-react';
 
 const getISOWeek = (d) => {
     const date = new Date(d.getTime());
@@ -29,7 +29,18 @@ const CamOperatorAnalysis = ({ db }) => {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); 
     const [selectedOperator, setSelectedOperator] = useState('ALL');
     
-    const [machineCount, setMachineCount] = useState(1);
+    // --- KALICI AYARLAR (localStorage) ---
+    const [machineCount, setMachineCount] = useState(() => Number(localStorage.getItem('cam_analysis_machine_count')) || 1);
+    const [targetHours, setTargetHours] = useState(() => Number(localStorage.getItem('cam_analysis_target_hours')) || 0);
+
+    // Ayarlar değiştikçe kaydet
+    useEffect(() => {
+        localStorage.setItem('cam_analysis_machine_count', machineCount);
+    }, [machineCount]);
+
+    useEffect(() => {
+        localStorage.setItem('cam_analysis_target_hours', targetHours);
+    }, [targetHours]);
 
     useEffect(() => {
         if (!db) return;
@@ -42,7 +53,7 @@ const CamOperatorAnalysis = ({ db }) => {
 
     const uniqueOperators = useMemo(() => Array.from(new Set(logs.map(log => log.operatorName))), [logs]);
 
-    // --- VERİ İŞLEME ---
+    // --- VERİ İŞLEME VE HESAPLAMALAR ---
     const stats = useMemo(() => {
         let totalPrep = 0;
         let totalCam = 0;
@@ -107,7 +118,8 @@ const CamOperatorAnalysis = ({ db }) => {
             .map(op => ({
                 ...op,
                 machineCount: op.workedMachines.size,
-                utilization: ((op.totalMins / 60) / (machineCount * periodHours) * 100).toFixed(1)
+                utilization: ((op.CAM) / (machineCount * periodHours) * 100).toFixed(1),
+                targetSuccess: targetHours > 0 ? ((op.CAM / targetHours) * 100).toFixed(1) : 0
             }));
 
         const sortedMachines = Object.entries(machineMap)
@@ -128,7 +140,7 @@ const CamOperatorAnalysis = ({ db }) => {
             sortedMachines,
             avgPerMachine: (totalCam / 60) / (machineCount || 1)
         };
-    }, [logs, selectedYear, filterType, selectedMonth, selectedWeek, selectedDate, selectedOperator, machineCount]);
+    }, [logs, selectedYear, filterType, selectedMonth, selectedWeek, selectedDate, selectedOperator, machineCount, targetHours]);
 
     const trendData = useMemo(() => {
         const map = {};
@@ -169,14 +181,16 @@ const CamOperatorAnalysis = ({ db }) => {
         }));
     }, [logs, selectedYear, filterType, selectedDate, selectedOperator]);
 
+    const formatH = (mins) => `${Math.floor(mins / 60)}s ${mins % 60}dk`;
+
     return (
-        <div className="space-y-8 animate-in fade-in pb-20">
+        <div className="space-y-8 animate-in fade-in pb-20 text-sm">
             
             {/* FİLTRE PANELİ */}
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl items-end">
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl items-end">
                 <div className="md:col-span-1">
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Görünüm</label>
-                    <select className="w-full p-3 border rounded-xl bg-gray-50 dark:bg-gray-700 dark:text-white outline-none font-bold text-sm" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                    <select className="w-full p-3 border rounded-xl bg-gray-50 dark:bg-gray-700 dark:text-white outline-none font-bold" value={filterType} onChange={e => setFilterType(e.target.value)}>
                         <option value="DAILY">GÜNLÜK</option>
                         <option value="WEEK">HAFTALIK</option>
                         <option value="MONTH">AYLIK</option>
@@ -190,13 +204,13 @@ const CamOperatorAnalysis = ({ db }) => {
                     </div>
                 ) : (
                     <>
-                        <div>
+                        <div className="md:col-span-1">
                             <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Yıl</label>
                             <select className="w-full p-3 border rounded-xl bg-gray-50 dark:bg-gray-700 font-bold dark:text-white outline-none" value={selectedYear} onChange={e => setSelectedYear(e.target.value)}>
                                 <option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option>
                             </select>
                         </div>
-                        <div>
+                        <div className="md:col-span-1">
                             <label className="block text-[10px] font-black text-blue-500 uppercase mb-2 ml-1">Dönem</label>
                             {filterType === 'MONTH' ? (
                                 <select className="w-full p-3 border rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-700 font-bold outline-none" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
@@ -211,7 +225,7 @@ const CamOperatorAnalysis = ({ db }) => {
                     </>
                 )}
 
-                <div>
+                <div className="md:col-span-1">
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Personel</label>
                     <select className="w-full p-3 border rounded-xl bg-gray-50 dark:bg-gray-700 font-bold dark:text-white outline-none" value={selectedOperator} onChange={e => setSelectedOperator(e.target.value)}>
                         <option value="ALL">Tümü</option>
@@ -219,9 +233,14 @@ const CamOperatorAnalysis = ({ db }) => {
                     </select>
                 </div>
 
-                <div>
+                <div className="md:col-span-1">
                     <label className="block text-[10px] font-black text-orange-500 uppercase mb-2 ml-1 flex items-center"><Monitor className="w-3 h-3 mr-1"/> Aktif Tezgahlar</label>
                     <input type="number" min="1" className="w-full p-3 border rounded-xl bg-orange-50 dark:bg-orange-900/20 text-orange-700 font-black outline-none" value={machineCount} onChange={e => setMachineCount(parseInt(e.target.value) || 1)} />
+                </div>
+
+                <div className="md:col-span-1">
+                    <label className="block text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase mb-2 ml-1 flex items-center"><Target className="w-3 h-3 mr-1"/> Hedef Saat (CAM)</label>
+                    <input type="number" min="0" className="w-full p-3 border rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-black outline-none" value={targetHours} onChange={e => setTargetHours(parseFloat(e.target.value) || 0)} placeholder="Örn: 90" />
                 </div>
             </div>
 
@@ -242,17 +261,18 @@ const CamOperatorAnalysis = ({ db }) => {
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border-b-8 border-b-purple-500 shadow-lg flex flex-col justify-center transition-transform hover:scale-[1.02]">
                     <div className="text-purple-500 dark:text-purple-400 text-xs font-black uppercase tracking-widest mb-2">Toplam Verimlilik</div>
                     <div className="text-4xl font-black text-purple-600">
-                        {((stats.cam + stats.prep) / 60 / (machineCount * (filterType === 'DAILY' ? 24 : filterType === 'WEEK' ? 168 : 720)) * 100).toFixed(1)}%
+                        {((stats.cam) / 60 / (machineCount * (filterType === 'DAILY' ? 24 : filterType === 'WEEK' ? 168 : 720)) * 100).toFixed(1)}%
                     </div>
                 </div>
             </div>
 
-            {/* GRAFİK (TAM GENİŞLİK) */}
+            {/* 1. GRAFİK (OPERATÖR KIYASLAMA) - LABELLAR EKLENDİ */}
             <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
                 <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><TrendingUp className="w-4 h-4 mr-2 text-indigo-500"/> Dönemsel Karşılaştırma Analizi</h3>
                 <div className="h-[500px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={stats.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                        {/* Margin-top 30 yapıldı ki sütun üstü yazılar kesilmesin */}
+                        <BarChart data={stats.chartData} margin={{ top: 30, right: 30, left: 0, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.05} vertical={false} />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 11, fontWeight: 'bold'}} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 11}} unit="s" />
@@ -262,17 +282,28 @@ const CamOperatorAnalysis = ({ db }) => {
                                 formatter={(value) => [`${value.toFixed(1)} Saat`]}
                             />
                             <Legend verticalAlign="top" align="right" wrapperStyle={{paddingBottom: '20px'}} />
-                            <Bar dataKey="Hazırlık" fill="#3B82F6" radius={[6, 6, 0, 0]} barSize={45} />
-                            <Bar dataKey="CAM" fill="#10B981" radius={[6, 6, 0, 0]} barSize={45} />
-                            <Bar dataKey="Diğer" fill="#F59E0B" radius={[6, 6, 0, 0]} barSize={45} />
+                            
+                            {/* Sütunlar ve Üstlerindeki Yazılar (LabelList) */}
+                            <Bar dataKey="Hazırlık" fill="#3B82F6" radius={[6, 6, 0, 0]} barSize={45}>
+                                <LabelList dataKey="Hazırlık" position="top" fill="#3B82F6" fontSize={11} fontWeight="bold" formatter={(val) => val > 0 ? `${val.toFixed(1)}s` : ''} />
+                            </Bar>
+                            
+                            <Bar dataKey="CAM" fill="#10B981" radius={[6, 6, 0, 0]} barSize={45}>
+                                <LabelList dataKey="CAM" position="top" fill="#10B981" fontSize={11} fontWeight="bold" formatter={(val) => val > 0 ? `${val.toFixed(1)}s` : ''} />
+                            </Bar>
+                            
+                            <Bar dataKey="Diğer" fill="#F59E0B" radius={[6, 6, 0, 0]} barSize={45}>
+                                <LabelList dataKey="Diğer" position="top" fill="#F59E0B" fontSize={11} fontWeight="bold" formatter={(val) => val > 0 ? `${val.toFixed(1)}s` : ''} />
+                            </Bar>
+                            
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
             </div>
 
-            {/* PERSONEL VERİMLİLİK TABLOSU (TAM GENİŞLİK) */}
+            {/* PERSONEL VERİMLİLİK TABLOSU */}
             <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
-                <h3 className="font-black text-gray-800 dark:text-white mb-6 flex items-center uppercase text-xs tracking-widest border-b pb-4"><ListOrdered className="w-4 h-4 mr-2 text-blue-500"/> Personel Verimlilik Sıralaması</h3>
+                <h3 className="font-black text-gray-800 dark:text-white mb-6 flex items-center uppercase text-xs tracking-widest border-b pb-4"><ListOrdered className="w-4 h-4 mr-2 text-blue-500"/> Personel Verimlilik ve Hedef Sıralaması</h3>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead>
@@ -281,14 +312,14 @@ const CamOperatorAnalysis = ({ db }) => {
                                 <th className="px-4 py-4">Personel Adı</th>
                                 {filterType === 'DAILY' && <th className="px-4 py-4">Tezgah</th>}
                                 <th className="px-4 py-4 text-center">Hazırlık</th>
-                                <th className="px-4 py-4 text-center">Diğer İşler</th>
-                                <th className="px-4 py-4 text-center">Kapasite %</th>
-                                <th className="px-4 py-4 text-right">CAM Süresi</th>
+                                <th className="px-4 py-4 text-center">Hedef Başarısı (%)</th>
+                                <th className="px-4 py-4 text-center">Verimlilik %</th>
+                                <th className="px-4 py-4 text-right">Saf CAM Süresi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                             {stats.sortedOperators.map((op, idx) => (
-                                <tr key={op.name} className="group hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                <tr key={op.name} className="group hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-bold">
                                     <td className="px-4 py-4">
                                         <span className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 text-xs font-black rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">{idx + 1}</span>
                                     </td>
@@ -296,15 +327,28 @@ const CamOperatorAnalysis = ({ db }) => {
                                         <div className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-tight">{op.name}</div>
                                     </td>
                                     {filterType === 'DAILY' && (
-                                        <td className="px-4 py-4">
-                                            <span className="text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full">{op.machineCount} Farklı Tezgah</span>
+                                        <td className="px-4 py-4 text-xs">
+                                            <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full">{op.machineCount} Farklı Tezgah</span>
                                         </td>
                                     )}
-                                    <td className="px-4 py-4 text-center font-bold text-blue-600 dark:text-blue-400 text-sm">
+                                    <td className="px-4 py-4 text-center text-blue-600 dark:text-blue-400 text-sm">
                                         {op.Hazırlık.toFixed(1)}s
                                     </td>
-                                    <td className="px-4 py-4 text-center font-bold text-orange-600 dark:text-orange-400 text-sm">
-                                        {op.Diğer.toFixed(1)}s
+                                    <td className="px-4 py-4 text-center">
+                                        <div className="flex flex-col items-center">
+                                            <div className="flex items-center gap-1.5">
+                                                <Trophy className={`w-3 h-3 ${Number(op.targetSuccess) >= 100 ? 'text-yellow-500' : 'text-gray-300'}`} />
+                                                <span className={`text-sm font-black ${Number(op.targetSuccess) >= 100 ? 'text-green-600' : 'text-indigo-600'}`}>
+                                                    %{op.targetSuccess}
+                                                </span>
+                                            </div>
+                                            <div className="w-20 h-1 bg-gray-100 dark:bg-gray-700 rounded-full mt-1.5 overflow-hidden">
+                                                <div 
+                                                    className={`h-full ${Number(op.targetSuccess) >= 100 ? 'bg-yellow-500' : 'bg-indigo-500'}`} 
+                                                    style={{width: `${Math.min(op.targetSuccess, 100)}%`}}
+                                                ></div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td className="px-4 py-4 text-center">
                                         <div className="flex flex-col items-center">
@@ -324,7 +368,29 @@ const CamOperatorAnalysis = ({ db }) => {
                 </div>
             </div>
 
-            {/* TEZGAH BAZLI LİSTE (TAM GENİŞLİK) */}
+            {/* 2. GRAFİK (DÖNEMSEL PERFORMANS AKIŞI) */}
+            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
+                <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><Calculator className="w-5 h-5 mr-2 text-green-500"/> Dönemsel Performans Akış Eğrisi</h3>
+                <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={trendData}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.05} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 10, fontWeight: 'bold'}} />
+                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 10}} unit="s" />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#111827', color: '#F3F4F6', borderRadius: '12px', border: 'none' }}
+                                formatter={(value) => [`${value.toFixed(1)} Saat`]}
+                            />
+                            <Legend verticalAlign="top" align="right" />
+                            <Line type="monotone" dataKey="Hazırlık" stroke="#3B82F6" strokeWidth={4} dot={{r: 5, fill: '#3B82F6', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
+                            <Line type="monotone" dataKey="CAM" stroke="#10B981" strokeWidth={4} dot={{r: 5, fill: '#10B981', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
+                            <Line type="monotone" dataKey="Diğer" stroke="#F59E0B" strokeWidth={4} dot={{r: 5, fill: '#F59E0B', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            {/* TEZGAH BAZLI LİSTE */}
             <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
                 <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><Monitor className="w-5 h-5 mr-2 text-indigo-500"/> Tezgah Bazlı İşleme Dağılımı</h3>
                 <div className="flex flex-col gap-3">
@@ -345,32 +411,9 @@ const CamOperatorAnalysis = ({ db }) => {
                             </div>
                         </div>
                     ))}
-                    {stats.sortedMachines.length === 0 && <div className="text-center text-gray-400 py-10 italic border-2 border-dashed rounded-3xl">Seçili periyotta herhangi bir tezgah verisi girişi bulunamadı.</div>}
                 </div>
             </div>
-
-            {/* TREND AKIŞI */}
-            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
-                <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><Calculator className="w-5 h-5 mr-2 text-green-500"/> Dönemsel Performans Akışı</h3>
-                <div className="h-80 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={trendData}>
-                            <CartesianGrid strokeDasharray="3 3" opacity={0.05} />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 10, fontWeight: 'bold'}} />
-                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 10}} unit="s" />
-                            <Tooltip 
-                                contentStyle={{ backgroundColor: '#111827', color: '#F3F4F6', borderRadius: '12px', border: 'none' }}
-                                formatter={(value) => [`${value.toFixed(1)} Saat`]}
-                            />
-                            <Legend verticalAlign="top" align="right" />
-                            <Line type="monotone" dataKey="Hazırlık" stroke="#3B82F6" strokeWidth={4} dot={{r: 5, fill: '#3B82F6', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
-                            <Line type="monotone" dataKey="CAM" stroke="#10B981" strokeWidth={4} dot={{r: 5, fill: '#10B981', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
-                            <Line type="monotone" dataKey="Diğer" stroke="#F59E0B" strokeWidth={4} dot={{r: 5, fill: '#F59E0B', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
+            
         </div>
     );
 };
