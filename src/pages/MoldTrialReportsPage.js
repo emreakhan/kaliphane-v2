@@ -106,7 +106,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const startPos = useRef({ x: 0, y: 0 });
     const snapshot = useRef(null);
 
-    // Form Verileri (Dinamik Yapıya Çevrildi)
+    // Form Verileri
     const getInitialTrialData = (phase = 'T0') => ({
         id: null,
         trialCode: `TRY-${new Date().getFullYear()}-${Math.floor(Math.random()*10000)}`,
@@ -337,12 +337,11 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         }
     };
 
-    // --- SUNUM PDF OLUŞTURMA MANTIĞI (KESİN ÇÖZÜM) ---
+    // --- SUNUM PDF OLUŞTURMA MANTIĞI ---
     const handleDownloadPresentation = () => {
         const element = document.createElement('div');
         element.style.background = "#0f172a"; 
         
-        // CSS Tanımları
         const styles = `
             <style>
                 @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;700;800&display=swap');
@@ -350,7 +349,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 .pdf-root { background: #0f172a; width: 1123px; }
                 .slide-container { 
                     width: 1123px; 
-                    height: 792px; /* Tam 794px yerine 792px yapıyoruz ki taşma olmasın */
+                    height: 792px; 
                     background: #0f172a; 
                     color: #f8fafc; 
                     padding: 50px; 
@@ -360,9 +359,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                     overflow: hidden;
                     font-family: 'Urbanist', sans-serif;
                 }
-                /* Sayfa sonu kuralı: Slaytlar arasına boş sayfa eklememesi için */
                 .page-break { page-break-before: always; height: 0; display: block; width: 100%; border: none; margin: 0; padding: 0; }
-                
                 .slide-title { font-size: 38px; font-weight: 800; color: #deff9a; margin-bottom: 20px; border-bottom: 2px solid rgba(222, 255, 154, 0.2); padding-bottom: 10px; text-transform: uppercase; flex-shrink: 0; }
                 .content-area { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
                 .cover-slide { text-align: center; justify-content: center; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); }
@@ -473,7 +470,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             `;
         });
 
-        // Resimsiz Notlar (CHUNKİNG: 3 adet ile sınırlandırıldı ki uzun yazılarda taşma yapmasın)
+        // Resimsiz Notlar
         if (notesWithoutImages.length > 0) {
             const chunkSize = 3; 
             for (let i = 0; i < notesWithoutImages.length; i += chunkSize) {
@@ -664,9 +661,18 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const getCanvasPos = (e) => {
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
+        
+        // Mobil dokunmatik desteği
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        }
+
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
-        return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
     };
 
     const startDrawing = (e) => {
@@ -699,6 +705,9 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
     const draw = (e) => {
         if (!isDrawing.current) return;
+        // Mobilde sayfayı kaydırmayı engelle
+        if (e.cancelable) e.preventDefault(); 
+        
         const ctx = canvasRef.current.getContext('2d');
         const pos = getCanvasPos(e);
         if (editTool === 'PEN') {
@@ -746,17 +755,18 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     );
 
     return (
-        <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-4 p-4 overflow-hidden font-sans text-sm">
+        // RESPONSIVE ANA KAPLAYICI (gap-0 on mobile, gap-4 on desktop)
+        <div className="flex h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-900 gap-0 md:gap-4 p-0 md:p-4 overflow-hidden font-sans text-sm relative">
             
             {/* DEFECT EDİTÖR MODAL */}
             {isDefectEditorOpen && (
                 <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden">
-                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
-                            <h3 className="font-black text-gray-800 dark:text-white flex items-center">Hata Kriterlerini Düzenle</h3>
-                            <button onClick={() => setIsDefectEditorOpen(false)} className="text-gray-500 hover:text-red-500 transition"><X className="w-6 h-6"/></button>
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-[95%] md:w-full max-w-lg shadow-2xl flex flex-col overflow-hidden">
+                        <div className="p-4 md:p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
+                            <h3 className="font-black text-gray-800 dark:text-white flex items-center text-sm md:text-base">Hata Kriterlerini Düzenle</h3>
+                            <button onClick={() => setIsDefectEditorOpen(false)} className="text-gray-500 hover:text-red-500 transition"><X className="w-5 h-5 md:w-6 md:h-6"/></button>
                         </div>
-                        <div className="p-6 flex-1 overflow-y-auto max-h-[60vh] space-y-3">
+                        <div className="p-4 md:p-6 flex-1 overflow-y-auto max-h-[60vh] space-y-3">
                             {(trialData.defectTypes || []).map(defect => (
                                 <div key={defect.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
                                     <input type="text" className="flex-1 font-bold text-sm bg-transparent outline-none dark:text-white border-b border-dashed border-gray-300 dark:border-gray-600 focus:border-blue-500 px-1" value={defect.label} onChange={e => updateDefectLabel(defect.id, e.target.value)} placeholder="Hata Kriteri Adı..." />
@@ -771,56 +781,62 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
             {previewImage && (
                 <div className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in" onClick={() => setPreviewImage(null)}>
-                    <button className="absolute top-4 right-4 text-white hover:text-red-500 transition"><X className="w-10 h-10" /></button>
+                    <button className="absolute top-4 right-4 text-white hover:text-red-500 transition"><X className="w-8 h-8 md:w-10 md:h-10" /></button>
                     <img src={previewImage} alt="Önizleme" className="max-w-full max-h-[90vh] rounded shadow-2xl object-contain" />
                 </div>
             )}
 
             {lightboxIndex !== null && trialData.media && trialData.media[lightboxIndex] && (
                 <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-0 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-50">
-                        <div className="flex gap-2">
+                    <div className="absolute top-0 left-0 right-0 p-2 md:p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-50">
+                        <div className="flex gap-2 flex-wrap">
                             {trialData.media[lightboxIndex].type === 'image' && (
                                 !isEditing ? (
-                                    <button onClick={handleStartEditing} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-bold shadow-lg transition"><Edit3 className="w-4 h-4 mr-2" /> Düzenle</button>
+                                    <button onClick={handleStartEditing} className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs md:text-sm font-bold shadow-lg transition"><Edit3 className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> Düzenle</button>
                                 ) : (
-                                    <div className="flex items-center gap-2 animate-in slide-in-from-top-5">
+                                    <div className="flex items-center gap-1 md:gap-2 animate-in slide-in-from-top-5 flex-wrap">
                                         <div className="flex bg-gray-800 rounded-full p-1 border border-gray-600">
-                                            <button onClick={() => setEditTool('PEN')} className={`p-2 rounded-full transition ${editTool === 'PEN' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Edit3 className="w-4 h-4"/></button>
-                                            <button onClick={() => setEditTool('CIRCLE')} className={`p-2 rounded-full transition ${editTool === 'CIRCLE' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><CircleIcon className="w-4 h-4"/></button>
-                                            <button onClick={() => setEditTool('TEXT')} className={`p-2 rounded-full transition ${editTool === 'TEXT' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Type className="w-4 h-4"/></button>
+                                            <button onClick={() => setEditTool('PEN')} className={`p-1.5 md:p-2 rounded-full transition ${editTool === 'PEN' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Edit3 className="w-4 h-4"/></button>
+                                            <button onClick={() => setEditTool('CIRCLE')} className={`p-1.5 md:p-2 rounded-full transition ${editTool === 'CIRCLE' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><CircleIcon className="w-4 h-4"/></button>
+                                            <button onClick={() => setEditTool('TEXT')} className={`p-1.5 md:p-2 rounded-full transition ${editTool === 'TEXT' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Type className="w-4 h-4"/></button>
                                         </div>
-                                        <div className="flex bg-gray-800 rounded-full p-1 border border-gray-600 gap-1">
+                                        <div className="flex bg-gray-800 rounded-full p-1 border border-gray-600 gap-1 hidden md:flex">
                                             {['#ef4444', '#22c55e', '#eab308', '#3b82f6', '#ffffff'].map(color => (
-                                                <button key={color} onClick={() => setDrawingColor(color)} className={`w-6 h-6 rounded-full border-2 transition ${drawingColor === color ? 'border-white scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />
+                                                <button key={color} onClick={() => setDrawingColor(color)} className={`w-5 h-5 md:w-6 md:h-6 rounded-full border-2 transition ${drawingColor === color ? 'border-white scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />
                                             ))}
                                         </div>
-                                        <button onClick={handleSaveEdit} className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full text-sm font-bold ml-2"><Check className="w-4 h-4 mr-1" /> Kaydet</button>
-                                        <button onClick={() => setIsEditing(false)} className="flex items-center px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-full text-sm font-bold"><X className="w-4 h-4 mr-1" /> İptal</button>
+                                        <button onClick={handleSaveEdit} className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-green-600 hover:bg-green-700 text-white rounded-full text-xs md:text-sm font-bold ml-1 md:ml-2"><Check className="w-3 h-3 md:w-4 md:h-4 mr-1" /> Kaydet</button>
+                                        <button onClick={() => setIsEditing(false)} className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-full text-xs md:text-sm font-bold"><X className="w-3 h-3 md:w-4 md:h-4 mr-1" /> İptal</button>
                                     </div>
                                 )
                             )}
                         </div>
-                        <button onClick={() => { setLightboxIndex(null); setIsEditing(false); }} className="text-white hover:text-red-500 transition p-2 bg-white/10 rounded-full hover:bg-white/20"><X className="w-8 h-8" /></button>
+                        <button onClick={() => { setLightboxIndex(null); setIsEditing(false); }} className="text-white hover:text-red-500 transition p-1.5 md:p-2 bg-white/10 rounded-full hover:bg-white/20"><X className="w-6 h-6 md:w-8 md:h-8" /></button>
                     </div>
 
-                    <div className="flex-1 flex items-center justify-center w-full h-full p-4 overflow-hidden relative" onClick={() => !isEditing && setLightboxIndex(null)}>
-                        {!isEditing && <button onClick={handlePrevMedia} className="absolute left-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-4 bg-black/20 rounded-full hover:bg-black/50"><ChevronLeft className="w-12 h-12" /></button>}
-                        <div className="relative max-w-full max-h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex-1 flex items-center justify-center w-full h-full p-0 md:p-4 overflow-hidden relative" onClick={() => !isEditing && setLightboxIndex(null)}>
+                        {!isEditing && <button onClick={handlePrevMedia} className="absolute left-2 md:left-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-2 md:p-4 bg-black/20 rounded-full hover:bg-black/50"><ChevronLeft className="w-8 h-8 md:w-12 md:h-12" /></button>}
+                        <div className="relative max-w-full max-h-full flex items-center justify-center w-full h-full" onClick={(e) => e.stopPropagation()}>
                             {isEditing ? (
-                                <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} className="max-w-full max-h-[85vh] object-contain cursor-crosshair shadow-2xl border border-gray-700 bg-black" />
+                                <canvas 
+                                    ref={canvasRef} 
+                                    onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} 
+                                    onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
+                                    className="max-w-full max-h-[85vh] object-contain cursor-crosshair shadow-2xl border border-gray-700 bg-black touch-none" 
+                                />
                             ) : (
-                                trialData.media[lightboxIndex].type === 'image' ? <img src={trialData.media[lightboxIndex].url} alt="Büyük" className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" /> : <video src={trialData.media[lightboxIndex].url} controls autoPlay className="max-w-full max-h-[85vh] rounded-lg shadow-2xl" />
+                                trialData.media[lightboxIndex].type === 'image' ? <img src={trialData.media[lightboxIndex].url} alt="Büyük" className="max-w-full max-h-[85vh] object-contain md:rounded-lg shadow-2xl" /> : <video src={trialData.media[lightboxIndex].url} controls autoPlay className="max-w-full max-h-[85vh] rounded-lg shadow-2xl" />
                             )}
                         </div>
-                        {!isEditing && <button onClick={handleNextMedia} className="absolute right-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-4 bg-black/20 rounded-full hover:bg-black/50"><ChevronRight className="w-12 h-12" /></button>}
+                        {!isEditing && <button onClick={handleNextMedia} className="absolute right-2 md:right-4 z-10 text-white/50 hover:text-white transition hover:scale-110 p-2 md:p-4 bg-black/20 rounded-full hover:bg-black/50"><ChevronRight className="w-8 h-8 md:w-12 md:h-12" /></button>}
                     </div>
                 </div>
             )}
 
-            {/* SOL PANEL */}
-            <div className="w-full md:w-72 lg:w-1/4 min-w-[300px] shrink-0 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col h-1/3 md:h-full">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            {/* --- SOL PANEL (KALIP LİSTESİ) --- */}
+            {/* MOBİL: Bir kalıp seçiliyse gizle. BİLGİSAYAR: Her zaman flex */}
+            <div className={`${selectedMold ? 'hidden md:flex' : 'flex'} w-full md:w-72 lg:w-1/4 md:min-w-[300px] shrink-0 bg-white dark:bg-gray-800 md:rounded-xl shadow-lg border-r md:border border-gray-200 dark:border-gray-700 flex-col h-full z-10`}>
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 mt-2 md:mt-0">
                     <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center"><Activity className="w-5 h-5 mr-2 text-blue-600" /> Deneme Listesi</h2>
                     <div className="flex flex-wrap gap-1 mb-3">
                         <button onClick={() => setListFilter('TRIALS')} className={`flex-1 py-1.5 px-1 text-[10px] font-bold rounded-md transition ${listFilter === 'TRIALS' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-gray-100 text-gray-500'}`}>Denemedekiler</button>
@@ -835,34 +851,49 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 </div>
             </div>
 
-            {/* SAĞ PANEL */}
-            <div className="flex-1 min-w-0 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden h-2/3 md:h-full">
+            {/* --- SAĞ PANEL (DETAYLAR VE FORMLAR) --- */}
+            {/* MOBİL: Bir kalıp seçili değilse gizle. BİLGİSAYAR: Her zaman flex */}
+            <div className={`${!selectedMold ? 'hidden md:flex' : 'flex'} flex-1 min-w-0 bg-white dark:bg-gray-800 md:rounded-xl shadow-lg border-l md:border border-gray-200 dark:border-gray-700 flex-col overflow-hidden h-full z-20`}>
                 {selectedMold ? (
                     <>
-                        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 transition-all duration-300">
-                            <div className={`flex justify-between items-start ${activeTab !== 'QUICK_NOTES' ? 'mb-4' : ''}`}>
-                                <div>
-                                    <h1 className="text-2xl font-black text-gray-800 dark:text-white flex items-center">
-                                        {selectedMold.moldName}
-                                        <span className="ml-3 text-sm font-normal text-gray-500 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">{selectedMold.projectCode}</span>
-                                        {activeTab === 'QUICK_NOTES' && (
-                                            <span className="ml-3 text-xs font-bold text-blue-800 bg-blue-100 px-2 py-1 rounded">Faz: {trialData.phase}</span>
-                                        )}
-                                    </h1>
-                                    <div className="flex items-center mt-1 space-x-2">
-                                        <p className="text-sm text-gray-500">Müşteri: {selectedMold.customerName || 'Belirtilmemiş'}</p>
-                                        <Link to={`/mold/${selectedMold.id}`} className="text-xs text-blue-600 hover:underline flex items-center bg-blue-50 px-2 py-0.5 rounded">
-                                            Kalıp Detayına Git <ChevronRight className="w-3 h-3 ml-1"/>
-                                        </Link>
+                        <div className="px-4 md:px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 transition-all duration-300">
+                            
+                            <div className={`flex flex-col md:flex-row justify-between items-start md:items-center ${activeTab !== 'QUICK_NOTES' ? 'mb-4' : ''}`}>
+                                <div className="w-full flex items-center justify-between md:justify-start mb-2 md:mb-0">
+                                    <div className="flex items-center">
+                                        {/* YENİ: Mobilde Geri Dön Butonu */}
+                                        <button onClick={() => setSelectedMold(null)} className="md:hidden mr-3 p-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition">
+                                            <ChevronLeft className="w-5 h-5" />
+                                        </button>
+                                        
+                                        <div>
+                                            <h1 className="text-xl md:text-2xl font-black text-gray-800 dark:text-white flex flex-wrap items-center gap-2">
+                                                {selectedMold.moldName}
+                                                <span className="text-xs md:text-sm font-normal text-gray-500 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">{selectedMold.projectCode}</span>
+                                            </h1>
+                                            <div className="flex items-center mt-1 space-x-2">
+                                                <p className="text-[10px] md:text-xs text-gray-500">Müşteri: {selectedMold.customerName || 'Belirtilmemiş'}</p>
+                                                <Link to={`/mold/${selectedMold.id}`} className="text-[10px] md:text-xs text-blue-600 hover:underline flex items-center bg-blue-50 px-2 py-0.5 rounded">
+                                                    Kalıp Detayına Git <ChevronRight className="w-3 h-3 ml-1"/>
+                                                </Link>
+                                            </div>
+                                        </div>
                                     </div>
+                                    
+                                    {/* Faz rozeti (Sadece Raporda Sağ Üstte, mobilde küçük) */}
+                                    {activeTab === 'QUICK_NOTES' && (
+                                        <span className="text-[10px] md:text-xs font-bold text-blue-800 bg-blue-100 px-2 py-1 rounded ml-auto">Faz: {trialData.phase}</span>
+                                    )}
                                 </div>
                                 
                                 {activeTab !== 'QUICK_NOTES' && (
-                                    <div className="flex gap-2 animate-in fade-in">
+                                    <div className="flex flex-wrap gap-1 md:gap-2 w-full md:w-auto animate-in fade-in">
                                         {TRIAL_PHASES.map(phase => {
                                             const hasReport = reports.some(r => r.phase === phase);
                                             return (
-                                                <button key={phase} onClick={() => handlePhaseChange(phase)} className={`px-3 py-1 text-xs font-bold rounded border transition ${trialData.phase === phase ? 'bg-blue-600 text-white border-blue-600 scale-105 shadow-md' : hasReport ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>{phase} {hasReport && '✓'}</button>
+                                                <button key={phase} onClick={() => handlePhaseChange(phase)} className={`px-2 py-1 md:px-3 text-[10px] md:text-xs font-bold rounded border transition flex-1 md:flex-none ${trialData.phase === phase ? 'bg-blue-600 text-white border-blue-600 shadow-md' : hasReport ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>
+                                                    {phase} {hasReport && '✓'}
+                                                </button>
                                             );
                                         })}
                                     </div>
@@ -870,56 +901,67 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             </div>
 
                             {activeTab !== 'QUICK_NOTES' && (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2 fade-in">
-                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Deneme Fazı</label><select className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.phase} onChange={(e) => handlePhaseChange(e.target.value)}>{TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
-                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Makine</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} /></div>
-                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Hammadde</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.material} onChange={(e) => setTrialData({...trialData, material: e.target.value})} /></div>
-                                    <div><label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Göz</label><input type="text" className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.cavity} onChange={(e) => setTrialData({...trialData, cavity: e.target.value})} /></div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 animate-in slide-in-from-top-2 fade-in mt-2 md:mt-0">
+                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Faz</label><select className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.phase} onChange={(e) => handlePhaseChange(e.target.value)}>{TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Makine</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} /></div>
+                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Hammadde</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.material} onChange={(e) => setTrialData({...trialData, material: e.target.value})} /></div>
+                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Göz</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.cavity} onChange={(e) => setTrialData({...trialData, cavity: e.target.value})} /></div>
                                 </div>
                             )}
                         </div>
 
-                        <div className="flex border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 overflow-x-auto">
-                            <button onClick={() => setActiveTab('QUICK_NOTES')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'QUICK_NOTES' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500'}`}><MessageSquare className="w-4 h-4 mr-2" /> Rapor</button>
-                            <button onClick={() => setActiveTab('PARAMS')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'PARAMS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Gauge className="w-4 h-4 mr-2" /> Parametreler</button>
-                            <button onClick={() => setActiveTab('GALLERY')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'GALLERY' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Camera className="w-4 h-4 mr-2" /> Görseller</button>
-                            <button onClick={() => setActiveTab('RESULT')} className={`py-2.5 px-4 text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'RESULT' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4 mr-2" /> Sonuç</button>
+                        {/* SEKME MENÜSÜ (Mobilde yatay kaydırılabilir) */}
+                        <div className="flex border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 md:px-4 overflow-x-auto hide-scrollbar">
+                            <button onClick={() => setActiveTab('QUICK_NOTES')} className={`py-2.5 px-3 md:px-4 text-xs md:text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'QUICK_NOTES' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500'}`}><MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" /> Rapor</button>
+                            <button onClick={() => setActiveTab('PARAMS')} className={`py-2.5 px-3 md:px-4 text-xs md:text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'PARAMS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Gauge className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" /> Parametreler</button>
+                            <button onClick={() => setActiveTab('GALLERY')} className={`py-2.5 px-3 md:px-4 text-xs md:text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'GALLERY' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><Camera className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" /> Görseller</button>
+                            <button onClick={() => setActiveTab('RESULT')} className={`py-2.5 px-3 md:px-4 text-xs md:text-sm font-bold border-b-2 transition flex items-center whitespace-nowrap ${activeTab === 'RESULT' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><FileText className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" /> Sonuç</button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 dark:bg-gray-900/50">
+                        {/* SEKME İÇERİKLERİ */}
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50/50 dark:bg-gray-900/50">
                             
                             {/* RAPOR SEKMESİ */}
                             {activeTab === 'QUICK_NOTES' && (
-                                <div className="space-y-6 animate-in fade-in">
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-orange-200 dark:border-gray-700">
+                                <div className="space-y-4 md:space-y-6 animate-in fade-in">
+                                    <div className="bg-white dark:bg-gray-800 p-3 md:p-4 rounded-xl shadow-sm border border-orange-200 dark:border-gray-700">
                                         <div className="mb-4 border-b pb-3 dark:border-gray-700">
-                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-2">Kalıp Durumu (Onay/Ret)</h3>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleResultChange('APPROVED')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'APPROVED' ? 'bg-green-600 border-green-600 text-white' : 'border-green-200 text-green-600 hover:bg-green-50'}`}><ThumbsUp className="w-4 h-4 mr-1.5" /> ONAYLA</button>
-                                                <button onClick={() => handleResultChange('REJECTED')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REJECTED' ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-600 hover:bg-red-50'}`}><ThumbsDown className="w-4 h-4 mr-1.5" /> REDDET</button>
-                                                <button onClick={() => handleResultChange('REVISION')} className={`flex-1 py-2 text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REVISION' ? 'bg-orange-500 border-orange-500 text-white' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}><AlertTriangle className="w-4 h-4 mr-1.5" /> TASHİH</button>
+                                            <h3 className="text-xs md:text-sm font-bold text-gray-800 dark:text-white mb-2">Kalıp Durumu (Onay/Ret)</h3>
+                                            <div className="flex flex-col md:flex-row gap-2">
+                                                <button onClick={() => handleResultChange('APPROVED')} className={`flex-1 py-2 text-xs md:text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'APPROVED' ? 'bg-green-600 border-green-600 text-white' : 'border-green-200 text-green-600 hover:bg-green-50'}`}><ThumbsUp className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" /> ONAYLA</button>
+                                                <button onClick={() => handleResultChange('REJECTED')} className={`flex-1 py-2 text-xs md:text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REJECTED' ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-600 hover:bg-red-50'}`}><ThumbsDown className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" /> REDDET</button>
+                                                <button onClick={() => handleResultChange('REVISION')} className={`flex-1 py-2 text-xs md:text-sm rounded-lg border-2 font-bold flex items-center justify-center transition ${trialData.result === 'REVISION' ? 'bg-orange-500 border-orange-500 text-white' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}><AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" /> TASHİH</button>
                                             </div>
                                         </div>
                                         
-                                        <h3 className="text-sm font-bold text-orange-600 mb-2 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Yeni Rapor Notu Ekle</h3>
-                                        <div className="flex gap-2">
-                                            <input type="file" ref={quickNoteFileInputRef} className="hidden" accept="image/*" onChange={handleQuickNoteImageUpload} />
-                                            <button onClick={() => quickNoteFileInputRef.current.click()} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300">{newQuickNoteImage ? <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" /> : <Camera className="w-5 h-5" />}</button>
-                                            <div className="flex-1 flex gap-2"><input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} /><button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Notu Kaydet</button></div>
+                                        <h3 className="text-xs md:text-sm font-bold text-orange-600 mb-2 flex items-center"><MessageSquare className="w-4 h-4 mr-2"/> Yeni Rapor Notu Ekle</h3>
+                                        <div className="flex flex-col md:flex-row gap-2">
+                                            <div className="flex gap-2">
+                                                <input type="file" ref={quickNoteFileInputRef} className="hidden" accept="image/*" onChange={handleQuickNoteImageUpload} />
+                                                <button onClick={() => quickNoteFileInputRef.current.click()} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300 w-12 h-10 flex items-center justify-center shrink-0">
+                                                    {newQuickNoteImage ? <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" /> : <Camera className="w-5 h-5" />}
+                                                </button>
+                                                <input type="text" className="flex-1 md:hidden p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Notunuz..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} />
+                                            </div>
+                                            <div className="flex-1 flex gap-2 hidden md:flex">
+                                                <input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} />
+                                                <button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm shrink-0">Notu Kaydet</button>
+                                            </div>
+                                            <button onClick={handleAddQuickNote} className="md:hidden w-full py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Notu Kaydet</button>
                                         </div>
                                     </div>
                                     
                                     <div className="space-y-4 pb-10">
                                         {(trialData.quickNotes || []).length > 0 ? (
                                             (trialData.quickNotes || []).map(note => (
-                                                <div key={note.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-4">
+                                                <div key={note.id} className="bg-white dark:bg-gray-800 p-3 md:p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-3 md:gap-4">
                                                     
                                                     {(note.images || []).length > 0 && (
-                                                        <div className="w-full md:w-32 h-32 flex flex-col gap-1 shrink-0 overflow-y-auto custom-scrollbar">
+                                                        <div className="w-full md:w-32 flex md:flex-col gap-2 shrink-0 overflow-x-auto md:overflow-y-auto custom-scrollbar md:h-32">
                                                             {note.images.map((imgUrl, imgIdx) => (
-                                                                <div key={imgIdx} className="w-full h-full shrink-0 relative group">
+                                                                <div key={imgIdx} className="w-24 h-24 md:w-full md:h-full shrink-0 relative group">
                                                                     <img src={imgUrl} alt="Not Görseli" className="w-full h-full object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => setPreviewImage(imgUrl)} />
-                                                                    <button onClick={() => handleDeleteImageFromNote(note.id, imgIdx)} className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition"><X className="w-3 h-3"/></button>
+                                                                    <button onClick={() => handleDeleteImageFromNote(note.id, imgIdx)} className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-full opacity-100 md:opacity-0 group-hover:opacity-100 transition"><X className="w-3 h-3"/></button>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -933,30 +975,32 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                                     <div className="flex-1">
                                                         <div className="flex justify-between items-start">
                                                             {editingNoteId === note.id ? (
-                                                                <div className="flex-1 flex gap-2">
+                                                                <div className="flex-1 flex flex-col md:flex-row gap-2">
                                                                     <textarea className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white text-sm" value={editingNoteText} onChange={e=>setEditingNoteText(e.target.value)}></textarea>
-                                                                    <button onClick={saveEditedNoteText} className="px-3 bg-green-500 text-white rounded font-bold"><Check className="w-4 h-4"/></button>
-                                                                    <button onClick={()=>setEditingNoteId(null)} className="px-3 bg-gray-300 text-gray-700 rounded font-bold"><X className="w-4 h-4"/></button>
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={saveEditedNoteText} className="px-3 py-1.5 md:py-0 bg-green-500 text-white rounded font-bold flex-1"><Check className="w-4 h-4 mx-auto"/></button>
+                                                                        <button onClick={()=>setEditingNoteId(null)} className="px-3 py-1.5 md:py-0 bg-gray-300 text-gray-700 rounded font-bold flex-1"><X className="w-4 h-4 mx-auto"/></button>
+                                                                    </div>
                                                                 </div>
                                                             ) : (
-                                                                <p className="font-bold text-gray-800 dark:text-white text-lg">{note.text}</p>
+                                                                <p className="font-bold text-gray-800 dark:text-white text-base md:text-lg">{note.text}</p>
                                                             )}
                                                             
-                                                            <div className="flex items-center gap-2 ml-4">
+                                                            <div className="flex items-center gap-2 ml-2 md:ml-4 shrink-0">
                                                                 <label className="cursor-pointer text-gray-400 hover:text-green-500 transition" title="Fotoğraf Ekle">
-                                                                    <PlusCircle className="w-5 h-5"/>
+                                                                    <PlusCircle className="w-4 h-4 md:w-5 md:h-5"/>
                                                                     <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleAddImageToExistingNote(note.id, e)} />
                                                                 </label>
                                                                 <button onClick={() => startEditingNote(note)} className="text-gray-400 hover:text-blue-500 transition"><Edit2 className="w-4 h-4"/></button>
                                                                 <button onClick={() => handleDeleteQuickNote(note.id)} className="text-gray-400 hover:text-red-500 transition"><Trash2 className="w-4 h-4"/></button>
                                                             </div>
                                                         </div>
-                                                        <div className="text-xs text-gray-500 mt-1 flex items-center"><span>{note.createdBy}</span><span className="mx-2">•</span><span>{note.createdAt}</span></div>
+                                                        <div className="text-[10px] md:text-xs text-gray-500 mt-2 md:mt-1 flex items-center"><span>{note.createdBy}</span><span className="mx-2">•</span><span>{note.createdAt}</span></div>
                                                         
                                                         {/* ALT YORUMLAR */}
                                                         <div className="mt-3 bg-gray-50 dark:bg-gray-900/50 p-2 rounded-lg border border-gray-100 dark:border-gray-700">
                                                             {(note.comments || []).map(comment => (
-                                                                <div key={comment.id} className="text-xs text-gray-600 dark:text-gray-300 border-b last:border-0 border-gray-200 dark:border-gray-700 py-1.5 flex justify-between group/comment">
+                                                                <div key={comment.id} className="text-xs text-gray-600 dark:text-gray-300 border-b last:border-0 border-gray-200 dark:border-gray-700 py-1.5 flex flex-col md:flex-row justify-between group/comment gap-1">
                                                                     {editingComment.commentId === comment.id ? (
                                                                         <div className="flex gap-2 w-full">
                                                                             <input type="text" className="flex-1 p-1 bg-white dark:bg-gray-800 border rounded dark:text-white dark:border-gray-600" value={editingComment.text} onChange={e => setEditingComment({...editingComment, text: e.target.value})} autoFocus />
@@ -965,8 +1009,8 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                                                         </div>
                                                                     ) : (
                                                                         <>
-                                                                            <div><strong>{comment.createdBy}:</strong> {comment.text}</div>
-                                                                            <div className="opacity-0 group-hover/comment:opacity-100 flex gap-2">
+                                                                            <div><strong className="text-gray-800 dark:text-gray-200">{comment.createdBy}:</strong> {comment.text}</div>
+                                                                            <div className="opacity-100 md:opacity-0 group-hover/comment:opacity-100 flex gap-3 md:gap-2 self-end md:self-auto">
                                                                                 <button onClick={() => startEditingComment(note.id, comment)} className="text-gray-400 hover:text-blue-500"><Edit2 className="w-3 h-3"/></button>
                                                                                 <button onClick={() => handleDeleteComment(note.id, comment.id)} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3"/></button>
                                                                             </div>
@@ -976,12 +1020,14 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                                             ))}
 
                                                             {commentingNoteId === note.id ? (
-                                                                <div className="mt-2 flex gap-2 animate-in fade-in">
+                                                                <div className="mt-2 flex flex-col md:flex-row gap-2 animate-in fade-in">
                                                                     <input type="text" className="flex-1 p-1.5 text-xs border rounded dark:bg-gray-800 dark:text-white dark:border-gray-600" placeholder="Yorumunuzu yazın..." value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment(note.id)} autoFocus />
-                                                                    <button onClick={() => handleSubmitComment(note.id)} className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Kaydet</button>
-                                                                    <button onClick={handleCancelComment} className="px-2 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400">İptal</button>
+                                                                    <div className="flex gap-2 w-full md:w-auto">
+                                                                        <button onClick={() => handleSubmitComment(note.id)} className="flex-1 md:flex-none px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Kaydet</button>
+                                                                        <button onClick={handleCancelComment} className="flex-1 md:flex-none px-2 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400">İptal</button>
+                                                                    </div>
                                                                 </div>
-                                                            ) : (<button onClick={() => handleStartCommenting(note.id)} className="text-xs text-blue-500 hover:text-blue-700 mt-1 font-bold">+ Alt Yorum Ekle</button>)}
+                                                            ) : (<button onClick={() => handleStartCommenting(note.id)} className="text-[10px] md:text-xs text-blue-500 hover:text-blue-700 mt-2 font-bold">+ Alt Yorum Ekle</button>)}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -994,45 +1040,45 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             {/* PARAMETRELER SEKMESİ */}
                             {activeTab === 'PARAMS' && (
                                 <div className="space-y-6 animate-in fade-in">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="text-lg font-bold dark:text-white flex items-center"><FileText className="w-5 h-5 mr-2 text-blue-600"/> Üretim Parametreleri</h3>
-                                        <button onClick={addParameterGroup} className="px-3 py-1.5 bg-blue-100 text-blue-700 font-bold rounded-lg flex items-center hover:bg-blue-200 transition text-xs"><PlusCircle className="w-4 h-4 mr-1"/> Kategori Ekle</button>
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+                                        <h3 className="text-base md:text-lg font-bold dark:text-white flex items-center"><FileText className="w-4 h-4 md:w-5 md:h-5 mr-2 text-blue-600"/> Üretim Parametreleri</h3>
+                                        <button onClick={addParameterGroup} className="w-full md:w-auto justify-center px-3 py-2 bg-blue-100 text-blue-700 font-bold rounded-lg flex items-center hover:bg-blue-200 transition text-xs"><PlusCircle className="w-4 h-4 mr-1"/> Kategori Ekle</button>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-20">
                                         {(trialData.parameterGroups || []).map(group => (
                                             <div key={group.id} className="h-full">
                                                 {editingParamGroup === group.id ? (
                                                     // DÜZENLEME MODU
-                                                    <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm h-full flex flex-col">
+                                                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 md:p-5 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm h-full flex flex-col">
                                                         <div className="flex items-center gap-2 mb-4 border-b border-blue-200 dark:border-blue-800 pb-3">
-                                                            <input type="text" className="font-black text-lg text-gray-800 dark:text-white bg-transparent outline-none w-full border-b border-dashed border-gray-400 focus:border-blue-500 px-1 uppercase" value={group.name} onChange={e => updateGroupName(group.id, e.target.value)} placeholder="Kategori Adı" />
-                                                            <button onClick={() => setEditingParamGroup(null)} className="text-blue-600 font-bold text-xs bg-white dark:bg-gray-800 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm hover:bg-blue-100 transition">KAYDET</button>
+                                                            <input type="text" className="font-black text-base md:text-lg text-gray-800 dark:text-white bg-transparent outline-none w-full border-b border-dashed border-gray-400 focus:border-blue-500 px-1 uppercase" value={group.name} onChange={e => updateGroupName(group.id, e.target.value)} placeholder="Kategori Adı" />
+                                                            <button onClick={() => setEditingParamGroup(null)} className="text-blue-600 font-bold text-[10px] md:text-xs bg-white dark:bg-gray-800 border border-blue-200 px-2 py-1 md:px-3 md:py-1.5 rounded-lg shadow-sm hover:bg-blue-100 transition shrink-0">KAYDET</button>
                                                         </div>
                                                         <div className="flex flex-col gap-2 mb-4 flex-1">
                                                             {(group.fields || []).map(field => (
                                                                 <div key={field.id} className="flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-200">
-                                                                    <input type="text" className="flex-1 text-sm font-bold text-gray-700 dark:text-gray-200 bg-transparent outline-none px-2" value={field.label} onChange={e => updateParameterField(group.id, field.id, 'label', e.target.value)} placeholder="Parametre Adı" />
-                                                                    <button onClick={() => deleteParameterField(group.id, field.id)} className="text-gray-400 hover:text-red-500 p-1 rounded transition"><Trash2 className="w-4 h-4"/></button>
+                                                                    <input type="text" className="flex-1 text-xs md:text-sm font-bold text-gray-700 dark:text-gray-200 bg-transparent outline-none px-1 md:px-2" value={field.label} onChange={e => updateParameterField(group.id, field.id, 'label', e.target.value)} placeholder="Parametre Adı" />
+                                                                    <button onClick={() => deleteParameterField(group.id, field.id)} className="text-gray-400 hover:text-red-500 p-1 rounded transition shrink-0"><Trash2 className="w-4 h-4"/></button>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        <div className="flex justify-between items-center mt-auto pt-2">
-                                                            <button onClick={() => addParameterField(group.id)} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-blue-100"><Plus className="w-3 h-3 mr-1"/> Parametre Ekle</button>
-                                                            <button onClick={() => { deleteParameterGroup(group.id); setEditingParamGroup(null); }} className="text-xs font-bold text-red-500 flex items-center p-1.5 hover:underline"><Trash2 className="w-3 h-3 mr-1"/> Kategoriyi Sil</button>
+                                                        <div className="flex justify-between items-center mt-auto pt-2 border-t border-blue-100">
+                                                            <button onClick={() => addParameterField(group.id)} className="text-[10px] md:text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center bg-white dark:bg-gray-800 px-2 md:px-3 py-1.5 rounded-lg border border-blue-100"><Plus className="w-3 h-3 mr-1"/> Param Ekle</button>
+                                                            <button onClick={() => { deleteParameterGroup(group.id); setEditingParamGroup(null); }} className="text-[10px] md:text-xs font-bold text-red-500 flex items-center p-1.5 hover:underline"><Trash2 className="w-3 h-3 mr-1"/> Kategoriyi Sil</button>
                                                         </div>
                                                     </div>
                                                 ) : (
                                                     // GÖRÜNÜM & VERİ GİRİŞ MODU
-                                                    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 h-full">
-                                                        <div className="flex justify-between items-center mb-5 border-b dark:border-gray-700 pb-3">
-                                                            <h3 className="font-bold text-gray-800 dark:text-gray-200 uppercase text-sm tracking-wider">{group.name}</h3>
-                                                            <button onClick={() => setEditingParamGroup(group.id)} className="text-gray-400 hover:text-blue-500 transition p-1.5 rounded-md hover:bg-gray-100"><Edit2 className="w-4 h-4"/></button>
+                                                    <div className="bg-white dark:bg-gray-800 p-4 md:p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 h-full">
+                                                        <div className="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
+                                                            <h3 className="font-bold text-gray-800 dark:text-gray-200 uppercase text-xs md:text-sm tracking-wider">{group.name}</h3>
+                                                            <button onClick={() => setEditingParamGroup(group.id)} className="text-gray-400 hover:text-blue-500 transition p-1.5 rounded-md hover:bg-gray-100"><Edit2 className="w-3.5 h-3.5 md:w-4 md:h-4"/></button>
                                                         </div>
-                                                        <div className="flex flex-col gap-3">
+                                                        <div className="flex flex-col gap-2 md:gap-3">
                                                             {(group.fields || []).map(field => (
-                                                                <div key={field.id} className="flex items-center justify-between gap-4">
-                                                                    <label className="text-[11px] font-black text-gray-400 dark:text-gray-500 uppercase flex-1 truncate" title={field.label}>{field.label}</label>
-                                                                    <input type="text" className="w-2/3 font-bold text-sm text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-900 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500 transition" value={field.value} onChange={e => updateParameterField(group.id, field.id, 'value', e.target.value)} placeholder="..." />
+                                                                <div key={field.id} className="flex flex-col md:flex-row items-start md:items-center justify-between gap-1 md:gap-4">
+                                                                    <label className="text-[10px] md:text-[11px] font-black text-gray-400 dark:text-gray-500 uppercase flex-1 w-full truncate" title={field.label}>{field.label}</label>
+                                                                    <input type="text" className="w-full md:w-2/3 font-bold text-xs md:text-sm text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-900 p-2 md:p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500 transition" value={field.value} onChange={e => updateParameterField(group.id, field.id, 'value', e.target.value)} placeholder="..." />
                                                                 </div>
                                                             ))}
                                                             {(group.fields || []).length === 0 && <div className="text-xs text-gray-400 italic">Parametre bulunmuyor. Düzenleme ikonuna tıklayın.</div>}
@@ -1049,15 +1095,17 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             {activeTab === 'GALLERY' && (
                                 <div className="space-y-6">
                                     <input type="file" multiple accept="image/*,video/*" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
-                                    <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 p-10 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-                                        <ImageIcon className="w-16 h-16 mb-4 opacity-50" /><p className="text-lg font-medium">Fotoğraf / Video Yükle</p><button onClick={handleTriggerFileUpload} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition mt-3"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
+                                    <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 p-6 md:p-10 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                                        <ImageIcon className="w-12 h-12 md:w-16 md:h-16 mb-2 md:mb-4 opacity-50" />
+                                        <p className="text-sm md:text-lg font-medium text-center">Fotoğraf / Video Yükle</p>
+                                        <button onClick={handleTriggerFileUpload} className="px-4 py-2 md:px-6 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition mt-3 text-xs md:text-sm"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
                                     </div>
                                     {(trialData.media || []).length > 0 && (
-                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-in fade-in pb-20">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 animate-in fade-in pb-20">
                                             {(trialData.media || []).map((media, index) => (
                                                 <div key={media.id} onClick={() => setLightboxIndex(index)} className="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black aspect-square cursor-zoom-in hover:brightness-110 transition">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveMedia(media.id); }} className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-full shadow-md z-20 opacity-0 group-hover:opacity-100 transition"><Trash2 className="w-4 h-4" /></button>
-                                                    {media.type === 'image' ? <img src={media.url} className="w-full h-full object-cover" alt="img" /> : <div className="w-full h-full flex items-center justify-center bg-gray-900"><PlayCircle className="w-10 h-10 text-white opacity-80" /></div>}
+                                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveMedia(media.id); }} className="absolute top-1 right-1 md:top-2 md:right-2 bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-full shadow-md z-20 opacity-100 md:opacity-0 group-hover:opacity-100 transition"><Trash2 className="w-3 h-3 md:w-4 md:h-4" /></button>
+                                                    {media.type === 'image' ? <img src={media.url} className="w-full h-full object-cover" alt="img" /> : <div className="w-full h-full flex items-center justify-center bg-gray-900"><PlayCircle className="w-8 h-8 md:w-10 md:h-10 text-white opacity-80" /></div>}
                                                 </div>
                                             ))}
                                         </div>
@@ -1067,45 +1115,52 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
                             {/* DİNAMİK SONUÇ SEKMESİ */}
                             {activeTab === 'RESULT' && (
-                                <div className="space-y-6 pb-20">
-                                    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <div className="flex justify-between items-center mb-5 border-b dark:border-gray-700 pb-3">
-                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase tracking-wider">Hata Kriterleri ve Uygunluk</h3>
-                                            <button onClick={() => setIsDefectEditorOpen(true)} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-lg flex items-center hover:bg-gray-200 transition text-xs border border-gray-200 dark:border-gray-600"><Edit2 className="w-4 h-4 mr-1.5"/> Listeyi Düzenle</button>
+                                <div className="space-y-4 md:space-y-6 pb-20">
+                                    <div className="bg-white dark:bg-gray-800 p-4 md:p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-5 border-b dark:border-gray-700 pb-3 gap-2">
+                                            <h3 className="text-xs md:text-sm font-bold text-gray-800 dark:text-white uppercase tracking-wider">Hata Kriterleri ve Uygunluk</h3>
+                                            <button onClick={() => setIsDefectEditorOpen(true)} className="w-full md:w-auto justify-center px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-lg flex items-center hover:bg-gray-200 transition text-[10px] md:text-xs border border-gray-200 dark:border-gray-600"><Edit2 className="w-3.5 h-3.5 mr-1.5"/> Listeyi Düzenle</button>
                                         </div>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
                                             {(trialData.defectTypes || []).map(defect => (
-                                                <div key={defect.id} onClick={() => toggleDefectSelection(defect.id)} className={`p-3 rounded-xl border text-sm transition flex items-center cursor-pointer ${defect.selected ? 'bg-red-50 border-red-500 text-red-700 font-bold shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-400'}`}>
+                                                <div key={defect.id} onClick={() => toggleDefectSelection(defect.id)} className={`p-2.5 md:p-3 rounded-xl border text-xs md:text-sm transition flex items-center cursor-pointer ${defect.selected ? 'bg-red-50 border-red-500 text-red-700 font-bold shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-400'}`}>
                                                     <div className="mr-3 shrink-0">
-                                                        {defect.selected ? <CheckCircle className="w-5 h-5"/> : <div className="w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded-full"></div>}
+                                                        {defect.selected ? <CheckCircle className="w-4 h-4 md:w-5 md:h-5"/> : <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-gray-300 dark:border-gray-600 rounded-full"></div>}
                                                     </div>
                                                     <span className="truncate">{defect.label}</span>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                                        <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4 uppercase tracking-wider">Genel Deneme Özeti</h3>
-                                        <textarea className="w-full p-4 border rounded-xl h-40 bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Deneme sonucuna dair genel özet notları buraya girebilirsiniz..." value={trialData.notes} onChange={(e) => setTrialData({...trialData, notes: e.target.value})}></textarea>
+                                    <div className="bg-white dark:bg-gray-800 p-4 md:p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                        <h3 className="text-xs md:text-sm font-bold text-gray-800 dark:text-white mb-3 md:mb-4 uppercase tracking-wider">Genel Deneme Özeti</h3>
+                                        <textarea className="w-full p-3 md:p-4 text-xs md:text-sm border rounded-xl h-32 md:h-40 bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Deneme sonucuna dair genel özet notları buraya girebilirsiniz..." value={trialData.notes} onChange={(e) => setTrialData({...trialData, notes: e.target.value})}></textarea>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* ALT PANEL */}
+                        {/* ALT PANEL (KAYDET & İNDİR) */}
                         {activeTab !== 'QUICK_NOTES' && (
-                            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center animate-in fade-in slide-in-from-bottom-2 shrink-0">
-                                <button onClick={handleDownloadPresentation} className="px-5 py-2.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-bold rounded-xl flex items-center transition text-sm shadow-sm border border-blue-200 dark:border-blue-800">
-                                    <Download className="w-5 h-5 mr-2" /> SUNUM OLARAK İNDİR (PDF)
+                            <div className="p-3 md:p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col md:flex-row justify-between items-center gap-3 animate-in fade-in slide-in-from-bottom-2 shrink-0">
+                                <button onClick={handleDownloadPresentation} className="w-full md:w-auto justify-center px-4 md:px-5 py-2.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-bold rounded-xl flex items-center transition text-xs md:text-sm shadow-sm border border-blue-200 dark:border-blue-800">
+                                    <Download className="w-4 h-4 md:w-5 md:h-5 mr-2" /> PDF İNDİR
                                 </button>
-                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl shadow-lg flex items-center transition disabled:opacity-50 text-sm">
-                                    <Save className="w-5 h-5 mr-2" /> {isSaving ? 'KAYDEDİLİYOR...' : 'TÜMÜNÜ KAYDET'}
+                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="w-full md:w-auto justify-center px-6 md:px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl shadow-lg flex items-center transition disabled:opacity-50 text-xs md:text-sm">
+                                    <Save className="w-4 h-4 md:w-5 md:h-5 mr-2" /> {isSaving ? 'KAYDEDİLİYOR...' : 'TÜMÜNÜ KAYDET'}
                                 </button>
                             </div>
                         )}
                     </>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400"><FileText className="w-20 h-20 mb-4 opacity-30" /><p className="text-lg">Soldaki listeden bir kalıp seçin.</p></div>
+                    // HİÇBİR KALIP SEÇİLİ DEĞİLKEN ÇIKACAK EKRAN (SADECE BİLGİSAYARDA GÖRÜNÜR)
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 dark:bg-gray-900/30 p-4">
+                        <div className="w-24 h-24 mb-6 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center shadow-sm border border-gray-100 dark:border-gray-700">
+                            <FileText className="w-12 h-12 opacity-40 text-blue-500" />
+                        </div>
+                        <h2 className="text-xl font-black text-gray-800 dark:text-white mb-2 text-center">Kalıp Seçilmedi</h2>
+                        <p className="text-sm text-center max-w-sm">Raporlarını görüntülemek veya yeni rapor girmek için soldaki listeden bir kalıp seçin.</p>
+                    </div>
                 )}
             </div>
         </div>
