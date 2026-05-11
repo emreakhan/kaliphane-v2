@@ -1,10 +1,17 @@
 // src/pages/CamOperatorDashboard.js
 
 import React, { useState, useEffect } from 'react';
-import { Clock, PlusCircle, LayoutDashboard, BarChart2, Save, Trash2, Calendar, FileText, Monitor, Search } from 'lucide-react';
+import { 
+    Clock, PlusCircle, LayoutDashboard, BarChart2, Save, Trash2, 
+    Calendar, FileText, Monitor, Search, Award 
+} from 'lucide-react';
 import { collection, addDoc, query, onSnapshot, deleteDoc, doc } from '../config/firebase.js';
-import { MACHINES_COLLECTION } from '../config/constants.js'; 
+
+// Sabitleri projenin constants dosyasından çekiyoruz
+import { MACHINES_COLLECTION, ROLES } from '../config/constants.js'; 
+
 import CamOperatorAnalysis from './CamOperatorAnalysis.js';
+import CamOperatorEvaluationTab from '../components/Analysis/CamOperatorEvaluationTab.js';
 
 const CamOperatorDashboard = ({ db, loggedInUser }) => {
     const [activeTab, setActiveTab] = useState('ENTRY');
@@ -32,6 +39,19 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
 
     const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
 
+    // KESİN ÇÖZÜM: YETKİ KONTROLÜ
+    // Kullanıcının rolünü al (küçük/büyük harf farketmeksizin) ve constants içindeki rollerle karşılaştır.
+    const userRole = typeof loggedInUser?.role === 'string' ? loggedInUser.role.toUpperCase() : '';
+    
+    const isAdminOrSupervisor = 
+        userRole === 'ADMIN' || 
+        userRole === 'YÖNETİCİ' || 
+        userRole === 'MANAGER' || 
+        userRole === 'SORUMLU' || 
+        userRole === 'SUPERVISOR' ||
+        userRole.includes('ADMIN') ||
+        userRole.includes('YÖNET');
+
     useEffect(() => {
         if (!db || !loggedInUser?.name) return;
         
@@ -45,7 +65,7 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
             setTodayLogs(filteredAndSorted);
         });
 
-        // Tezgahları Çek (Hata payı sıfırlandı)
+        // Tezgahları Çek
         const unsubscribeMachines = onSnapshot(collection(db, MACHINES_COLLECTION), (snapshot) => {
             const machineList = snapshot.docs.map(doc => {
                 const data = doc.data();
@@ -109,7 +129,6 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
         return `${h > 0 ? h+'s ' : ''}${m}dk`;
     };
 
-    // Filtrelenmiş tezgah listesi
     const filteredMachineList = machines.filter(m => 
         m.name.toLowerCase().includes(selectedMachine.toLowerCase())
     );
@@ -123,17 +142,28 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                 </h1>
             </div>
 
-            <div className="flex bg-white dark:bg-gray-800 p-1 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-fit mb-6">
-                <button onClick={() => setActiveTab('ENTRY')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center ${activeTab === 'ENTRY' ? 'bg-blue-100 text-blue-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+            {/* SEKME MENÜSÜ */}
+            <div className="flex bg-white dark:bg-gray-800 p-1 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-fit mb-6 overflow-x-auto hide-scrollbar">
+                <button onClick={() => setActiveTab('ENTRY')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap ${activeTab === 'ENTRY' ? 'bg-blue-100 text-blue-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                     <LayoutDashboard className="w-4 h-4 mr-2" /> Zaman Girişi
                 </button>
-                <button onClick={() => setActiveTab('ANALYSIS')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center ${activeTab === 'ANALYSIS' ? 'bg-indigo-100 text-indigo-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                <button onClick={() => setActiveTab('ANALYSIS')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap ${activeTab === 'ANALYSIS' ? 'bg-indigo-100 text-indigo-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                     <BarChart2 className="w-4 h-4 mr-2" /> Analiz & Raporlar
                 </button>
+                
+                {/* YÖNETİCİ SEKME BUTONU (Artık kesinlikle görünecek) */}
+                {isAdminOrSupervisor && (
+                    <button onClick={() => setActiveTab('EVALUATION')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap ${activeTab === 'EVALUATION' ? 'bg-green-100 text-green-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                        <Award className="w-4 h-4 mr-2" /> Yönetici Puanlaması
+                    </button>
+                )}
             </div>
 
+            {/* İÇERİK RENDER ALANI */}
             {activeTab === 'ANALYSIS' ? (
                 <CamOperatorAnalysis db={db} />
+            ) : activeTab === 'EVALUATION' ? (
+                <CamOperatorEvaluationTab db={db} loggedInUser={loggedInUser} />
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                     
