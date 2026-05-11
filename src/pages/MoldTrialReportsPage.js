@@ -10,7 +10,7 @@ import {
     Image as ImageIcon, Plus, PlayCircle,
     X, ChevronLeft, ChevronRight, 
     Edit3, Type, Circle as CircleIcon, Check, 
-    MessageSquare, ThumbsUp, ThumbsDown, AlertTriangle, Edit2, PlusCircle, Download
+    MessageSquare, ThumbsUp, ThumbsDown, AlertTriangle, Edit2, PlusCircle, Download, Calendar, Monitor
 } from 'lucide-react';
 import { 
     collection, addDoc, query, where, orderBy, onSnapshot, updateDoc, doc, deleteDoc
@@ -112,6 +112,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         trialCode: `TRY-${new Date().getFullYear()}-${Math.floor(Math.random()*10000)}`,
         phase: phase,
         date: getCurrentDateTimeString(),
+        trialDate: new Date().toISOString().split('T')[0], // Kullanıcının girebileceği güncel tarih
         machine: '',
         material: '',
         cavity: '',
@@ -337,10 +338,18 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         }
     };
 
-    // --- SUNUM PDF OLUŞTURMA MANTIĞI ---
-    const handleDownloadPresentation = () => {
+    // --- PDF OLUŞTURMA MANTIĞI ---
+    const handleDownloadPresentation = async () => {
         const element = document.createElement('div');
         element.style.background = "#0f172a"; 
+        
+        // Tarih formatını (YYYY-MM-DD -> DD.MM.YYYY) çeviriyoruz
+        const rawDate = trialData.trialDate || trialData.date.split(' ')[0];
+        let formattedDate = rawDate;
+        if (rawDate && rawDate.includes('-')) {
+            const [y, m, d] = rawDate.split('-');
+            formattedDate = `${d}.${m}.${y}`;
+        }
         
         const styles = `
             <style>
@@ -365,12 +374,43 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 .cover-slide { text-align: center; justify-content: center; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); }
                 .cover-slide h1 { font-size: 60px; margin-bottom: 10px; color: #deff9a; }
                 .cover-slide p { font-size: 22px; color: #94a3b8; }
+                
+                .cover-details-box {
+                    margin-top: 30px; 
+                    display: inline-block; 
+                    background: rgba(255,255,255,0.05); 
+                    padding: 20px 40px; 
+                    border-radius: 16px; 
+                    border: 1px solid rgba(255,255,255,0.1);
+                    text-align: left;
+                }
+                .cover-details-box div { margin-bottom: 8px; font-size: 18px; color: #cbd5e1; }
+                .cover-details-box div strong { color: #f8fafc; margin-left: 10px; }
+
                 .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
                 .param-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
                 .param-card h4 { color: #deff9a; margin-bottom: 15px; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
                 .param-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 15px; border-bottom: 1px solid rgba(255,255,255,0.03); }
                 .param-label { color: #94a3b8; }
-                .observation-img { width: 100%; height: 460px; object-fit: contain; border-radius: 12px; background: #000; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+                
+                .observation-img-wrapper { 
+                    width: 100%; 
+                    height: 500px; 
+                    display: flex; 
+                    justify-content: center; 
+                    align-items: center; 
+                    background: #000; 
+                    border-radius: 12px; 
+                    border: 1px solid rgba(255,255,255,0.1); 
+                    margin-bottom: 20px; 
+                    overflow: hidden; 
+                }
+                .observation-img-wrapper img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                }
+
                 .observation-text { font-size: 22px; font-weight: 500; line-height: 1.4; color: #f1f5f9; text-align: center; }
                 .text-notes-list { list-style: none; width: 100%; }
                 .text-notes-list li { margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 18px; border-radius: 12px; border-left: 6px solid #deff9a; }
@@ -387,11 +427,17 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             <div class="slide-container cover-slide">
                 <p style="text-transform: uppercase; letter-spacing: 4px; color: #deff9a; font-weight: bold; margin-bottom: 20px;">Teknik Deneme Raporu</p>
                 <h1>${selectedMold.moldName}</h1>
-                <p>Proje: ${selectedMold.projectCode} | Faz: ${trialData.phase}</p>
+                <p>Faz: ${trialData.phase}</p>
+                
+                <div class="cover-details-box">
+                    <div>Deneme Tarihi: <strong>${formattedDate}</strong></div>
+                    <div>Deneme Makinesi: <strong>${trialData.machine || 'Belirtilmedi'}</strong></div>
+                </div>
+
                 <div style="margin-top: 40px; padding: 15px 40px; background: rgba(222, 255, 154, 0.1); display: inline-block; border-radius: 50px; font-weight: bold; color: #deff9a; font-size: 20px; border: 1px solid #deff9a;">
                     DURUM: ${trialData.result === 'APPROVED' ? 'ONAYLANDI' : trialData.result === 'REJECTED' ? 'REDDEDİLDİ' : 'TASHİH GEREKLİ'}
                 </div>
-                <div class="footer"><span>Rapor Tarihi: ${trialData.date.split(' ')[0]}</span><span>Hazırlayan: ${loggedInUser.name}</span></div>
+                <div class="footer"><span>Hazırlayan: ${loggedInUser.name}</span></div>
             </div>
         `;
 
@@ -454,15 +500,18 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         const notesWithImages = (trialData.quickNotes || []).filter(n => (n.images && n.images.length > 0) || n.image);
         const notesWithoutImages = (trialData.quickNotes || []).filter(n => !((n.images && n.images.length > 0) || n.image));
 
-        // Resimli Gözlemler
+        // Resimli Gözlemler (RESİM ORANI KORUNDU)
         notesWithImages.forEach((note, index) => {
             const noteImg = (note.images && note.images.length > 0) ? note.images[0] : note.image;
+            
             html += `
                 <div class="page-break"></div>
                 <div class="slide-container">
                     <h2 class="slide-title">Kritik Gözlem #${index + 1}</h2>
                     <div class="content-area">
-                        <img src="${noteImg}" class="observation-img" />
+                        <div class="observation-img-wrapper">
+                            <img src="${noteImg}" />
+                        </div>
                         <div class="observation-text">${note.text}</div>
                     </div>
                     <div class="footer"><span>Gözlem Detayı | ${note.createdBy}</span><span>Sayfa ${pageCounter++}</span></div>
@@ -531,6 +580,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             pagebreak: { mode: 'css', before: '.page-break' }
         };
 
+        alert("PDF oluşturuluyor, lütfen bekleyin...");
         html2pdf().set(opt).from(element).save();
     };
 
@@ -903,9 +953,20 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                             {activeTab !== 'QUICK_NOTES' && (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 animate-in slide-in-from-top-2 fade-in mt-2 md:mt-0">
                                     <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Faz</label><select className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.phase} onChange={(e) => handlePhaseChange(e.target.value)}>{TRIAL_PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
-                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Makine</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} /></div>
+                                    
+                                    {/* YENİ EKLENEN TARİH SEÇİCİ */}
+                                    <div>
+                                        <label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1 flex items-center"><Calendar className="w-3 h-3 mr-1" /> Tarih</label>
+                                        <input type="date" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.trialDate || new Date().toISOString().split('T')[0]} onChange={(e) => setTrialData({...trialData, trialDate: e.target.value})} />
+                                    </div>
+
+                                    {/* GÜNCELLENEN MAKİNE ALANI (İkona sahip) */}
+                                    <div>
+                                        <label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1 flex items-center"><Monitor className="w-3 h-3 mr-1" /> Makine</label>
+                                        <input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.machine} onChange={(e) => setTrialData({...trialData, machine: e.target.value})} />
+                                    </div>
+                                    
                                     <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Hammadde</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.material} onChange={(e) => setTrialData({...trialData, material: e.target.value})} /></div>
-                                    <div><label className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 block mb-1">Göz</label><input type="text" className="w-full p-1.5 md:p-2 text-xs md:text-sm border rounded bg-white dark:bg-gray-800 dark:text-white" value={trialData.cavity} onChange={(e) => setTrialData({...trialData, cavity: e.target.value})} /></div>
                                 </div>
                             )}
                         </div>
