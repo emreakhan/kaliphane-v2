@@ -69,9 +69,8 @@ import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
 
-import CanliDurum from './pages/CanliDurum';
-
-// YENİ EKLENDİ: CamOperatorDashboard import edildi
+// YENİ EKLENEN SAYFALAR
+import CanliDurum from './pages/CanliDurum.jsx';
 import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
 
 import { initialProjects } from './config/initialData.js';
@@ -531,6 +530,7 @@ const App = () => {
         
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
+            // Canlı Durum Sayfası Linki Buraya Eklendi
             { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
@@ -545,10 +545,7 @@ const App = () => {
             { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { path: '/cam-job-entry', label: 'İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
-            
-            // YENİ EKLENDİ: CamOperatorDashboard için menü öğesi
             { path: '/cam-operator-dashboard', label: 'CAM Süre Takip', icon: Clock, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI] },
-            
             { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: canSeeAdmin },
             { path: '/admin/layout', label: 'Yerleşim', icon: MapIcon, roles: [ROLES.ADMIN] },
             { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
@@ -682,7 +679,8 @@ const App = () => {
                             : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
                         } />
 
-                        <Route path="/canli-durum" element={<CanliDurum />} />
+                        {/* YENİ EKLENEN CANLI DURUM ROTASI */}
+                        <Route path="/canli-durum" element={<CanliDurum db={db} />} />
 
                         <Route path="/forklift" element={
                             (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
@@ -709,7 +707,6 @@ const App = () => {
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
                         <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
                         
-                        {/* YENİ EKLENDİ: CamOperatorDashboard Rotası */}
                         <Route path="/cam-operator-dashboard" element={<CamOperatorDashboard db={db} loggedInUser={loggedInUser} />} />
 
                         <Route path="/cnc-torna" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
