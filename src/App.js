@@ -26,12 +26,12 @@ import {
 
 import { getCurrentDateTimeString } from './utils/dateUtils.js';
 
-// İkonlar (Clock eklendi)
+// İkonlar (Clock ve Moon eklendi)
 import { 
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock
+    Menu, X, Radio, Clock, Moon
 } from 'lucide-react';
 
 // Sayfalar
@@ -72,6 +72,7 @@ import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanning
 // YENİ EKLENEN SAYFALAR
 import CanliDurum from './pages/CanliDurum.jsx';
 import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
+import NightShiftPlanner from './pages/NightShiftPlanner.js'; // <-- GECE VARDİYASI EKLENDİ
 
 import { initialProjects } from './config/initialData.js';
 
@@ -530,8 +531,8 @@ const App = () => {
         
         const finalBaseItems = [
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
-            // Canlı Durum Sayfası Linki Buraya Eklendi
             { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
+            { path: '/vardiya-plani', label: 'Gece Vardiyası Planı', icon: Moon, roles: allLoginRoles }, // <-- YENİ EKLENDİ
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
@@ -679,8 +680,9 @@ const App = () => {
                             : <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} />
                         } />
 
-                        {/* YENİ EKLENEN CANLI DURUM ROTASI */}
+                        {/* YENİ EKLENEN CANLI DURUM VE VARDİYA PLANI ROTALARI */}
                         <Route path="/canli-durum" element={<CanliDurum db={db} />} />
+                        <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} />} />
 
                         <Route path="/forklift" element={
                             (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
