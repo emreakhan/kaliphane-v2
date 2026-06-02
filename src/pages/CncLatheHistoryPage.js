@@ -1,15 +1,16 @@
 // src/pages/CncLatheHistoryPage.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Archive, Search, Trash2, Filter, PlayCircle, AlertTriangle, CheckCircle } from 'lucide-react'; // CheckCircle eklendi
 import { 
     collection, query, where, onSnapshot, orderBy, doc, deleteDoc, getDocs, addDoc 
 } from '../config/firebase.js';
-import { CNC_LATHE_JOBS_COLLECTION, ROLES } from '../config/constants.js';
+import { CNC_LATHE_JOBS_COLLECTION, CNC_PARTS_COLLECTION, ROLES } from '../config/constants.js';
 import { formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 const CncLatheHistoryPage = ({ db, loggedInUser }) => {
     const [historyJobs, setHistoryJobs] = useState([]);
+    const [parts, setParts] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
@@ -27,8 +28,24 @@ const CncLatheHistoryPage = ({ db, loggedInUser }) => {
             setHistoryJobs(jobs);
         });
 
-        return () => unsubscribe();
+        const partsQuery = query(collection(db, CNC_PARTS_COLLECTION), orderBy('partName'));
+        const unsubscribeParts = onSnapshot(partsQuery, (snapshot) => {
+            const loadedParts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setParts(loadedParts);
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeParts();
+        };
     }, [db]);
+
+    const partsById = useMemo(() => new Map(parts.map(part => [part.id, part])), [parts]);
+
+    const getResimNo = (job) => {
+        const part = partsById.get(job.partId) || parts.find(p => p.partName === job.partName);
+        return part?.technicalDrawingNo || part?.orderNumber || job.orderNumber || '-';
+    };
 
     const handleDeleteJob = async (jobId) => {
         if (!window.confirm("Bu geçmiş iş kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
@@ -85,8 +102,10 @@ const CncLatheHistoryPage = ({ db, loggedInUser }) => {
     };
 
     const filteredJobs = historyJobs.filter(job => {
+        const resimNo = getResimNo(job).toString().toLowerCase();
         const matchesSearch = 
             job.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            resimNo.includes(searchTerm.toLowerCase()) ||
             job.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             job.operator.toLowerCase().includes(searchTerm.toLowerCase());
         
@@ -114,7 +133,7 @@ const CncLatheHistoryPage = ({ db, loggedInUser }) => {
                     <Search className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
                     <input 
                         type="text" 
-                        placeholder="İş Emri, Parça veya Operatör Ara..." 
+                        placeholder="İş Emri, Resim No, Parça veya Operatör Ara..." 
                         className="w-full pl-10 p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -140,6 +159,7 @@ const CncLatheHistoryPage = ({ db, loggedInUser }) => {
                         <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                             <tr>
                                 <th className="px-6 py-3">İş Emri</th>
+                                <th className="px-6 py-3">Resim No</th>
                                 <th className="px-6 py-3">Parça</th>
                                 <th className="px-6 py-3">Tezgah</th>
                                 <th className="px-6 py-3">Bitiş Zamanı</th>
@@ -170,6 +190,7 @@ const CncLatheHistoryPage = ({ db, loggedInUser }) => {
                                                 <CheckCircle className="w-4 h-4 text-green-500 inline ml-2" title="Ek üretimle tamamlandı"/>
                                             )}
                                         </td>
+                                        <td className="px-6 py-4 font-mono">{getResimNo(job)}</td>
                                         <td className="px-6 py-4">{job.partName}</td>
                                         <td className="px-6 py-4 font-mono">{job.machine}</td>
                                         <td className="px-6 py-4">{formatDateTime(job.endTime)}</td>

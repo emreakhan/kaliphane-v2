@@ -1,7 +1,10 @@
 // src/utils/api.js
 
 export const callGeminiApi = async (userQuery, systemInstruction = null, jsonSchema = null, maxRetries = 3) => {
-    const apiKey = "";
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("Gemini API key tanımlanmadı. .env dosyasında REACT_APP_GEMINI_API_KEY kontrol edin.");
+    }
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
     const payload = {
