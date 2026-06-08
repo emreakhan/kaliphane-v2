@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 // İkonlar
-import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink } from 'lucide-react'; 
+import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink, Monitor } from 'lucide-react'; 
 
 // Sabitler
 import { OPERATION_STATUS } from '../config/constants.js';
@@ -22,12 +22,13 @@ import ChangeOperatorModal from '../components/Modals/ChangeOperatorModal.js';
 
 const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleChangeMachineOperator, personnel, machines }) => {
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
+    const [activeTab, setActiveTab] = useState('active');
     
     // Hangi kalıbın detayının açık olduğunu tutan state
     const [expandedMoldId, setExpandedMoldId] = useState(null);
 
-    // --- VERİ GRUPLAMA MANTIĞI ---
-    const groupedWork = useMemo(() => {
+    // --- VERİ GRUPLAMA MANTIĞI: AKTIF İŞLER (IN_PROGRESS, PAUSED, vb) ---
+    const groupedActiveWork = useMemo(() => {
         const groups = {};
 
         projects.forEach(mold => {
@@ -35,9 +36,11 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                 if (!task.operations) return;
                 
                 task.operations.forEach(op => {
-                    // Sadece bu operatöre atanmış ve HENÜZ TAMAMLANMAMIŞ işleri al
-                    if (op.assignedOperator === loggedInUser.name && op.status !== OPERATION_STATUS.COMPLETED) {
-                        
+                    // Sadece bu operatöre atanmış ve AKTIF (başlamış ama bitmemiş) işleri al
+                    const isAssigned = op.assignedOperator === loggedInUser.name;
+                    const isActive = op.status !== OPERATION_STATUS.NOT_STARTED && op.status !== OPERATION_STATUS.COMPLETED;
+                    
+                    if (isAssigned && isActive) {
                         if (!groups[mold.id]) {
                             groups[mold.id] = {
                                 moldInfo: {
@@ -61,13 +64,47 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
             });
         });
 
-        // Grupları diziye çevir ve sırala
         return Object.values(groups).sort((a, b) => {
             const aActive = a.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
             const bActive = b.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
             return bActive - aActive; 
         });
 
+    }, [projects, loggedInUser.name]);
+
+    // --- VERİ GRUPLAMA MANTIĞI: PLANLANAN İŞLER (Tezgaha atanmış) ---
+    const groupedPlannedWork = useMemo(() => {
+        const groups = {};
+
+        projects.forEach(mold => {
+            // Operatörün kalıpla ilişkisi var mı?
+            const isResponsible = mold.camResponsible === loggedInUser.name || 
+                                  mold.tasks?.some(t => t.operations?.some(op => op.assignedOperator === loggedInUser.name));
+
+            if (isResponsible) {
+                mold.tasks?.forEach(task => {
+                    if (task.plannedMachine) {
+                        const isTaskCompleted = task.operations?.length > 0 && task.operations.every(op => op.status === OPERATION_STATUS.COMPLETED);
+                        
+                        if (!isTaskCompleted) {
+                            if (!groups[mold.id]) {
+                                groups[mold.id] = {
+                                    moldInfo: {
+                                        id: mold.id,
+                                        name: mold.moldName,
+                                        customer: mold.customer,
+                                    },
+                                    tasks: []
+                                };
+                            }
+                            groups[mold.id].tasks.push(task);
+                        }
+                    }
+                });
+            }
+        });
+
+        return Object.values(groups);
     }, [projects, loggedInUser.name]);
 
     const toggleExpand = (moldId) => {
@@ -131,129 +168,241 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
 
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl min-h-[80vh]">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 flex items-center">
-                <Layers className="w-6 h-6 mr-2 text-blue-600" />
-                {loggedInUser.name} - İş Listesi
-            </h2>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                    <Layers className="w-6 h-6 mr-2 text-blue-600" />
+                    İşlerim
+                </h2>
+                <div className="flex gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+                    <button 
+                        onClick={() => setActiveTab('active')}
+                        className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'active' ? 'bg-white dark:bg-gray-600 shadow text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                    >
+                        Aktif Çalışan ({groupedActiveWork.length})
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('planned')}
+                        className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center relative ${activeTab === 'planned' ? 'bg-white dark:bg-gray-600 shadow text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                    >
+                        Planlanan İşler ({groupedPlannedWork.length})
+                        {/* Yeni planlanan iş varsa yanıp sönen bildirim noktası göster */}
+                        {groupedPlannedWork.length > 0 && (
+                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
+                            </span>
+                        )}
+                    </button>
+                </div>
+            </div>
 
-            {groupedWork.length === 0 ? (
-                 <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
-                    <Box className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                    <p className="text-gray-500 dark:text-gray-400 font-medium">Şu anda size atanmış aktif bir iş bulunmamaktadır.</p>
-                 </div>
-            ) : (
-                <div className="space-y-4">
-                    {groupedWork.map((group) => {
-                        const isExpanded = expandedMoldId === group.moldInfo.id;
-                        const activeCount = group.operations.filter(op => op.status === OPERATION_STATUS.IN_PROGRESS).length;
-                        
-                        return (
-                            <div key={group.moldInfo.id} className={`border rounded-xl transition-all duration-300 overflow-hidden ${activeCount > 0 ? 'border-blue-500 shadow-md shadow-blue-100 dark:shadow-none' : 'border-gray-200 dark:border-gray-700'}`}>
-                                
-                                {/* --- KALIP KARTI BAŞLIĞI --- */}
-                                <div 
-                                    onClick={() => toggleExpand(group.moldInfo.id)}
-                                    className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                                >
-                                    <div className="flex items-center space-x-4 flex-1">
-                                        <div className={`p-3 rounded-full flex-shrink-0 ${activeCount > 0 ? 'bg-blue-100 text-blue-600 animate-pulse' : 'bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-300'}`}>
-                                            <Box className="w-6 h-6" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
-                                                <Link 
-                                                    to={`/mold/${group.moldInfo.id}`} 
-                                                    onClick={(e) => e.stopPropagation()} 
-                                                    className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition"
-                                                    title="Kalıp Detay Sayfasına Git"
-                                                >
-                                                    Detaya Git <ExternalLink className="w-3 h-3 ml-1" />
-                                                </Link>
-                                            </div>
-                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
-                                                {group.moldInfo.customer} • <span className="text-blue-600 dark:text-blue-400">{group.operations.length} Parça İşleniyor</span>
-                                            </p>
-                                        </div>
-                                    </div>
+            {activeTab === 'active' ? (
+                groupedActiveWork.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
+                        <Box className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                        <p className="text-gray-500 dark:text-gray-400 font-medium">
+                            Şu anda çalıştığınız aktif bir iş bulunmamaktadır.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {groupedActiveWork.map((group) => {
+                            const isExpanded = expandedMoldId === group.moldInfo.id;
+                            const activeCount = group.operations.filter(op => op.status === OPERATION_STATUS.IN_PROGRESS).length;
+                            
+                            return (
+                                <div key={`active-${group.moldInfo.id}`} className={`border rounded-xl transition-all duration-300 overflow-hidden ${activeCount > 0 ? 'border-blue-500 shadow-md shadow-blue-100 dark:shadow-none' : 'border-gray-200 dark:border-gray-700'}`}>
                                     
-                                    <div className="flex items-center space-x-4 flex-shrink-0">
-                                        {activeCount > 0 && (
-                                            <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full dark:bg-green-900 dark:text-green-200 flex items-center">
-                                                <Clock className="w-3 h-3 mr-1" /> Aktif Çalışıyor
-                                            </span>
-                                        )}
-                                        {isExpanded ? <ChevronUp className="w-6 h-6 text-gray-400" /> : <ChevronDown className="w-6 h-6 text-gray-400" />}
+                                    {/* --- KALIP KARTI BAŞLIĞI --- */}
+                                    <div 
+                                        onClick={() => toggleExpand(group.moldInfo.id)}
+                                        className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                    >
+                                        <div className="flex items-center space-x-4 flex-1">
+                                            <div className={`p-3 rounded-full flex-shrink-0 ${activeCount > 0 ? 'bg-blue-100 text-blue-600 animate-pulse' : 'bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-300'}`}>
+                                                <Box className="w-6 h-6" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
+                                                    <Link 
+                                                        to={`/mold/${group.moldInfo.id}`} 
+                                                        onClick={(e) => e.stopPropagation()} 
+                                                        className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition"
+                                                        title="Kalıp Detay Sayfasına Git"
+                                                    >
+                                                        Detaya Git <ExternalLink className="w-3 h-3 ml-1" />
+                                                    </Link>
+                                                </div>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
+                                                    {group.moldInfo.customer} • <span className="text-blue-600 dark:text-blue-400">{group.operations.length} Parça İşleniyor</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex items-center space-x-4 flex-shrink-0">
+                                            {activeCount > 0 && (
+                                                <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full dark:bg-green-900 dark:text-green-200 flex items-center">
+                                                    <Clock className="w-3 h-3 mr-1" /> Aktif Çalışıyor
+                                                </span>
+                                            )}
+                                            {isExpanded ? <ChevronUp className="w-6 h-6 text-gray-400" /> : <ChevronDown className="w-6 h-6 text-gray-400" />}
+                                        </div>
                                     </div>
-                                </div>
 
-                                {/* --- İÇERİK --- */}
-                                {isExpanded && (
-                                    <div className="border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3 animation-slide-down">
-                                        {group.operations.map(op => (
-                                            <div key={op.id} className={`p-4 border rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${op.status === OPERATION_STATUS.PAUSED ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/10 dark:border-orange-700' : 'bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600'}`}>
-                                                
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <h4 className="font-bold text-gray-800 dark:text-white">{op.taskName}</h4>
-                                                        <span className="px-2 py-0.5 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded text-xs font-bold text-gray-600 dark:text-gray-300">
-                                                            {op.type}
-                                                        </span>
-                                                    </div>
+                                    {/* --- İÇERİK --- */}
+                                    {isExpanded && (
+                                        <div className="border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-3 animation-slide-down">
+                                            {group.operations.map(op => (
+                                                <div key={op.id} className={`p-4 border rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${op.status === OPERATION_STATUS.PAUSED ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/10 dark:border-orange-700' : 'bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600'}`}>
                                                     
-                                                    <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
-                                                        <p>Tezgah: <span className="font-semibold">{op.machineName}</span> | Op: {op.machineOperatorName}</p>
-                                                        <p>Başlangıç: {formatDateTime(op.startDate)}</p>
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <h4 className="font-bold text-gray-800 dark:text-white">{op.taskName}</h4>
+                                                            <span className="px-2 py-0.5 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded text-xs font-bold text-gray-600 dark:text-gray-300">
+                                                                {op.type}
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                                                            <p>Tezgah: <span className="font-semibold">{op.machineName}</span> | Op: {op.machineOperatorName}</p>
+                                                            <p>Başlangıç: {formatDateTime(op.startDate)}</p>
+                                                        </div>
+
+                                                        <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-600 mt-2 max-w-xs">
+                                                            <div 
+                                                                className={`h-2 rounded-full ${op.status === OPERATION_STATUS.PAUSED ? 'bg-orange-500' : 'bg-blue-600'}`} 
+                                                                style={{ width: `${op.progressPercentage}%` }}
+                                                            ></div>
+                                                        </div>
                                                     </div>
 
-                                                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-600 mt-2 max-w-xs">
-                                                        <div 
-                                                            className={`h-2 rounded-full ${op.status === OPERATION_STATUS.PAUSED ? 'bg-orange-500' : 'bg-blue-600'}`} 
-                                                            style={{ width: `${op.progressPercentage}%` }}
-                                                        ></div>
+                                                    <div className="flex flex-col items-end gap-2 min-w-[140px]">
+                                                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${getStatusClasses(op.status)}`}>
+                                                            {op.status}
+                                                        </span>
+                                                        
+                                                        {op.status === OPERATION_STATUS.IN_PROGRESS && (
+                                                            <div className="w-full flex flex-col gap-2">
+                                                                <button
+                                                                    onClick={() => handleProgressClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
+                                                                    className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm"
+                                                                >
+                                                                    <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
+                                                                </button>
+                                                                
+                                                                <button
+                                                                    onClick={() => handleChangeOperatorClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
+                                                                    className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm"
+                                                                >
+                                                                    <Users className="w-4 h-4 mr-1"/> Operatör Değiştir
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {op.status === OPERATION_STATUS.PAUSED && (
+                                                            <button
+                                                                onClick={() => handleResumeClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
+                                                                className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm"
+                                                            >
+                                                                <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
+            ) : (
+                groupedPlannedWork.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
+                        <Monitor className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                        <p className="text-gray-500 dark:text-gray-400 font-medium">
+                            Sorumlu olduğunuz kalıplarda tezgaha planlanmış parça bulunmamaktadır.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {groupedPlannedWork.map((group) => {
+                            const isExpanded = expandedMoldId === group.moldInfo.id;
+                            
+                            return (
+                                <div key={`planned-${group.moldInfo.id}`} className="border border-purple-200 dark:border-purple-800 rounded-xl transition-all duration-300 overflow-hidden">
+                                    
+                                    {/* --- KALIP KARTI BAŞLIĞI --- */}
+                                    <div 
+                                        onClick={() => toggleExpand(group.moldInfo.id)}
+                                        className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-purple-50 dark:bg-purple-900/20' : 'bg-white dark:bg-gray-800 hover:bg-purple-50/50 dark:hover:bg-gray-700'}`}
+                                    >
+                                        <div className="flex items-center space-x-4 flex-1">
+                                            <div className="p-3 rounded-full flex-shrink-0 bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300">
+                                                <Monitor className="w-6 h-6" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
+                                                    <Link 
+                                                        to={`/mold/${group.moldInfo.id}`} 
+                                                        onClick={(e) => e.stopPropagation()} 
+                                                        className="inline-flex items-center px-2 py-1 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/50 dark:hover:bg-purple-800 text-purple-700 dark:text-purple-300 text-xs font-bold rounded transition ml-2"
+                                                        title="Kalıp Detay Sayfasına Git"
+                                                    >
+                                                        Detaya Git <ExternalLink className="w-3 h-3 ml-1" />
+                                                    </Link>
+                                                </div>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
+                                                    {group.moldInfo.customer} • <span className="text-purple-600 dark:text-purple-400">{group.tasks.length} Parça Planlandı</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-4 flex-shrink-0">
+                                            {isExpanded ? <ChevronUp className="w-6 h-6 text-gray-400" /> : <ChevronDown className="w-6 h-6 text-gray-400" />}
+                                        </div>
+                                    </div>
 
-                                                <div className="flex flex-col items-end gap-2 min-w-[140px]">
-                                                    <span className={`px-3 py-1 text-xs font-bold rounded-full ${getStatusClasses(op.status)}`}>
-                                                        {op.status}
-                                                    </span>
-                                                    
-                                                    {op.status === OPERATION_STATUS.IN_PROGRESS && (
-                                                        <div className="w-full flex flex-col gap-2">
+                                    {/* --- İÇERİK --- */}
+                                    {isExpanded && (
+                                        <div className="border-t border-purple-100 dark:border-purple-800 bg-white dark:bg-gray-800 p-4 space-y-3 animation-slide-down">
+                                            {group.tasks.map(task => {
+                                                const firstOp = task.operations?.find(op => op.status !== OPERATION_STATUS.COMPLETED) || task.operations?.[0] || {};
+                                                return (
+                                                    <div key={task.id} className="p-4 border rounded-lg bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-purple-300 transition-colors">
+                                                        <div>
+                                                            <h4 className="font-bold text-gray-800 dark:text-white">{task.taskName}</h4>
+                                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                                <Clock className="w-3 h-3 inline mr-1" />
+                                                                Öngörülen Süre: <span className="font-semibold text-gray-700 dark:text-gray-300">{task.estimatedCamTime || '?'} Saat</span>
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
+                                                            <div className="flex flex-col items-end md:items-start">
+                                                                <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Planlanan Tezgah</span>
+                                                                <span className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 font-black rounded-lg text-sm flex items-center border border-purple-200 dark:border-purple-700 shadow-sm">
+                                                                    <Monitor className="w-4 h-4 mr-1.5"/> {task.plannedMachine}
+                                                                </span>
+                                                            </div>
                                                             <button
-                                                                onClick={() => handleProgressClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
-                                                                className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm"
+                                                                onClick={() => handleResumeClick(group.moldInfo.id, group.moldInfo.name, task.id, task.taskName, firstOp)}
+                                                                className="px-4 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition flex items-center shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                                                             >
-                                                                <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
-                                                            </button>
-                                                            
-                                                            <button
-                                                                onClick={() => handleChangeOperatorClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
-                                                                className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm"
-                                                            >
-                                                                <Users className="w-4 h-4 mr-1"/> Operatör Değiştir
+                                                                <PlayCircle className="w-4 h-4 mr-2"/> İşe Başla
                                                             </button>
                                                         </div>
-                                                    )}
-
-                                                    {op.status === OPERATION_STATUS.PAUSED && (
-                                                        <button
-                                                            onClick={() => handleResumeClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)}
-                                                            className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm"
-                                                        >
-                                                            <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
             )}
             
             {/* MODALLAR */}

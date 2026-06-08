@@ -86,10 +86,11 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                                         taskId: task.id,
                                         taskName: task.taskName,
                                         opName: op.name || op.type || 'Operasyon',
-                                        estTime: estTime
+                                        estTime: estTime,
+                                        progressPercentage: parseFloat(op.progressPercentage) || 0
                                     };
-                                    // HATA DÜZELTİLDİ: Aktif işin süresi artık tezgahın toplam iş yüküne ekleniyor!
-                                    m.totalHours += estTime; 
+                                    // Aktif işin süresi tezgahın toplam iş yüküne ekleniyor.
+                                    m.totalHours += estTime;
                                 }
                             });
                         }
@@ -160,10 +161,10 @@ const CamPlanningTab = ({ projects, machines, db }) => {
     };
 
     return (
-        <div className="flex flex-col xl:flex-row gap-4 animate-in fade-in h-[calc(100vh-140px)]">
+        <div className="flex flex-col xl:flex-row gap-4 animate-in fade-in h-[calc(100vh-140px)] items-start">
             
             {/* SOL PANEL: KALIP SEÇİMİ VE BEKLEYEN PARÇALAR */}
-            <div className="w-full xl:w-1/3 flex flex-col gap-4">
+            <div className="w-full xl:w-[28%] flex flex-col gap-4">
                 <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 shrink-0">
                     <h2 className="text-sm font-black text-gray-800 dark:text-white flex items-center mb-3 uppercase tracking-widest border-b dark:border-gray-700 pb-2">
                         <Layers className="w-4 h-4 mr-2 text-blue-500"/> Kalıp Seçimi
@@ -296,7 +297,7 @@ const CamPlanningTab = ({ projects, machines, db }) => {
             </div>
 
             {/* SAĞ PANEL: TEZGAH İŞ YÜKÜ LİSTESİ (Kompakt ve Aktif İş Göstergeli) */}
-            <div className="w-full xl:w-2/3 bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-full">
+            <div className="w-full xl:w-[72%] self-start bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-full">
                 <h2 className="text-sm font-black text-gray-800 dark:text-white flex items-center mb-4 uppercase tracking-widest border-b dark:border-gray-700 pb-2 shrink-0">
                     <Monitor className="w-4 h-4 mr-2 text-indigo-500"/> Tüm Tezgahların Gelecek İş Yükü (Kuyruk)
                 </h2>
@@ -305,6 +306,8 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                     {machineBacklogs.map(machine => {
                         // 24 saate bölerek kaç günlük doluluk olduğunu bul
                         const daysLoaded = (machine.totalHours / 24).toFixed(1);
+                        const remainingHours = machine.activeTask ? Math.max(0, machine.activeTask.estTime * (1 - (machine.activeTask.progressPercentage || 0) / 100)) : 0;
+                        const activeProgress = machine.activeTask?.progressPercentage ?? 0;
 
                         return (
                             <div key={machine.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row overflow-hidden hover:border-indigo-300 transition-colors shadow-sm">
@@ -339,9 +342,12 @@ const CamPlanningTab = ({ projects, machines, db }) => {
                                             <div className="mt-2 flex-1 flex flex-col">
                                                 <div className="text-[9px] font-bold text-green-700 dark:text-green-400 uppercase truncate mb-0.5" title={machine.activeTask.moldName}>{machine.activeTask.moldName}</div>
                                                 <div className="text-xs font-black text-green-900 dark:text-green-100 leading-tight line-clamp-2" title={machine.activeTask.taskName}>{machine.activeTask.taskName}</div>
-                                                <div className="mt-auto flex justify-between items-center pt-2">
+                                                <div className="mt-auto flex flex-col gap-1 pt-2">
                                                     <div className="text-[9px] font-bold text-green-600 dark:text-green-500 truncate">Op: {machine.activeTask.opName}</div>
-                                                    <div className="text-[9px] font-black text-green-800 bg-green-200/50 dark:bg-green-900/50 px-1.5 py-0.5 rounded">{machine.activeTask.estTime}s</div>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="text-[9px] font-black text-green-800 bg-green-200/50 dark:bg-green-900/50 px-1.5 py-0.5 rounded">Kalan: {remainingHours.toFixed(1)}s</div>
+                                                        <div className="text-[9px] font-bold text-green-600 dark:text-green-500 truncate">%{activeProgress}</div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

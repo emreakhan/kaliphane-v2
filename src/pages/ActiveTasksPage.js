@@ -133,6 +133,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                         moldName: mold.moldName,
                         moldCustomer: mold.customer,
                         taskName: task.taskName,
+                        moldId: mold.id,
+                        taskId: task.id,
                     }))
             )
         );
@@ -490,9 +492,11 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl space-y-8 min-h-[85vh]">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 md:mb-0">
-                    Aktif İş Akışı ({machineStatusList.filter(m => m.statusType === 'WORKING').length + waitingReviewTasks.length})
-                </h2>
+                <div>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 md:mb-0">
+                        Aktif İşlerim ({machineStatusList.filter(m => m.statusType === 'WORKING').length + waitingReviewTasks.length})
+                    </h2>
+                </div>
                 <div className="flex items-center space-x-3 w-full md:w-auto">
                     <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
                         <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}><ListIcon className="w-4 h-4 mr-2" /> Liste</button>
@@ -528,7 +532,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                     if (!searchTerm.trim()) return true;
                                     if (item.machineName.toLowerCase().includes(lowerSearchTerm)) return true;
                                     if (item.task && item.task.moldName.toLowerCase().includes(lowerSearchTerm)) return true;
-                                    return false; 
+                                    return false;
                                 }).map((item) => (
                                     <tr key={item.machineName} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
                                         <td className="px-4 py-4 font-bold text-gray-900 dark:text-white border-r dark:border-gray-700">{item.machineName}</td>

@@ -527,6 +527,7 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
                     )}
                 </div>
             )}
+
         </div>
     );
 };
