@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Moon
+    Menu, X, Radio, Clock, Moon, Target
 } from 'lucide-react';
 
 // Sayfalar
@@ -73,6 +73,7 @@ import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanning
 import CanliDurum from './pages/CanliDurum.jsx';
 import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
 import NightShiftPlanner from './pages/NightShiftPlanner.js'; // <-- GECE VARDİYASI EKLENDİ
+import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -554,6 +555,7 @@ const App = () => {
             { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
             { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, 
             { path: '/assembly', label: 'Montaj Paneli', icon: Wrench, roles: [ROLES.ADMIN] }, 
+            { path: '/continuous-improvement', label: 'Sürekli İyileştirme', icon: Target, roles: rolesExceptToolRoomAndCnc },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
@@ -683,6 +685,7 @@ const App = () => {
                         {/* YENİ EKLENEN CANLI DURUM VE VARDİYA PLANI ROTALARI */}
                         <Route path="/canli-durum" element={<CanliDurum db={db} />} />
                         <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/continuous-improvement" element={<ContinuousImprovementPage loggedInUser={loggedInUser} />} />
 
                         <Route path="/forklift" element={
                             (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
