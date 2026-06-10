@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
     Clock, PlusCircle, LayoutDashboard, BarChart2, Save, Trash2, 
-    Calendar, FileText, Monitor, Search, Award 
+    Calendar, FileText, Monitor, Search, Award, Edit2, X
 } from 'lucide-react';
-import { collection, addDoc, query, onSnapshot, deleteDoc, doc } from '../config/firebase.js';
+import { collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc } from '../config/firebase.js';
 
 // Sabitleri projenin constants dosyasından çekiyoruz
 import { MACHINES_COLLECTION, ROLES } from '../config/constants.js'; 
@@ -17,6 +17,7 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
     const [activeTab, setActiveTab] = useState('ENTRY');
     const [todayLogs, setTodayLogs] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [editingLogId, setEditingLogId] = useState(null);
 
     // Tezgah Listesi State
     const [machines, setMachines] = useState([]);
@@ -83,6 +84,35 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
         };
     }, [db, loggedInUser, viewDate]);
 
+    const handleEditClick = (log) => {
+        setEditingLogId(log.id);
+        setCategory(log.category || 'CAM');
+        setEntryDate(log.date || new Date().toISOString().split('T')[0]);
+        setDescription(log.description || '');
+
+        if (log.category === 'CAM') {
+            setMoldName(log.moldName || '');
+            setPartName(log.partName || '');
+            setSelectedMachine(log.machineName || '');
+            setPrepH(log.prepTime ? Math.floor(log.prepTime / 60).toString() : '');
+            setPrepM(log.prepTime ? (log.prepTime % 60).toString() : '');
+            setCamH(log.camTime ? Math.floor(log.camTime / 60).toString() : '');
+            setCamM(log.camTime ? (log.camTime % 60).toString() : '');
+            setOtherH(''); setOtherM('');
+        } else {
+            setOtherH(log.otherTime ? Math.floor(log.otherTime / 60).toString() : '');
+            setOtherM(log.otherTime ? (log.otherTime % 60).toString() : '');
+            setMoldName(''); setPartName(''); setSelectedMachine(''); setPrepH(''); setPrepM(''); setCamH(''); setCamM('');
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleCancelEdit = () => {
+        setEditingLogId(null);
+        setMoldName(''); setPartName(''); setSelectedMachine(''); setPrepH(''); setPrepM(''); setCamH(''); setCamM('');
+        setDescription(''); setOtherH(''); setOtherM('');
+    };
+
     const handleSaveLog = async () => {
         if (category === 'CAM' && (!moldName.trim() || !partName.trim())) return alert("Lütfen kalıp ve parça adını giriniz.");
 
@@ -92,8 +122,7 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                 operatorName: loggedInUser.name,
                 date: entryDate,
                 category: category,
-                description: description,
-                timestamp: Date.now()
+                description: description
             };
 
             if (category === 'CAM') {
@@ -102,11 +131,24 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                 logData.machineName = selectedMachine; 
                 logData.prepTime = (parseInt(prepH) || 0) * 60 + (parseInt(prepM) || 0);
                 logData.camTime = (parseInt(camH) || 0) * 60 + (parseInt(camM) || 0);
+                logData.otherTime = 0;
             } else {
                 logData.otherTime = (parseInt(otherH) || 0) * 60 + (parseInt(otherM) || 0);
+                logData.moldName = '';
+                logData.partName = '';
+                logData.machineName = '';
+                logData.prepTime = 0;
+                logData.camTime = 0;
             }
 
-            await addDoc(collection(db, 'cam_operator_logs'), logData);
+            if (editingLogId) {
+                await updateDoc(doc(db, 'cam_operator_logs', editingLogId), logData);
+                setEditingLogId(null);
+            } else {
+                logData.timestamp = Date.now();
+                await addDoc(collection(db, 'cam_operator_logs'), logData);
+            }
+
             setMoldName(''); setPartName(''); setSelectedMachine(''); setPrepH(''); setPrepM(''); setCamH(''); setCamM('');
             setDescription(''); setOtherH(''); setOtherM('');
         } catch (error) {
@@ -168,8 +210,15 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                     
                     <div className="lg:col-span-1 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 h-fit">
-                        <h2 className="text-lg font-bold mb-6 border-b pb-2 dark:text-white flex items-center">
-                            <PlusCircle className="w-5 h-5 mr-2 text-blue-500"/> Yeni Kayıt
+                        <h2 className="text-lg font-bold mb-6 border-b pb-2 dark:text-white flex justify-between items-center">
+                            <div className="flex items-center">
+                                <PlusCircle className="w-5 h-5 mr-2 text-blue-500"/> {editingLogId ? 'Kaydı Düzenle' : 'Yeni Kayıt'}
+                            </div>
+                            {editingLogId && (
+                                <button onClick={handleCancelEdit} className="text-sm text-red-500 hover:text-red-700 flex items-center transition">
+                                    <X className="w-4 h-4 mr-1"/> İptal
+                                </button>
+                            )}
                         </h2>
 
                         <div className="space-y-4">
@@ -283,7 +332,7 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                             </div>
 
                             <button onClick={handleSaveLog} disabled={saving} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg flex items-center justify-center transition active:scale-95 disabled:opacity-50">
-                                <Save className="w-5 h-5 mr-2" /> {saving ? 'KAYDEDİLİYOR...' : 'KAYDI TAMAMLA'}
+                                <Save className="w-5 h-5 mr-2" /> {saving ? 'KAYDEDİLİYOR...' : (editingLogId ? 'DEĞİŞİKLİKLERİ KAYDET' : 'KAYDI TAMAMLA')}
                             </button>
                         </div>
                     </div>
@@ -326,25 +375,28 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                                                 
                                                 {log.description && <p className="text-gray-600 dark:text-gray-300 text-sm mt-1 italic">"{log.description}"</p>}
                                             </div>
-                                            <div className="flex items-center gap-4 shrink-0">
+                                            <div className="flex items-center gap-2 shrink-0">
                                                 {log.category === 'CAM' ? (
                                                     <>
-                                                        <div className="text-center border-r pr-4 border-gray-200 dark:border-gray-700">
+                                                        <div className="text-center border-r pr-3 border-gray-200 dark:border-gray-700">
                                                             <div className="text-[9px] text-gray-400 uppercase">Hazırlık</div>
                                                             <div className="font-mono font-bold text-blue-600">{formatMins(log.prepTime)}</div>
                                                         </div>
-                                                        <div className="text-center">
+                                                        <div className="text-center pr-2">
                                                             <div className="text-[9px] text-gray-400 uppercase">İşlem</div>
                                                             <div className="font-mono font-bold text-green-600">{formatMins(log.camTime)}</div>
                                                         </div>
                                                     </>
                                                 ) : (
-                                                    <div className="text-center">
+                                                    <div className="text-center pr-2">
                                                         <div className="text-[9px] text-gray-400 uppercase">Süre</div>
                                                         <div className="font-mono font-bold text-orange-600">{formatMins(log.otherTime)}</div>
                                                     </div>
                                                 )}
-                                                <button onClick={() => handleDeleteLog(log.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-5 h-5"/></button>
+                                                <div className="flex items-center border-l pl-2 border-gray-200 dark:border-gray-700">
+                                                    <button onClick={() => handleEditClick(log)} className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition" title="Düzenle"><Edit2 className="w-5 h-5"/></button>
+                                                    <button onClick={() => handleDeleteLog(log.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition" title="Sil"><Trash2 className="w-5 h-5"/></button>
+                                                </div>
                                             </div>
                                         </div>
                                     ))
