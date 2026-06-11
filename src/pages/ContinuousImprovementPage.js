@@ -33,6 +33,9 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
     const [editingRoiId, setEditingRoiId] = useState(null);
     const [viewingRoi, setViewingRoi] = useState(null);
 
+    // Resim Önizleme (Tam Ekran) State'i
+    const [previewImage, setPreviewImage] = useState(null);
+
     // Yeni Fabrika Kapasite Ayarları State'leri
     const [factorySettings, setFactorySettings] = useState(() => {
         const saved = localStorage.getItem('ci_factory_settings');
@@ -65,7 +68,7 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
 
     // Yeni ROI / Maliyet Formu State'leri
     const [formDataRoi, setFormDataRoi] = useState({
-        title: '', partName: '', description: '', machineHourlyRate: '', monthlyVolume: '', oldTime: '', newTime: '', investmentCost: ''
+        title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTime: '', newTime: '', investmentCost: ''
     });
 
 
@@ -105,10 +108,10 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
     const closeRoiModal = () => {
         setIsRoiModalOpen(false);
         setEditingRoiId(null);
-        setFormDataRoi({ title: '', partName: '', description: '', machineHourlyRate: '', monthlyVolume: '', oldTime: '', newTime: '', investmentCost: '' });
+        setFormDataRoi({ title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTime: '', newTime: '', investmentCost: '' });
     };
     const openEditRoi = (roi) => {
-        setFormDataRoi({ title: roi.title, partName: roi.partName, description: roi.description, machineHourlyRate: roi.machineHourlyRate, monthlyVolume: roi.monthlyVolume, oldTime: roi.oldTime, newTime: roi.newTime, investmentCost: roi.investmentCost });
+        setFormDataRoi({ title: roi.title, partName: roi.partName, description: roi.description, machineHourlyRate: roi.machineHourlyRate, annualVolume: roi.annualVolume || (roi.monthlyVolume ? roi.monthlyVolume * 12 : ''), oldTime: roi.oldTime, newTime: roi.newTime, investmentCost: roi.investmentCost });
         setEditingRoiId(roi.id);
         setIsRoiModalOpen(true);
     };
@@ -121,7 +124,10 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
     };
 
     const factoryImpact = useMemo(() => {
-        const totalAnnualHoursSaved = rois.reduce((sum, roi) => sum + ((parseFloat(roi.monthlyHoursSaved) || 0) * 12), 0);
+        const totalAnnualHoursSaved = rois.reduce((sum, roi) => {
+            const hours = parseFloat(roi.annualHoursSaved) || ((parseFloat(roi.monthlyHoursSaved) || 0) * 12);
+            return sum + hours;
+        }, 0);
         const totalFactoryCapacity = (parseInt(factorySettings.machinesCount) || 1) * (parseInt(factorySettings.workingDays) || 1) * (parseInt(factorySettings.dailyHours) || 1);
         const capacityIncreasePercent = totalFactoryCapacity > 0 ? (totalAnnualHoursSaved / totalFactoryCapacity) * 100 : 0;
 
@@ -292,27 +298,27 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
 
     // --- ROI (MALİYET/KAZANÇ) KAYDETME ---
     const handleSaveRoi = async () => {
-        if (!formDataRoi.title || !formDataRoi.oldTime || !formDataRoi.newTime || !formDataRoi.monthlyVolume || !formDataRoi.machineHourlyRate) {
-            return alert("Lütfen zorunlu alanları (Başlık, Süreler, Aylık Adet, Tezgah Saat Ücreti) doldurunuz.");
+        if (!formDataRoi.title || !formDataRoi.oldTime || !formDataRoi.newTime || !formDataRoi.annualVolume || !formDataRoi.machineHourlyRate) {
+            return alert("Lütfen zorunlu alanları (Başlık, Süreler, Yıllık Adet, Tezgah Saat Ücreti) doldurunuz.");
         }
         setIsSaving(true);
         try {
             const oldT = parseFloat(formDataRoi.oldTime) || 0;
             const newT = parseFloat(formDataRoi.newTime) || 0;
-            const vol = parseFloat(formDataRoi.monthlyVolume) || 0;
+            const vol = parseFloat(formDataRoi.annualVolume) || 0;
             const rate = parseFloat(formDataRoi.machineHourlyRate) || 0;
             const inv = parseFloat(formDataRoi.investmentCost) || 0;
 
             const timeSavedMins = oldT - newT;
-            const monthlyHoursSaved = (timeSavedMins * vol) / 60;
-            const monthlyGain = monthlyHoursSaved * rate;
-            const roiMonths = (inv > 0 && monthlyGain > 0) ? (inv / monthlyGain) : 0;
+            const annualHoursSaved = (timeSavedMins * vol) / 60;
+            const annualGain = annualHoursSaved * rate;
+            const roiMonths = (inv > 0 && annualGain > 0) ? (inv / (annualGain / 12)) : 0;
 
             const dataToSave = {
                 ...formDataRoi,
                 timeSavedMins,
-                monthlyHoursSaved,
-                monthlyGain,
+                annualHoursSaved,
+                annualGain,
                 roiMonths,
                 reportedBy: loggedInUser?.name || 'Bilinmiyor'
             };
@@ -558,11 +564,11 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                     <div className="grid grid-cols-2 gap-3 mb-4">
                                         <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded-lg text-center">
                                             <div className="text-[10px] font-bold text-gray-500 uppercase">Kapasite Kazancı</div>
-                                            <div className="font-black text-blue-600 dark:text-blue-400">+{roi.monthlyHoursSaved?.toFixed(0)} Sa/Ay</div>
+                                            <div className="font-black text-blue-600 dark:text-blue-400">+{roi.annualHoursSaved ? roi.annualHoursSaved.toFixed(0) : (roi.monthlyHoursSaved * 12)?.toFixed(0)} Sa/Yıl</div>
                                         </div>
                                         <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-lg text-center border border-emerald-100 dark:border-emerald-800">
                                             <div className="text-[10px] font-bold text-emerald-600 uppercase">Finansal Kazanç</div>
-                                            <div className="font-black text-emerald-700 dark:text-emerald-400">+{Intl.NumberFormat('tr-TR').format(roi.monthlyGain)} €/Ay</div>
+                                            <div className="font-black text-emerald-700 dark:text-emerald-400">+{Intl.NumberFormat('tr-TR').format(roi.annualGain || (roi.monthlyGain * 12))} €/Yıl</div>
                                         </div>
                                     </div>
                                     <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100 dark:border-gray-700 text-[10px] text-gray-500 font-bold">
@@ -632,7 +638,10 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                                 <X className="w-5 h-5 mr-1"/> Mevcut Problem (Önce)
                                             </div>
                                             {kz.beforeImageUrl ? (
-                                                <div className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-red-200 shadow-sm shrink-0">
+                                                <div 
+                                                    className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-red-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                                                    onClick={() => setPreviewImage(kz.beforeImageUrl)}
+                                                >
                                                     <img src={kz.beforeImageUrl} alt="Önce" className="w-full h-full object-cover" crossOrigin="anonymous"/>
                                                 </div>
                                             ) : (
@@ -649,7 +658,10 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                                 <CheckSquare className="w-5 h-5 mr-1"/> Çözüm (Sonra)
                                             </div>
                                             {kz.afterImageUrl ? (
-                                                <div className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-green-200 shadow-sm shrink-0">
+                                                <div 
+                                                    className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-green-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                                                    onClick={() => setPreviewImage(kz.afterImageUrl)}
+                                                >
                                                     <img src={kz.afterImageUrl} alt="Sonra" className="w-full h-full object-cover" crossOrigin="anonymous"/>
                                                 </div>
                                             ) : (
@@ -1129,8 +1141,8 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">Aylık Üretim (Adet) *</label>
-                                    <input type="number" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none font-bold" placeholder="Örn: 5000" value={formDataRoi.monthlyVolume} onChange={e => setFormDataRoi({...formDataRoi, monthlyVolume: e.target.value})} />
+                                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">Yıllık Üretim (Adet) *</label>
+                                    <input type="number" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none font-bold" placeholder="Örn: 50000" value={formDataRoi.annualVolume} onChange={e => setFormDataRoi({...formDataRoi, annualVolume: e.target.value})} />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">Tezgah Saat Ücreti (€) *</label>
@@ -1195,16 +1207,16 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                 {/* ANA SONUÇ KARTLARI */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                                     <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-center">
-                                        <div className="text-[10px] md:text-xs font-bold text-blue-600 uppercase mb-1">Aylık Kazanılan Süre</div>
-                                        <div className="text-xl md:text-3xl font-black text-blue-700">+{viewingRoi.monthlyHoursSaved?.toFixed(0)} <span className="text-sm font-bold">Saat</span></div>
+                                        <div className="text-[10px] md:text-xs font-bold text-blue-600 uppercase mb-1">Yıllık Kazanılan Süre</div>
+                                        <div className="text-xl md:text-3xl font-black text-blue-700">+{viewingRoi.annualHoursSaved ? viewingRoi.annualHoursSaved.toFixed(0) : (viewingRoi.monthlyHoursSaved * 12)?.toFixed(0)} <span className="text-sm font-bold">Saat</span></div>
                                     </div>
                                     <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
-                                        <div className="text-[10px] md:text-xs font-bold text-emerald-600 uppercase mb-1">Aylık Net Kazanç</div>
-                                        <div className="text-xl md:text-2xl font-black text-emerald-700">+{Intl.NumberFormat('tr-TR').format(viewingRoi.monthlyGain)} €</div>
+                                        <div className="text-[10px] md:text-xs font-bold text-emerald-600 uppercase mb-1">Yıllık Net Kazanç</div>
+                                        <div className="text-xl md:text-2xl font-black text-emerald-700">+{Intl.NumberFormat('tr-TR').format(viewingRoi.annualGain || (viewingRoi.monthlyGain * 12))} €</div>
                                     </div>
                                     <div className="bg-green-50 border border-green-200 p-4 rounded-xl text-center">
-                                        <div className="text-[10px] md:text-xs font-bold text-green-600 uppercase mb-1">Yıllık Kazanç Projeksiyonu</div>
-                                        <div className="text-xl md:text-2xl font-black text-green-700">+{Intl.NumberFormat('tr-TR').format(viewingRoi.monthlyGain * 12)} €</div>
+                                        <div className="text-[10px] md:text-xs font-bold text-green-600 uppercase mb-1">Aylık Kazanç Projeksiyonu</div>
+                                        <div className="text-xl md:text-2xl font-black text-green-700">+{Intl.NumberFormat('tr-TR').format((viewingRoi.annualGain / 12) || viewingRoi.monthlyGain)} €</div>
                                     </div>
                                     <div className={`p-4 rounded-xl text-center border ${viewingRoi.roiMonths > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
                                         <div className={`text-[10px] md:text-xs font-bold uppercase mb-1 ${viewingRoi.roiMonths > 0 ? 'text-orange-600' : 'text-gray-500'}`}>Amortisman (ROI)</div>
@@ -1221,7 +1233,7 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                         <div><span className="text-gray-500 block text-xs">Eski Süre</span><span className="font-bold text-red-600">{viewingRoi.oldTime} dk</span></div>
                                         <div><span className="text-gray-500 block text-xs">Yeni Süre</span><span className="font-bold text-green-600">{viewingRoi.newTime} dk</span></div>
                                         <div><span className="text-gray-500 block text-xs">Parça Başı Kazanç</span><span className="font-bold text-blue-600">{viewingRoi.timeSavedMins?.toFixed(1)} dk</span></div>
-                                        <div><span className="text-gray-500 block text-xs">Aylık Üretim Hacmi</span><span className="font-bold">{Intl.NumberFormat('tr-TR').format(viewingRoi.monthlyVolume)} Adet</span></div>
+                                        <div><span className="text-gray-500 block text-xs">Yıllık Üretim Hacmi</span><span className="font-bold">{Intl.NumberFormat('tr-TR').format(viewingRoi.annualVolume || (viewingRoi.monthlyVolume * 12))} Adet</span></div>
                                         <div><span className="text-gray-500 block text-xs">Tezgah Saat Ücreti</span><span className="font-bold">{Intl.NumberFormat('tr-TR').format(viewingRoi.machineHourlyRate)} €/Sa</span></div>
                                         <div><span className="text-gray-500 block text-xs">Yapılan Yatırım Maliyeti</span><span className="font-bold text-orange-600">{viewingRoi.investmentCost > 0 ? `${Intl.NumberFormat('tr-TR').format(viewingRoi.investmentCost)} €` : '0 €'}</span></div>
                                     </div>
@@ -1254,6 +1266,26 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                 </div>
             )}
 
+            {/* RESİM ÖNİZLEME (TAM EKRAN LIGHTBOX) MODALI */}
+            {previewImage && (
+                <div 
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in zoom-in duration-200"
+                    onClick={() => setPreviewImage(null)}
+                >
+                    <button 
+                        onClick={() => setPreviewImage(null)} 
+                        className="absolute top-4 right-4 text-white hover:text-red-500 transition"
+                    >
+                        <X className="w-10 h-10" />
+                    </button>
+                    <img 
+                        src={previewImage} 
+                        alt="Tam Ekran Önizleme" 
+                        className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl" 
+                        onClick={e => e.stopPropagation()} 
+                    />
+                </div>
+            )}
         </div>
     );
 };
