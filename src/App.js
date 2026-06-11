@@ -530,8 +530,12 @@ const App = () => {
             r !== ROLES.TAKIMHANE_SORUMLUSU && r !== ROLES.CNC_TORNA_OPERATORU && r !== ROLES.CNC_TORNA_SORUMLUSU
         );
         
+        const rolesExceptCnc = allLoginRoles.filter(r => 
+            r !== ROLES.CNC_TORNA_OPERATORU && r !== ROLES.CNC_TORNA_SORUMLUSU
+        );
+        
         const finalBaseItems = [
-            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptToolRoomAndCnc },
+            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptCnc },
             { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
             { path: '/vardiya-plani', label: 'Gece Vardiyası Planı', icon: Moon, roles: allLoginRoles }, // <-- YENİ EKLENDİ
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
