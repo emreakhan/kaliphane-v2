@@ -7,13 +7,13 @@ import {
     Plus, CheckCircle, Zap, StickyNote, Save, PlayCircle, 
     ChevronDown, ChevronUp, FileText, Image as ImageIcon, 
     User, AlertTriangle, ShieldAlert, Box, Eye, UploadCloud, Loader, Trash2, Clock, HelpCircle,
-    ListChecks, Layers, Timer, Check
+    ListChecks, Layers, Timer, Check, ChevronLeft, ChevronRight
 } from 'lucide-react'; 
 
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
     PERSONNEL_ROLES, PROJECT_TYPES,
-    PROJECT_COLLECTION, MOLD_NOTES_COLLECTION 
+    PROJECT_COLLECTION, MOLD_NOTES_COLLECTION, MOLD_STATUS_ACTIVE_LIST
 } from '../config/constants.js';
 
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
@@ -145,6 +145,68 @@ const MoldDetailPage = ({
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     
+    const cleanProjects = useMemo(() => {
+        if (!projects || !Array.isArray(projects)) return [];
+        return projects.filter(p => 
+            p && 
+            p.moldName && 
+            typeof p.moldName === 'string' && 
+            p.moldName.trim() !== ''
+        );
+    }, [projects]);
+
+    const filteredProjects = useMemo(() => {
+        const activeFilter = localStorage.getItem('moldListActiveFilter') || 'ACTIVE_OVERVIEW';
+        const searchTerm = localStorage.getItem('moldListSearchTerm') || '';
+        
+        let filtered = cleanProjects;
+
+        if (activeFilter !== 'all') {
+            if (activeFilter === 'ACTIVE_OVERVIEW') {
+                filtered = filtered.filter(project => 
+                    MOLD_STATUS_ACTIVE_LIST.includes(project.status)
+                );
+            } else {
+                filtered = filtered.filter(project => 
+                    project.status === activeFilter
+                );
+            }
+        }
+
+        if (searchTerm.trim()) {
+            const lowerSearchTerm = searchTerm.toLowerCase();
+            filtered = filtered.filter(project => 
+                (project.moldName || '').toLowerCase().includes(lowerSearchTerm) ||
+                (project.customer || '').toLowerCase().includes(lowerSearchTerm)
+            );
+        }
+        
+        filtered.sort((a, b) => {
+            const priorityA = a.priority;
+            const priorityB = b.priority;
+
+            if (priorityA && priorityB) {
+                return priorityA - priorityB;
+            }
+            if (priorityA && !priorityB) {
+                return -1;
+            }
+            if (!priorityA && priorityB) {
+                return 1;
+            }
+            return (a.moldName || '').localeCompare(b.moldName || '');
+        });
+        
+        return filtered;
+    }, [cleanProjects]);
+
+    const currentMoldIndex = useMemo(() => {
+        return filteredProjects.findIndex(p => p.id === moldId);
+    }, [filteredProjects, moldId]);
+
+    const prevMoldId = currentMoldIndex > 0 ? filteredProjects[currentMoldIndex - 1].id : null;
+    const nextMoldId = currentMoldIndex !== -1 && currentMoldIndex < filteredProjects.length - 1 ? filteredProjects[currentMoldIndex + 1].id : null;
+
     const projectManagers = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU), [personnel]);
     const moldDesigners = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.KALIP_TASARIM_SORUMLUSU || p.role === PERSONNEL_ROLES.KALIP_TASARIM_YONETICISI), [personnel]);
     const camOperators = useMemo(() => personnel.filter(p => p.role === PERSONNEL_ROLES.CAM_OPERATOR || p.role === PERSONNEL_ROLES.CAM_SORUMLUSU), [personnel]);
@@ -514,8 +576,48 @@ const MoldDetailPage = ({
                     <StickyNote className="w-4 h-4 mr-2" /> Notlar
                 </button>
             </div>
+
+            {/* Yüzen Önceki/Sonraki Okları */}
+            {prevMoldId && (
+                <button
+                    onClick={() => navigate(`/mold/${prevMoldId}`)}
+                    className="hidden lg:flex fixed left-[270px] top-1/2 transform -translate-y-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded-r-xl shadow-lg hover:bg-blue-50 dark:hover:bg-gray-700 z-30 transition-all opacity-50 hover:opacity-100"
+                    title="Önceki Kalıp"
+                >
+                    <ChevronLeft className="w-8 h-8" />
+                </button>
+            )}
+            {nextMoldId && (
+                <button
+                    onClick={() => navigate(`/mold/${nextMoldId}`)}
+                    className="hidden lg:flex fixed right-0 top-1/2 transform -translate-y-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded-l-xl shadow-lg hover:bg-blue-50 dark:hover:bg-gray-700 z-30 transition-all opacity-50 hover:opacity-100"
+                    title="Sonraki Kalıp"
+                >
+                    <ChevronRight className="w-8 h-8" />
+                </button>
+            )}
             
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{mold.moldName} Kalıp Detayları</h2>
+            <div className="flex items-center mb-4 pr-0 md:pr-[300px]">
+                {prevMoldId && (
+                    <button 
+                        onClick={() => navigate(`/mold/${prevMoldId}`)} 
+                        className="mr-3 p-1.5 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
+                        title="Önceki Kalıp"
+                    >
+                        <ChevronLeft className="w-6 h-6" />
+                    </button>
+                )}
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white truncate">{mold.moldName} Kalıp Detayları</h2>
+                {nextMoldId && (
+                    <button 
+                        onClick={() => navigate(`/mold/${nextMoldId}`)} 
+                        className="ml-3 p-1.5 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
+                        title="Sonraki Kalıp"
+                    >
+                        <ChevronRight className="w-6 h-6" />
+                    </button>
+                )}
+            </div>
             
             <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
                 <div className="flex items-center">

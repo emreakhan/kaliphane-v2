@@ -25,7 +25,9 @@ const EnhancedMoldList = ({ projects }) => {
         return localStorage.getItem('moldListActiveFilter') || 'ACTIVE_OVERVIEW';
     });
 
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(() => {
+        return localStorage.getItem('moldListSearchTerm') || '';
+    });
     
     // Görünüm Modu
     const [viewMode, setViewMode] = useState(() => {
@@ -35,6 +37,10 @@ const EnhancedMoldList = ({ projects }) => {
     useEffect(() => {
         localStorage.setItem('moldListActiveFilter', activeFilter);
     }, [activeFilter]);
+
+    useEffect(() => {
+        localStorage.setItem('moldListSearchTerm', searchTerm);
+    }, [searchTerm]);
 
     useEffect(() => {
         localStorage.setItem('moldListViewMode', viewMode);
