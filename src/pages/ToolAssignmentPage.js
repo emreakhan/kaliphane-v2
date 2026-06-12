@@ -14,7 +14,7 @@ import {
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, projects = [] }) => {
+ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, projects = [] }) => {
     // --- GÖRÜNÜM MODU: 'MACHINES' veya 'PERSONNEL' ---
     const [viewMode, setViewMode] = useState('MACHINES'); 
 
