@@ -291,7 +291,7 @@ const MoldDetailPage = ({
     const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
     const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
     const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
-    const canManageMaterials = isAdmin || loggedInUser.role === ROLES.GIRIS_KALITE || loggedInUser.role === ROLES.DEPO_SORUMLUSU || loggedInUser.role === ROLES.TAKIMHANE_SORUMLUSU;
+    const canManageMaterials = isAdmin || loggedInUser.role === ROLES.GIRIS_KALITE || loggedInUser.role === ROLES.DEPO_SORUMLUSU || loggedInUser.role === ROLES.TAKIMHANE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
 
     if (!mold) return <div className="p-8 text-center dark:text-white">Kalıp yükleniyor veya bulunamadı...</div>;
 
