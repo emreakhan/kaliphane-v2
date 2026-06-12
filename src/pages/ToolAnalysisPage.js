@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     BarChart2, AlertTriangle, Users, TrendingUp, 
-    Download, Calendar, Filter, CheckCircle, Recycle, XCircle
+    Download, Calendar, Filter, CheckCircle, Recycle, XCircle, Search, Layers
 } from 'lucide-react';
 import { collection, query, getDocs, onSnapshot } from '../config/firebase.js';
 import { 
@@ -29,11 +29,23 @@ const ToolAnalysisPage = ({ db }) => {
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [selectedMonth, setSelectedMonth] = useState('ALL'); 
+    const [toolSearchTerm, setToolSearchTerm] = useState('');
 
     const months = [
         "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
         "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
     ];
+
+    // --- GEÇMİŞ YILLARI DİNAMİK HESAPLAMA ---
+    const availableYears = useMemo(() => {
+        if (!transactions || transactions.length === 0) return [currentYear, currentYear - 1, currentYear - 2];
+        const years = new Set(transactions.map(tx => {
+            if (!tx.date) return currentYear;
+            return new Date(tx.date).getFullYear();
+        }));
+        years.add(currentYear); // İçinde bulunduğumuz yılı her zaman dahil et
+        return Array.from(years).sort((a, b) => b - a); // Yeniden eskiye doğru sırala
+    }, [transactions, currentYear]);
 
     // --- VERİLERİ ÇEK ---
     useEffect(() => {
@@ -133,6 +145,54 @@ const ToolAnalysisPage = ({ db }) => {
         return Object.values(ops).sort((a, b) => b.totalTaken - a.totalTaken);
     }, [filteredTransactions]);
 
+    // --- TÜM TAKIM TRAFİĞİ (LİSTE VE ARAMA) ---
+    const comprehensiveToolStats = useMemo(() => {
+        const statsMap = {};
+        inventory.forEach(tool => {
+            statsMap[tool.id] = {
+                id: tool.id,
+                name: tool.name,
+                code: tool.productCode || '-',
+                category: tool.category,
+                currentStock: tool.totalStock,
+                yearEntry: 0,
+                yearUsed: 0,
+                yearScrap: 0,
+                allTimeEntry: 0,
+                allTimeUsed: 0,
+                allTimeScrap: 0
+            };
+        });
+
+        transactions.forEach(tx => {
+            const toolMatch = inventory.find(t => t.id === tx.toolId || t.name === tx.toolName);
+            if (!toolMatch) return;
+
+            const st = statsMap[toolMatch.id];
+            const txYear = new Date(tx.date).getFullYear();
+            const isSelectedYear = txYear === parseInt(selectedYear);
+            const qty = parseInt(tx.quantity) || 1;
+
+            if (tx.type === TOOL_TRANSACTION_TYPES.STOCK_ENTRY) {
+                st.allTimeEntry += qty;
+                if (isSelectedYear) st.yearEntry += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
+                st.allTimeUsed += qty;
+                if (isSelectedYear) st.yearUsed += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE || tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
+                st.allTimeScrap += 1;
+                if (isSelectedYear) st.yearScrap += 1;
+            }
+        });
+
+        let list = Object.values(statsMap);
+        if (toolSearchTerm.trim()) {
+            const lower = toolSearchTerm.toLowerCase();
+            list = list.filter(t => t.name.toLowerCase().includes(lower) || t.code.toLowerCase().includes(lower));
+        }
+
+        return list.sort((a, b) => b.yearUsed - a.yearUsed);
+    }, [inventory, transactions, selectedYear, toolSearchTerm]);
 
     // --- PDF RAPOR OLUŞTURMA ---
     const generatePDF = () => {
@@ -220,7 +280,7 @@ const ToolAnalysisPage = ({ db }) => {
                             onChange={(e) => setSelectedYear(e.target.value)}
                             className="bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold outline-none cursor-pointer"
                         >
-                            {[currentYear, currentYear - 1, currentYear - 2].map(y => (
+                            {availableYears.map(y => (
                                 <option key={y} value={y} className="dark:text-white dark:bg-gray-800">{y}</option>
                             ))}
                         </select>
@@ -266,53 +326,113 @@ const ToolAnalysisPage = ({ db }) => {
 
             {/* --- SEKME 1: TÜKETİM ANALİZİ (GRAFİKSEL) --- */}
             {activeTab === 'USAGE' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* KULLANIM GRAFİĞİ */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
-                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-                            <CheckCircle className="w-5 h-5 mr-2 text-blue-500" /> En Çok Tüketilen 10 Takım
-                        </h3>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData.usageData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
-                                <Tooltip 
-                                    contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
-                                    itemStyle={{ color: '#fff' }}
-                                    formatter={(value) => [`${value} Adet`, 'Kullanım']}
-                                />
-                                <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]}>
-                                    {chartData.usageData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={index < 3 ? '#2563EB' : '#60A5FA'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* KULLANIM GRAFİĞİ */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
+                            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+                                <CheckCircle className="w-5 h-5 mr-2 text-blue-500" /> En Çok Tüketilen 10 Takım
+                            </h3>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData.usageData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                    <Tooltip 
+                                        contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
+                                        itemStyle={{ color: '#fff' }}
+                                        formatter={(value) => [`${value} Adet`, 'Kullanım']}
+                                    />
+                                    <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]}>
+                                        {chartData.usageData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={index < 3 ? '#2563EB' : '#60A5FA'} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        {/* HURDA GRAFİĞİ */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
+                            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
+                                <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> En Çok Hurdaya Çıkan 10 Takım
+                            </h3>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData.scrapData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                    <Tooltip 
+                                        contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
+                                        itemStyle={{ color: '#fff' }}
+                                        formatter={(value) => [`${value} Adet`, 'Hurda']}
+                                    />
+                                    <Bar dataKey="count" fill="#EF4444" radius={[0, 4, 4, 0]}>
+                                        {chartData.scrapData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={index < 3 ? '#DC2626' : '#F87171'} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
 
-                    {/* HURDA GRAFİĞİ */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
-                        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-                            <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> En Çok Hurdaya Çıkan 10 Takım
-                        </h3>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData.scrapData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
-                                <Tooltip 
-                                    contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
-                                    itemStyle={{ color: '#fff' }}
-                                    formatter={(value) => [`${value} Adet`, 'Hurda']}
+                    {/* YENİ: TÜM TAKIM TRAFİĞİ LİSTESİ */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
+                                <Layers className="w-5 h-5 mr-2 text-indigo-500" />
+                                Tüm Takım Trafiği & Envanter Detayı
+                            </h3>
+                            <div className="relative w-full sm:w-64">
+                                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                                <input 
+                                    type="text"
+                                    placeholder="Takım Adı veya Kod Ara..."
+                                    value={toolSearchTerm}
+                                    onChange={(e) => setToolSearchTerm(e.target.value)}
+                                    className="w-full pl-9 p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-1 focus:ring-indigo-500 outline-none"
                                 />
-                                <Bar dataKey="count" fill="#EF4444" radius={[0, 4, 4, 0]}>
-                                    {chartData.scrapData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={index < 3 ? '#DC2626' : '#F87171'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                                <thead className="bg-gray-100 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
+                                    <tr>
+                                        <th className="p-4">Stok Kodu / Takım</th>
+                                        <th className="p-4 text-center">Mevcut Stok</th>
+                                        <th className="p-4 text-center">{selectedYear} Alınan</th>
+                                        <th className="p-4 text-center">{selectedYear} Kullanım</th>
+                                        <th className="p-4 text-center">{selectedYear} Hurda</th>
+                                        <th className="p-4 text-center">Aylık Ort. Kullanım</th>
+                                        <th className="p-4 text-center">Tüm Zamanlar Kullanım</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                    {comprehensiveToolStats.length === 0 ? (
+                                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">Veri bulunamadı.</td></tr>
+                                    ) : (
+                                        comprehensiveToolStats.map((item, idx) => {
+                                            const monthlyAvg = (item.yearUsed / 12).toFixed(1);
+                                            return (
+                                                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-gray-900 dark:text-white">{item.name}</div>
+                                                        <div className="text-xs text-gray-500 font-mono mt-0.5">{item.code}</div>
+                                                    </td>
+                                                    <td className="p-4 text-center font-bold text-gray-800 dark:text-gray-200">{item.currentStock}</td>
+                                                    <td className="p-4 text-center font-bold text-green-600 dark:text-green-400">+{item.yearEntry}</td>
+                                                    <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{item.yearUsed}</td>
+                                                    <td className="p-4 text-center font-bold text-red-600 dark:text-red-400">{item.yearScrap}</td>
+                                                    <td className="p-4 text-center font-bold text-orange-600 dark:text-orange-400">{monthlyAvg}</td>
+                                                    <td className="p-4 text-center font-bold text-purple-600 dark:text-purple-400">{item.allTimeUsed}</td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
