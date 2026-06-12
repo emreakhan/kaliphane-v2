@@ -577,26 +577,6 @@ const MoldDetailPage = ({
                 </button>
             </div>
 
-            {/* Yüzen Önceki/Sonraki Okları */}
-            {prevMoldId && (
-                <button
-                    onClick={() => navigate(`/mold/${prevMoldId}`)}
-                    className="hidden lg:flex fixed left-[270px] top-1/2 transform -translate-y-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded-r-xl shadow-lg hover:bg-blue-50 dark:hover:bg-gray-700 z-30 transition-all opacity-50 hover:opacity-100"
-                    title="Önceki Kalıp"
-                >
-                    <ChevronLeft className="w-8 h-8" />
-                </button>
-            )}
-            {nextMoldId && (
-                <button
-                    onClick={() => navigate(`/mold/${nextMoldId}`)}
-                    className="hidden lg:flex fixed right-0 top-1/2 transform -translate-y-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 p-2 rounded-l-xl shadow-lg hover:bg-blue-50 dark:hover:bg-gray-700 z-30 transition-all opacity-50 hover:opacity-100"
-                    title="Sonraki Kalıp"
-                >
-                    <ChevronRight className="w-8 h-8" />
-                </button>
-            )}
-            
             <div className="flex items-center mb-4 pr-0 md:pr-[300px]">
                 {prevMoldId && (
                     <button 
