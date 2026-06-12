@@ -176,6 +176,13 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
     const [selectedTargetMachine, setSelectedTargetMachine] = useState('');
 
     const printRef = useRef();
+    const listPrintRef = useRef(null);
+
+    const handlePrintList = useReactToPrint({ 
+        contentRef: listPrintRef, 
+        content: () => listPrintRef.current, 
+        documentTitle: `Malzeme_Listesi_${mold?.moldName || 'Kalıp'}` 
+    });
 
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, MACHINES_COLLECTION)), (snap) => {
@@ -394,17 +401,22 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center">
                     <ListChecks className="w-5 h-5 mr-2 text-indigo-600" /> Siparişi Verilen / Gelen Malzemeler
                 </h3>
-                {canManageMaterials && (
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <label className="flex items-center justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg shadow-md transition cursor-pointer flex-1 md:flex-none">
-                            <FileSpreadsheet className="w-4 h-4 mr-2" /> ERP Yükle (.xlsx)
-                            <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleExcelFileUpload} />
-                        </label>
-                        <button onClick={() => setIsAddMaterialModalOpen(true)} className="flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition flex-1 md:flex-none">
-                            <Plus className="w-4 h-4 mr-2" /> Tekil Ekle
-                        </button>
-                    </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <button onClick={handlePrintList} className="flex items-center justify-center px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-bold rounded-lg shadow-md transition flex-1 md:flex-none">
+                        <Printer className="w-4 h-4 mr-2" /> Listeyi Yazdır
+                    </button>
+                    {canManageMaterials && (
+                        <>
+                            <label className="flex items-center justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg shadow-md transition cursor-pointer flex-1 md:flex-none">
+                                <FileSpreadsheet className="w-4 h-4 mr-2" /> ERP Yükle (.xlsx)
+                                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleExcelFileUpload} />
+                            </label>
+                            <button onClick={() => setIsAddMaterialModalOpen(true)} className="flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition flex-1 md:flex-none">
+                                <Plus className="w-4 h-4 mr-2" /> Tekil Ekle
+                            </button>
+                        </>
+                    )}
+                </div>
             </div>
 
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm overflow-x-auto">
@@ -683,6 +695,61 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
 
             <BarcodePreviewModal isOpen={isBarcodePreviewOpen} onClose={() => setIsBarcodePreviewOpen(false)} material={selectedMaterialForPrint} moldName={mold.moldName} />
             <BarcodeLabel ref={printRef} material={selectedMaterialForPrint} moldName={mold.moldName} />
+            
+            {/* YENİ: YAZDIRILABİLİR MALZEME LİSTESİ ÇEK LİSTESİ (GİZLİ) */}
+            <div style={{ display: 'none' }}>
+                <div ref={listPrintRef} style={{ padding: '15mm', fontFamily: 'Arial, sans-serif', width: '210mm', color: '#000', backgroundColor: '#fff' }}>
+                    <style type="text/css" media="print">
+                        {`@page { size: A4 portrait; margin: 0; } body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`}
+                    </style>
+                    <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #000', paddingBottom: '10px' }}>
+                        <h2 style={{ margin: '0 0 5px 0', fontSize: '24px', textTransform: 'uppercase' }}>{mold?.moldName} - MALZEME LİSTESİ</h2>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#555' }}>Müşteri: {mold?.customer || 'Belirtilmedi'} | Çıktı Tarihi: {new Date().toLocaleDateString('tr-TR')}</p>
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#f0f0f0' }}>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left', width: '5%' }}>No</th>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left', width: '35%' }}>Malzeme Adı & Yüzeyi</th>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left', width: '25%' }}>Tür / Ölçü</th>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', width: '10%' }}>Miktar</th>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', width: '12.5%' }}>Geldi</th>
+                                <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', width: '12.5%' }}>Gelmedi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {materials.map((mat, index) => (
+                                <tr key={mat.id}>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center' }}>{index + 1}</td>
+                                    <td style={{ border: '1px solid #000', padding: '8px' }}>
+                                        <strong>{mat.name}</strong>
+                                        {mat.moldSurface && <div style={{ fontSize: '10px', marginTop: '2px' }}>YÜZEY: {mat.moldSurface}</div>}
+                                        {mat.erpCode && <div style={{ fontSize: '10px', color: '#666', marginTop: '2px' }}>ERP: {mat.erpCode}</div>}
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '8px' }}>
+                                        {mat.type}<br/>
+                                        <span style={{ fontSize: '10px', color: '#555' }}>{mat.dimensions || 'Ölçü Yok'}</span>
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                                        {mat.quantity}
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                                        <div style={{ width: '16px', height: '16px', border: '1px solid #000', margin: '0 auto' }}></div>
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                                        <div style={{ width: '16px', height: '16px', border: '1px solid #000', margin: '0 auto' }}></div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {materials.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '20px', border: '1px solid #000', borderTop: 'none' }}>
+                            Malzeme bulunamadı.
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
