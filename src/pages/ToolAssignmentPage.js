@@ -14,7 +14,7 @@ import {
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) => {
+const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, projects = [] }) => {
     // --- GÖRÜNÜM MODU: 'MACHINES' veya 'PERSONNEL' ---
     const [viewMode, setViewMode] = useState('MACHINES'); 
 
@@ -27,6 +27,9 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
     const [selectedCategory, setSelectedCategory] = useState('TÜMÜ');
     const [pendingItems, setPendingItems] = useState([]); 
     const [selectedOperatorId, setSelectedOperatorId] = useState(''); // Teslim Alan (İmza Atan)
+    
+    const [sourceType, setSourceType] = useState('INVENTORY'); // 'INVENTORY' veya 'MOLD_MATERIALS'
+    const [selectedMoldIdForMaterial, setSelectedMoldIdForMaterial] = useState('');
 
     // --- MODAL: TRANSFER İŞLEMİ ---
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -79,6 +82,21 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
         return ['TÜMÜ', ...Array.from(cats).sort()];
     }, [tools]);
 
+    // --- MOLD MATERIALS SEÇİM MANTIĞI ---
+    const selectedMoldForMaterial = useMemo(() => {
+        return projects.find(p => p.id === selectedMoldIdForMaterial);
+    }, [projects, selectedMoldIdForMaterial]);
+
+    const filteredMoldMaterials = useMemo(() => {
+        if (!selectedMoldForMaterial || !selectedMoldForMaterial.materials) return [];
+        let mats = selectedMoldForMaterial.materials;
+        if (toolSearchTerm) {
+            const lower = toolSearchTerm.toLowerCase();
+            mats = mats.filter(m => m.name.toLowerCase().includes(lower) || (m.erpCode && m.erpCode.toLowerCase().includes(lower)));
+        }
+        return mats;
+    }, [selectedMoldForMaterial, toolSearchTerm]);
+
     const filteredToolsForSelection = useMemo(() => {
         let result = tools.filter(t => t.totalStock > 0); 
 
@@ -116,6 +134,30 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                 quantity: 1,
                 maxStock: tool.totalStock
             }]);
+        }
+    };
+
+    const handleAddMaterialItem = (mat) => {
+        const existingItem = pendingItems.find(i => i.toolId === mat.id);
+        if (existingItem) {
+            if (mat.quantity > existingItem.quantity) {
+                setPendingItems(pendingItems.map(i => 
+                    i.toolId === mat.id ? { ...i, quantity: i.quantity + 1 } : i
+                ));
+            }
+        } else {
+            setPendingItems([...pendingItems, {
+                tempId: Date.now(),
+                toolId: mat.id,
+                toolName: `${selectedMoldForMaterial.moldName} - ${mat.name}`,
+                productCode: mat.erpCode || '',
+                category: 'KALIP MALZEMESİ',
+                quantity: 1,
+                maxStock: mat.quantity,
+                isMoldMaterial: true
+            }]);
+            
+            setToolSearchTerm('');
         }
     };
 
@@ -159,10 +201,12 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
             let toolsToAdd = [];
 
             for (const item of pendingItems) {
-                const toolRef = doc(db, INVENTORY_COLLECTION, item.toolId);
-                await updateDoc(toolRef, {
-                    totalStock: increment(-item.quantity)
-                });
+                if (!item.isMoldMaterial) {
+                    const toolRef = doc(db, INVENTORY_COLLECTION, item.toolId);
+                    await updateDoc(toolRef, {
+                        totalStock: increment(-item.quantity)
+                    });
+                }
 
                 for (let i = 0; i < item.quantity; i++) {
                     toolsToAdd.push({
@@ -172,7 +216,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                         productCode: item.productCode || '',
                         givenDate: now,
                         givenBy: loggedInUser.name,
-                        receivedBy: operatorName
+                        receivedBy: operatorName,
+                        isMoldMaterial: item.isMoldMaterial || false
                     });
                 }
 
@@ -183,7 +228,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                     machineName: viewMode === 'MACHINES' ? selectedOwner.name : 'ŞAHSİ ZİMMET',
                     user: loggedInUser.name,
                     receiver: operatorName, 
-                    targetType: viewMode, 
+                    targetType: viewMode,
+                    isMoldMaterial: item.isMoldMaterial || false,
                     date: now
                 });
             }
@@ -573,75 +619,172 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                 <X className="w-8 h-8" />
                             </button>
                         </div>
+                        
+                        <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                            <button 
+                                onClick={() => { setSourceType('INVENTORY'); setToolSearchTerm(''); }} 
+                                className={`flex-1 py-3 text-sm font-bold text-center transition ${sourceType === 'INVENTORY' ? 'bg-white dark:bg-gray-800 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                            >
+                                Takım Deposu
+                            </button>
+                            <button 
+                                onClick={() => { setSourceType('MOLD_MATERIALS'); setToolSearchTerm(''); }} 
+                                className={`flex-1 py-3 text-sm font-bold text-center transition ${sourceType === 'MOLD_MATERIALS' ? 'bg-white dark:bg-gray-800 text-orange-600 border-b-2 border-orange-600' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                            >
+                                Kalıp Malzemeleri
+                            </button>
+                        </div>
 
                         <div className="flex flex-1 overflow-hidden">
                             {/* SOL TARAF: DEPO GÖRÜNÜMÜ */}
                             <div className="w-2/3 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-800/50">
                                 <div className="p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 space-y-3">
-                                    <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                                        {availableCategories.map(cat => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setSelectedCategory(cat)}
-                                                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
-                                                    selectedCategory === cat 
-                                                    ? (viewMode === 'MACHINES' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white') 
-                                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                                                }`}
-                                            >
-                                                {cat}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <div className="relative">
-                                        <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
-                                        <input 
-                                            type="text" 
-                                            placeholder="Takım Adı veya Kod Ara..." 
-                                            value={toolSearchTerm}
-                                            onChange={(e) => setToolSearchTerm(e.target.value)}
-                                            className="w-full pl-10 p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500"
-                                        />
-                                    </div>
+                                    {sourceType === 'INVENTORY' ? (
+                                        <>
+                                            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                                                {availableCategories.map(cat => (
+                                                    <button
+                                                        key={cat}
+                                                        onClick={() => setSelectedCategory(cat)}
+                                                        className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
+                                                            selectedCategory === cat 
+                                                            ? (viewMode === 'MACHINES' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white') 
+                                                            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                                        }`}
+                                                    >
+                                                        {cat}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Takım Adı veya Kod Ara..." 
+                                                    value={toolSearchTerm}
+                                                    onChange={(e) => setToolSearchTerm(e.target.value)}
+                                                    className="w-full pl-10 p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="relative">
+                                                <select 
+                                                    value={selectedMoldIdForMaterial} 
+                                                    onChange={(e) => setSelectedMoldIdForMaterial(e.target.value)}
+                                                    className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-orange-500 font-bold"
+                                                >
+                                                    <option value="">Kalıp Seçiniz...</option>
+                                                    {projects.map(p => (
+                                                        <option key={p.id} value={p.id}>{p.moldName} {p.customer ? `(${p.customer})` : ''}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            {selectedMoldIdForMaterial && (
+                                                <div className="relative mt-3">
+                                                    <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Malzeme Adı veya ERP Kod Ara..." 
+                                                        value={toolSearchTerm}
+                                                        onChange={(e) => setToolSearchTerm(e.target.value)}
+                                                        className="w-full pl-10 p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-orange-500"
+                                                    />
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto p-2">
-                                    <div className="flex flex-col space-y-2">
-                                        <div className="flex px-4 py-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 mb-1">
-                                            <div className="w-20">Kod</div>
-                                            <div className="flex-1">Parça Adı</div>
-                                            <div className="w-24">Kategori</div>
-                                            <div className="w-16 text-center">Stok</div>
-                                            <div className="w-20 text-right">Ekle</div>
-                                        </div>
-
-                                        {filteredToolsForSelection.map(tool => (
-                                            <div key={tool.id} className="flex items-center p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition">
-                                                <div className="w-20 text-xs font-mono font-bold text-blue-600 dark:text-blue-400 truncate">
-                                                    {tool.productCode || '-'}
-                                                </div>
-                                                <div className="flex-1 px-2 font-medium text-gray-800 dark:text-gray-200 text-sm truncate" title={tool.name}>
-                                                    {tool.name}
-                                                </div>
-                                                <div className="w-24">
-                                                    <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate block w-min max-w-full">
-                                                        {tool.category}
-                                                    </span>
-                                                </div>
-                                                <div className="w-16 text-center text-sm font-bold text-gray-700 dark:text-gray-300">
-                                                    {tool.totalStock}
-                                                </div>
-                                                <div className="w-20 flex justify-end">
-                                                    <button 
-                                                        onClick={() => handleAddItem(tool)}
-                                                        className={`px-3 py-1 text-white rounded text-xs font-bold transition flex items-center ${viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
-                                                    >
-                                                        <Plus className="w-3 h-3 mr-1" /> Ekle
-                                                    </button>
-                                                </div>
+                                    {sourceType === 'INVENTORY' ? (
+                                        <div className="flex flex-col space-y-2">
+                                            <div className="flex px-4 py-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 mb-1">
+                                                <div className="w-20">Kod</div>
+                                                <div className="flex-1">Parça Adı</div>
+                                                <div className="w-24">Kategori</div>
+                                                <div className="w-16 text-center">Stok</div>
+                                                <div className="w-20 text-right">Ekle</div>
                                             </div>
-                                        ))}
-                                    </div>
+
+                                            {filteredToolsForSelection.map(tool => (
+                                                <div key={tool.id} className="flex items-center p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition">
+                                                    <div className="w-20 text-xs font-mono font-bold text-blue-600 dark:text-blue-400 truncate">
+                                                        {tool.productCode || '-'}
+                                                    </div>
+                                                    <div className="flex-1 px-2 font-medium text-gray-800 dark:text-gray-200 text-sm truncate" title={tool.name}>
+                                                        {tool.name}
+                                                    </div>
+                                                    <div className="w-24">
+                                                        <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate block w-min max-w-full">
+                                                            {tool.category}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-16 text-center text-sm font-bold text-gray-700 dark:text-gray-300">
+                                                        {tool.totalStock}
+                                                    </div>
+                                                    <div className="w-20 flex justify-end">
+                                                        <button 
+                                                            onClick={() => handleAddItem(tool)}
+                                                            className={`px-3 py-1 text-white rounded text-xs font-bold transition flex items-center ${viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                                                        >
+                                                            <Plus className="w-3 h-3 mr-1" /> Ekle
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        selectedMoldIdForMaterial ? (
+                                            <div className="flex flex-col space-y-2">
+                                                <div className="flex px-4 py-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 mb-1">
+                                                    <div className="w-20">ERP Kod</div>
+                                                    <div className="flex-1">Malzeme Adı</div>
+                                                    <div className="w-24">Tür / Yüzey</div>
+                                                    <div className="w-16 text-center">Miktar</div>
+                                                    <div className="w-20 text-right">Ekle</div>
+                                                </div>
+                                                
+                                                {filteredMoldMaterials.length === 0 ? (
+                                                    <div className="p-4 text-center text-gray-500 text-sm">Malzeme bulunamadı.</div>
+                                                ) : (
+                                                    filteredMoldMaterials.map(mat => (
+                                                        <div key={mat.id} className="flex items-center p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition">
+                                                            <div className="w-20 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 truncate">
+                                                                {mat.erpCode || '-'}
+                                                            </div>
+                                                            <div className="flex-1 px-2 font-medium text-gray-800 dark:text-gray-200 text-sm truncate" title={mat.name}>
+                                                                {mat.name}
+                                                            </div>
+                                                            <div className="w-24 flex flex-col">
+                                                                <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate block w-min max-w-full">
+                                                                    {mat.type}
+                                                                </span>
+                                                                {mat.moldSurface && <span className="text-[9px] text-gray-400 truncate">{mat.moldSurface}</span>}
+                                                            </div>
+                                                            <div className="w-16 text-center text-sm font-bold text-gray-700 dark:text-gray-300">
+                                                                {mat.quantity}
+                                                            </div>
+                                                            <div className="w-20 flex justify-end">
+                                                                <button 
+                                                                    onClick={() => handleAddMaterialItem(mat)}
+                                                                    className={`px-3 py-1 text-white rounded text-xs font-bold transition flex items-center bg-orange-600 hover:bg-orange-700`}
+                                                                >
+                                                                    <Plus className="w-3 h-3 mr-1" /> Ekle
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 flex flex-col items-center justify-center p-8 text-gray-400 text-sm h-full">
+                                                <List className="w-12 h-12 mb-3 opacity-20" />
+                                                <p>Lütfen malzeme listesini görmek için yukarıdan bir kalıp seçiniz.</p>
+                                            </div>
+                                        )
+                                    )}
                                 </div>
                             </div>
 
@@ -698,9 +841,11 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db }) =>
                                     <button 
                                         onClick={handleConfirmAssignment}
                                         disabled={pendingItems.length === 0 || (viewMode === 'MACHINES' && !selectedOperatorId)}
-                                        className={`w-full py-3 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center ${
-                                            viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'
-                                        } disabled:bg-gray-400`}
+                                        className={`w-full py-3 text-white rounded-lg font-bold shadow-lg transition flex items-center justify-center 
+                                            ${sourceType === 'MOLD_MATERIALS' 
+                                                ? 'bg-orange-600 hover:bg-orange-700' 
+                                                : (viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700')
+                                            } disabled:bg-gray-400`}
                                     >
                                         <CheckCircle className="w-5 h-5 mr-2" /> Onayla ve Ver
                                     </button>
