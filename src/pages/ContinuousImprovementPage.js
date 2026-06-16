@@ -12,6 +12,17 @@ import {
 import { getCurrentDateTimeString, formatDateTime } from '../utils/dateUtils.js';
 import html2pdf from 'html2pdf.js';
 
+const formatMinsToHM = (mins) => {
+    if (mins === undefined || mins === null || isNaN(mins)) return '0 Dk';
+    const absMins = Math.abs(mins);
+    const h = Math.floor(absMins / 60);
+    const m = parseFloat((absMins % 60).toFixed(1));
+    const sign = mins < 0 ? '-' : '';
+    if (h > 0 && m > 0) return `${sign}${h} Sa ${m} Dk`;
+    if (h > 0) return `${sign}${h} Sa`;
+    return `${sign}${m} Dk`;
+};
+
 const ContinuousImprovementPage = ({ loggedInUser }) => {
     const [activeTab, setActiveTab] = useState('KAIZEN');
     const [kaizens, setKaizens] = useState([]);
@@ -68,7 +79,7 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
 
     // Yeni ROI / Maliyet Formu State'leri
     const [formDataRoi, setFormDataRoi] = useState({
-        title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTime: '', newTime: '', investmentCost: ''
+        title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTimeH: '', oldTimeM: '', newTimeH: '', newTimeM: '', investmentCost: '', oldSetupTimeH: '', oldSetupTimeM: '', newSetupTimeH: '', newSetupTimeM: ''
     });
 
 
@@ -108,10 +119,12 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
     const closeRoiModal = () => {
         setIsRoiModalOpen(false);
         setEditingRoiId(null);
-        setFormDataRoi({ title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTime: '', newTime: '', investmentCost: '' });
+        setFormDataRoi({ title: '', partName: '', description: '', machineHourlyRate: '', annualVolume: '', oldTimeH: '', oldTimeM: '', newTimeH: '', newTimeM: '', investmentCost: '', oldSetupTimeH: '', oldSetupTimeM: '', newSetupTimeH: '', newSetupTimeM: '' });
     };
     const openEditRoi = (roi) => {
-        setFormDataRoi({ title: roi.title, partName: roi.partName, description: roi.description, machineHourlyRate: roi.machineHourlyRate, annualVolume: roi.annualVolume || (roi.monthlyVolume ? roi.monthlyVolume * 12 : ''), oldTime: roi.oldTime, newTime: roi.newTime, investmentCost: roi.investmentCost });
+        const getH = (mins) => mins ? Math.floor(parseFloat(mins) / 60).toString() : '';
+        const getM = (mins) => mins ? parseFloat((parseFloat(mins) % 60).toFixed(1)).toString() : '';
+        setFormDataRoi({ title: roi.title, partName: roi.partName, description: roi.description, machineHourlyRate: roi.machineHourlyRate, annualVolume: roi.annualVolume || (roi.monthlyVolume ? roi.monthlyVolume * 12 : ''), oldTimeH: getH(roi.oldTime), oldTimeM: getM(roi.oldTime), newTimeH: getH(roi.newTime), newTimeM: getM(roi.newTime), investmentCost: roi.investmentCost, oldSetupTimeH: getH(roi.oldSetupTime), oldSetupTimeM: getM(roi.oldSetupTime), newSetupTimeH: getH(roi.newSetupTime), newSetupTimeM: getM(roi.newSetupTime) });
         setEditingRoiId(roi.id);
         setIsRoiModalOpen(true);
     };
@@ -298,25 +311,34 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
 
     // --- ROI (MALİYET/KAZANÇ) KAYDETME ---
     const handleSaveRoi = async () => {
-        if (!formDataRoi.title || !formDataRoi.oldTime || !formDataRoi.newTime || !formDataRoi.annualVolume || !formDataRoi.machineHourlyRate) {
-            return alert("Lütfen zorunlu alanları (Başlık, Süreler, Yıllık Adet, Tezgah Saat Ücreti) doldurunuz.");
+        if (!formDataRoi.title || !formDataRoi.annualVolume || !formDataRoi.machineHourlyRate) {
+            return alert("Lütfen zorunlu alanları (Başlık, Yıllık Adet, Tezgah Saat Ücreti) doldurunuz.");
         }
         setIsSaving(true);
         try {
-            const oldT = parseFloat(formDataRoi.oldTime) || 0;
-            const newT = parseFloat(formDataRoi.newTime) || 0;
+            const oldT = (parseFloat(formDataRoi.oldTimeH) || 0) * 60 + (parseFloat(formDataRoi.oldTimeM) || 0);
+            const newT = (parseFloat(formDataRoi.newTimeH) || 0) * 60 + (parseFloat(formDataRoi.newTimeM) || 0);
+            const oldS = (parseFloat(formDataRoi.oldSetupTimeH) || 0) * 60 + (parseFloat(formDataRoi.oldSetupTimeM) || 0);
+            const newS = (parseFloat(formDataRoi.newSetupTimeH) || 0) * 60 + (parseFloat(formDataRoi.newSetupTimeM) || 0);
             const vol = parseFloat(formDataRoi.annualVolume) || 0;
             const rate = parseFloat(formDataRoi.machineHourlyRate) || 0;
             const inv = parseFloat(formDataRoi.investmentCost) || 0;
 
-            const timeSavedMins = oldT - newT;
-            const annualHoursSaved = (timeSavedMins * vol) / 60;
+            const totalOldMins = (oldT * vol) + oldS;
+            const totalNewMins = (newT * vol) + newS;
+            const timeSavedMins = oldT - newT; 
+            const setupSavedMins = oldS - newS;
+            const annualHoursSaved = (totalOldMins - totalNewMins) / 60;
             const annualGain = annualHoursSaved * rate;
             const roiMonths = (inv > 0 && annualGain > 0) ? (inv / (annualGain / 12)) : 0;
 
             const dataToSave = {
-                ...formDataRoi,
+                title: formDataRoi.title, partName: formDataRoi.partName, description: formDataRoi.description,
+                machineHourlyRate: formDataRoi.machineHourlyRate, annualVolume: formDataRoi.annualVolume,
+                investmentCost: formDataRoi.investmentCost,
+                oldTime: oldT, newTime: newT, oldSetupTime: oldS, newSetupTime: newS,
                 timeSavedMins,
+                setupSavedMins,
                 annualHoursSaved,
                 annualGain,
                 roiMonths,
@@ -1131,13 +1153,39 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                     <input type="text" className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-bold" placeholder="Örn: X Firması Alt Gövde" value={formDataRoi.partName} onChange={e => setFormDataRoi({...formDataRoi, partName: e.target.value})} />
                                 </div>
                                 
-                                <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-200 dark:border-red-800/50">
-                                    <label className="block text-xs font-black text-red-700 dark:text-red-400 uppercase mb-1">Eski İşlem Süresi (Dk) *</label>
-                                    <input type="number" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold" placeholder="Örn: 15.5" value={formDataRoi.oldTime} onChange={e => setFormDataRoi({...formDataRoi, oldTime: e.target.value})} />
+                                <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-200 dark:border-red-800/50 grid grid-cols-2 gap-3">
+                                    <div className="col-span-2"><label className="block text-xs font-black text-red-700 dark:text-red-400 uppercase mb-1">Eski Süreler *</label></div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-red-500 mb-1">İşlem Süresi (/Adet)</label>
+                                        <div className="flex gap-1">
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Sa" value={formDataRoi.oldTimeH} onChange={e => setFormDataRoi({...formDataRoi, oldTimeH: e.target.value})} />
+                                            <input type="number" min="0" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Dk" value={formDataRoi.oldTimeM} onChange={e => setFormDataRoi({...formDataRoi, oldTimeM: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-red-500 mb-1">Ayar Süresi (/Toplam)</label>
+                                        <div className="flex gap-1">
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Sa" value={formDataRoi.oldSetupTimeH} onChange={e => setFormDataRoi({...formDataRoi, oldSetupTimeH: e.target.value})} />
+                                            <input type="number" min="0" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Dk" value={formDataRoi.oldSetupTimeM} onChange={e => setFormDataRoi({...formDataRoi, oldSetupTimeM: e.target.value})} />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-200 dark:border-green-800/50">
-                                    <label className="block text-xs font-black text-green-700 dark:text-green-400 uppercase mb-1">Yeni İşlem Süresi (Dk) *</label>
-                                    <input type="number" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold" placeholder="Örn: 9.2" value={formDataRoi.newTime} onChange={e => setFormDataRoi({...formDataRoi, newTime: e.target.value})} />
+                                <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-200 dark:border-green-800/50 grid grid-cols-2 gap-3">
+                                    <div className="col-span-2"><label className="block text-xs font-black text-green-700 dark:text-green-400 uppercase mb-1">Yeni Süreler *</label></div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-green-500 mb-1">İşlem Süresi (/Adet)</label>
+                                        <div className="flex gap-1">
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Sa" value={formDataRoi.newTimeH} onChange={e => setFormDataRoi({...formDataRoi, newTimeH: e.target.value})} />
+                                            <input type="number" min="0" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Dk" value={formDataRoi.newTimeM} onChange={e => setFormDataRoi({...formDataRoi, newTimeM: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-green-500 mb-1">Ayar Süresi (/Toplam)</label>
+                                        <div className="flex gap-1">
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Sa" value={formDataRoi.newSetupTimeH} onChange={e => setFormDataRoi({...formDataRoi, newSetupTimeH: e.target.value})} />
+                                            <input type="number" min="0" step="0.1" className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white outline-none font-bold text-center" placeholder="Dk" value={formDataRoi.newSetupTimeM} onChange={e => setFormDataRoi({...formDataRoi, newSetupTimeM: e.target.value})} />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div>
@@ -1229,13 +1277,14 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                 {/* DETAY TABLOSU */}
                                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6">
                                     <h4 className="font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2">Hesaplama Parametreleri</h4>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-8 text-sm">
-                                        <div><span className="text-gray-500 block text-xs">Eski Süre</span><span className="font-bold text-red-600">{viewingRoi.oldTime} dk</span></div>
-                                        <div><span className="text-gray-500 block text-xs">Yeni Süre</span><span className="font-bold text-green-600">{viewingRoi.newTime} dk</span></div>
-                                        <div><span className="text-gray-500 block text-xs">Parça Başı Kazanç</span><span className="font-bold text-blue-600">{viewingRoi.timeSavedMins?.toFixed(1)} dk</span></div>
+                                    <div className="grid grid-cols-2 gap-y-4 gap-x-8 text-sm">
+                                        <div><span className="text-gray-500 block text-xs">Eski Süre (İşlem / Ayar)</span><span className="font-bold text-red-600">{formatMinsToHM(viewingRoi.oldTime)}/ad / {formatMinsToHM(viewingRoi.oldSetupTime)}</span></div>
+                                        <div><span className="text-gray-500 block text-xs">Yeni Süre (İşlem / Ayar)</span><span className="font-bold text-green-600">{formatMinsToHM(viewingRoi.newTime)}/ad / {formatMinsToHM(viewingRoi.newSetupTime)}</span></div>
+                                        <div><span className="text-gray-500 block text-xs">Kazanılan İşlem (Adet)</span><span className="font-bold text-blue-600">{formatMinsToHM(viewingRoi.timeSavedMins)}/ad</span></div>
+                                        <div><span className="text-gray-500 block text-xs">Kazanılan Ayar (Toplam)</span><span className="font-bold text-purple-600">{formatMinsToHM(viewingRoi.setupSavedMins)}</span></div>
                                         <div><span className="text-gray-500 block text-xs">Yıllık Üretim Hacmi</span><span className="font-bold">{Intl.NumberFormat('tr-TR').format(viewingRoi.annualVolume || (viewingRoi.monthlyVolume * 12))} Adet</span></div>
                                         <div><span className="text-gray-500 block text-xs">Tezgah Saat Ücreti</span><span className="font-bold">{Intl.NumberFormat('tr-TR').format(viewingRoi.machineHourlyRate)} €/Sa</span></div>
-                                        <div><span className="text-gray-500 block text-xs">Yapılan Yatırım Maliyeti</span><span className="font-bold text-orange-600">{viewingRoi.investmentCost > 0 ? `${Intl.NumberFormat('tr-TR').format(viewingRoi.investmentCost)} €` : '0 €'}</span></div>
+                                        <div className="col-span-2"><span className="text-gray-500 block text-xs">Yapılan Yatırım Maliyeti</span><span className="font-bold text-orange-600">{viewingRoi.investmentCost > 0 ? `${Intl.NumberFormat('tr-TR').format(viewingRoi.investmentCost)} €` : '0 €'}</span></div>
                                     </div>
                                 </div>
 
