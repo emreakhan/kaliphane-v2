@@ -780,6 +780,12 @@ const MoldDetailPage = ({
                                                         <ShieldAlert className="w-5 h-5" />
                                                     </span>
                                                 )}
+                                            {task.technicalDrawingUrl && (
+                                                <span className="ml-2 flex items-center text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded-full" title="Teknik Resim Yüklü">
+                                                    <FileText className="w-3 h-3 mr-1" />
+                                                    T.RESİM
+                                                </span>
+                                            )}
                                                 {/* TOPLAM TAHMİNİ SÜRE GÖSTERİMİ */}
                                                 {task.estimatedCamTime > 0 && (
                                                     <span className="ml-2 flex items-center text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full" title="Öngörülen İşleme Süresi">
