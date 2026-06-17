@@ -18,6 +18,7 @@ import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
 import ProjectCompletionAnalysis from '../components/Analysis/ProjectCompletionAnalysis.js'; 
+import ProductionLogsView from './ProductionLogsView.js';
 
 const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     
@@ -126,50 +127,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             mostCommonReason: mostCommonReason ? { name: mostCommonReason[0], count: mostCommonReason[1] } : null
         };
     }, [validMoldProjects, canViewReworkTab]);
-
-    const productionLogs = useMemo(() => {
-        const logs = validMoldProjects.flatMap(mold => 
-            mold.tasks.flatMap(task => 
-                task.operations
-                    .filter(op => op.setupStartTime || op.productionStartTime || op.finishTime)
-                    .map(op => {
-                        let setupDuration = 0;
-                        if (op.setupStartTime && op.productionStartTime) {
-                            setupDuration = new Date(op.productionStartTime) - new Date(op.setupStartTime);
-                        }
-                        let productionDuration = 0;
-                        if (op.productionStartTime && op.finishTime) {
-                            productionDuration = new Date(op.finishTime) - new Date(op.productionStartTime);
-                        }
-                        const totalDuration = setupDuration + productionDuration;
-
-                        const formatMs = (ms) => {
-                            if (!ms || ms <= 0) return '-';
-                            const minutes = Math.floor(ms / (1000 * 60));
-                            const h = Math.floor(minutes / 60);
-                            const m = minutes % 60;
-                            if (h > 0) return `${h}s ${m}dk`;
-                            return `${m}dk`;
-                        };
-
-                        return {
-                            id: op.id,
-                            date: op.finishTime || op.productionStartTime || op.setupStartTime,
-                            operator: op.assignedOperator || op.machineOperatorName || '?',
-                            moldName: mold.moldName,
-                            taskName: task.taskName,
-                            opType: op.type,
-                            machine: op.machineName || '-',
-                            setupTimeText: formatMs(setupDuration),
-                            productionTimeText: formatMs(productionDuration),
-                            totalTimeText: formatMs(totalDuration),
-                            status: op.status
-                        };
-                    })
-            )
-        ).sort((a, b) => new Date(b.date) - new Date(a.date));
-        return logs;
-    }, [validMoldProjects]);
 
     const timelineAnalysis = useMemo(() => {
         if (!selectedTimelineMoldId) return null;
@@ -448,78 +405,6 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         );
     };
 
-    const ProductionLogsCard = () => {
-        return (
-            <div className="space-y-6 animate-fadeIn">
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-                        <ClipboardList className="w-6 h-6 mr-2 text-blue-600" />
-                        Üretim Logları (Gerçek Zamanlı)
-                    </h3>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">
-                        Operatörlerin terminal girişlerine göre hesaplanan gerçek ayar ve imalat süreleri.
-                    </p>
-                </div>
-
-                <div className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden border dark:border-gray-700">
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300">Tarih</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300">Operatör</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300">Kalıp / Parça</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300">Tezgah</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300 text-yellow-600">⏱️ Ayar Süresi</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300 text-green-600">⏱️ İmalat Süresi</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-300">Toplam</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                                {productionLogs.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="7" className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                                            Henüz tamamlanmış ve zaman kaydı olan bir operasyon bulunmamaktadır.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    productionLogs.map((log, idx) => (
-                                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                {formatDateTime(log.date)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                                {log.operator}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-gray-900 dark:text-white font-bold">{log.moldName}</div>
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">{log.taskName} ({log.opType})</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded border border-gray-200 dark:border-gray-600">
-                                                    {log.machine}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-yellow-600 dark:text-yellow-400 font-bold">
-                                                {log.setupTimeText}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-green-600 dark:text-green-400 font-bold">
-                                                {log.productionTimeText}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-white font-bold border-l dark:border-gray-600 pl-4">
-                                                {log.totalTimeText}
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
     const TimelineCard = () => {
         const moldList = validMoldProjects.map(p => ({ id: p.id, name: p.moldName }));
         return (
@@ -583,7 +468,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
              /* DÜZELTME: BURAYA ARTIK FİLTRELENMEMİŞ ANA "projects" VERİSİ GÖNDERİLİYOR */
              activeTab === 'completion' ? <ProjectCompletionAnalysis projects={projects} /> : 
              activeTab === 'timeline' ? <TimelineCard /> :
-             activeTab === 'production_logs' ? <ProductionLogsCard /> :
+             activeTab === 'production_logs' ? <ProductionLogsView projects={projects} /> :
              activeTab === 'rework' ? <ReworkAnalysisCard /> : 
              activeTab === 'personnel' ? (
                 <PersonnelPerformanceAnalysis 
