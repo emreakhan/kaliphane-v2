@@ -108,8 +108,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                 mold.tasks?.forEach(task => {
                     if (task.plannedMachine) {
                         const isTaskCompleted = task.operations?.length > 0 && task.operations.every(op => op.status === OPERATION_STATUS.COMPLETED);
+                        const hasActiveOperation = task.operations?.some(op => op.status !== OPERATION_STATUS.NOT_STARTED && op.status !== OPERATION_STATUS.COMPLETED);
                         
-                        if (!isTaskCompleted) {
+                        if (!isTaskCompleted && !hasActiveOperation) {
                             if (!groups[mold.id]) {
                                 groups[mold.id] = {
                                     moldInfo: {

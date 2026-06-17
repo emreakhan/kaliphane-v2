@@ -1,8 +1,9 @@
 // src/pages/TerminalPage.js
 
 import React, { useState, useMemo } from 'react';
-import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText } from 'lucide-react'; 
+import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText } from 'lucide-react';
 import { OPERATION_STATUS } from '../config/constants';
+import PauseReasonModal from './PauseReasonModal';
 
 const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) => {
     const [pin, setPin] = useState('');
@@ -95,6 +96,9 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
 
     // --- OPERASYON KONTROL PANELİ (DASHBOARD) ---
     const OperatorDashboard = () => {
+        const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
+        const [jobToPause, setJobToPause] = useState(null);
+
         const tasksOnMachine = useMemo(() => {
             return projects.flatMap(p => 
                 p.tasks.flatMap(t => 
@@ -128,9 +132,21 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
             );
         }, [projects, selectedMachine]);
 
-        const onAction = (moldId, taskId, opId, action) => {
+        const onAction = (moldId, taskId, opId, action, reason = null) => {
             if (handleTerminalAction) {
-                handleTerminalAction(moldId, taskId, opId, action, activeOperator.name);
+                handleTerminalAction(moldId, taskId, opId, action, activeOperator.name, reason);
+            }
+        };
+
+        const handleOpenPauseModal = (task) => {
+            setJobToPause(task);
+            setIsPauseModalOpen(true);
+        };
+
+        const handleSubmitPauseReason = (reason) => {
+            if (jobToPause) {
+                onAction(jobToPause.moldId, jobToPause.taskId, jobToPause.id, 'PAUSE_JOB', reason);
+                setIsPauseModalOpen(false);
             }
         };
 
@@ -169,7 +185,7 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                                 </div>
                             ) : (
                                 tasksOnMachine.map(task => (
-                                    <TaskCard key={task.id} task={task} onAction={onAction} />
+                                    <TaskCard key={task.id} task={task} onAction={onAction} onPauseClick={handleOpenPauseModal} />
                                 ))
                             )}
                         </div>
@@ -219,12 +235,18 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                         </div>
                     )}
                 </div>
+
+                <PauseReasonModal 
+                    isOpen={isPauseModalOpen}
+                    onClose={() => setIsPauseModalOpen(false)}
+                    onSubmit={handleSubmitPauseReason}
+                />
             </div>
         );
     };
 
     // --- GÖREV KARTI BİLEŞENİ ---
-    const TaskCard = ({ task, onAction }) => {
+    const TaskCard = ({ task, onAction, onPauseClick }) => {
         let mode = 'WAITING'; 
         
         if (task.status === OPERATION_STATUS.PAUSED) {
@@ -295,7 +317,7 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     {mode === 'PRODUCTION' && (
                         <div className="flex gap-3">
                             <button 
-                                onClick={() => onAction(task.moldId, task.taskId, task.id, 'PAUSE_JOB')}
+                                onClick={() => onPauseClick(task)}
                                 className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
                             >
                                 <PauseCircle className="w-6 h-6 mr-2" /> DURAKLAT
