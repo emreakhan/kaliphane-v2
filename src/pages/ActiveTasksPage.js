@@ -9,7 +9,7 @@ import { db } from '../config/firebase';
 import { 
     Activity, Clock, Wrench, AlertOctagon, 
     List as ListIcon, Map as MapIcon, AlertTriangle, 
-    Monitor, X, User, LayoutTemplate, Hourglass 
+    Monitor, X, User, LayoutTemplate, Hourglass
 } from 'lucide-react'; 
 
 // Sabitler

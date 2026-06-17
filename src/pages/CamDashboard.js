@@ -4,10 +4,12 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 // İkonlar
-import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink, Monitor } from 'lucide-react'; 
+import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink, Monitor, Search, Settings, CheckCircle, Trash2 } from 'lucide-react'; 
 
 // Sabitler
 import { OPERATION_STATUS } from '../config/constants.js';
+import { PROJECT_COLLECTION } from '../config/constants.js';
+import { db, doc, updateDoc } from '../config/firebase.js';
 
 // Yardımcı Fonksiyonlar
 import { formatDateTime } from '../utils/dateUtils.js';
@@ -18,6 +20,7 @@ import ProgressUpdateModal from '../components/Modals/ProgressUpdateModal.js';
 import CamReviewMachineOpModal from '../components/Modals/CamReviewMachineOpModal.js';
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js'; 
 import ChangeOperatorModal from '../components/Modals/ChangeOperatorModal.js';
+import CamPreparationModal from './CamPreparationModal.js';
 
 
 const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleChangeMachineOperator, personnel, machines }) => {
@@ -26,6 +29,26 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
     
     // Hangi kalıbın detayının açık olduğunu tutan state
     const [expandedMoldId, setExpandedMoldId] = useState(null);
+    
+    // --- CAM ÖN HAZIRLIK STATE'LERİ ---
+    const [prepSearchTerm, setPrepSearchTerm] = useState('');
+    const [selectedPrepMold, setSelectedPrepMold] = useState(null);
+    const [isCamPrepModalOpen, setIsCamPrepModalOpen] = useState(false);
+    const [prepTask, setPrepTask] = useState(null);
+
+    // HAZIRLANMIŞ İŞLERİ TOPLA
+    const allPreparedTasks = useMemo(() => {
+        if (!projects) return [];
+        return projects.flatMap(p => 
+            (p.tasks || []).filter(t => t.camPreparation && t.camPreparation.status === 'HAZIRLANDI')
+            .map(t => ({
+                ...t,
+                moldId: p.id,
+                moldName: p.moldName,
+                customer: p.customer
+            }))
+        );
+    }, [projects]);
 
     // --- VERİ GRUPLAMA MANTIĞI: AKTIF İŞLER (IN_PROGRESS, PAUSED, vb) ---
     const groupedActiveWork = useMemo(() => {
@@ -163,6 +186,58 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
         handleCloseModal();
     };
 
+    // --- CAM HAZIRLIĞI KAYDETME (FIREBASE) ---
+    const handleSaveCamPrep = async (moldId, taskId, camPrepData) => {
+        try {
+            const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+            const moldToUpdate = projects.find(p => p.id === moldId);
+            if (!moldToUpdate) return;
+            
+            const updatedTasks = moldToUpdate.tasks.map(t => {
+                if (t.id === taskId) {
+                    return { ...t, camPreparation: camPrepData };
+                }
+                return t;
+            });
+            
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            alert("CAM Ön Hazırlık başarıyla kaydedildi!");
+            setSelectedPrepMold({ ...moldToUpdate, tasks: updatedTasks }); // Ekranda anında yeşile dönmesi için
+            setIsCamPrepModalOpen(false);
+        } catch (error) {
+            console.error("CAM Hazırlık kaydetme hatası:", error);
+            alert("Kaydedilirken bir hata oluştu.");
+        }
+    };
+
+    // --- CAM HAZIRLIĞI SİLME (FIREBASE) ---
+    const handleDeleteCamPrep = async (moldId, taskId) => {
+        if (!window.confirm("Bu ön hazırlığı silmek istediğinize emin misiniz?")) return;
+        try {
+            const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+            const moldToUpdate = projects.find(p => p.id === moldId);
+            if (!moldToUpdate) return;
+            
+            const updatedTasks = moldToUpdate.tasks.map(t => {
+                if (t.id === taskId) {
+                    const newTask = { ...t };
+                    delete newTask.camPreparation;
+                    return newTask;
+                }
+                return t;
+            });
+            
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            alert("Ön hazırlık başarıyla silindi!");
+            if (selectedPrepMold && selectedPrepMold.id === moldId) {
+                setSelectedPrepMold({ ...moldToUpdate, tasks: updatedTasks });
+            }
+        } catch (error) {
+            console.error("CAM Hazırlık silme hatası:", error);
+            alert("Silinirken bir hata oluştu.");
+        }
+    };
+
     const { isOpen, type, data } = modalState;
     const { mold, task, operation } = data || {};
 
@@ -192,6 +267,12 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                                 <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
                             </span>
                         )}
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('prep')}
+                        className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center ${activeTab === 'prep' ? 'bg-white dark:bg-gray-600 shadow text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                    >
+                        <Settings className="w-4 h-4 mr-2" /> Ön Hazırlık
                     </button>
                 </div>
             </div>
@@ -318,7 +399,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                         })}
                     </div>
                 )
-            ) : (
+            ) : activeTab === 'planned' ? (
                 groupedPlannedWork.length === 0 ? (
                     <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
                         <Monitor className="w-12 h-12 mx-auto text-gray-400 mb-3" />
@@ -403,6 +484,123 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                         })}
                     </div>
                 )
+            ) : (
+                <div className="space-y-6 animate-in fade-in">
+                    {/* Arama Barı */}
+                    <div className="relative max-w-2xl mx-auto mt-4">
+                        <Search className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Hazırlık yapılacak kalıbın adını yazın..." 
+                            value={prepSearchTerm}
+                            onChange={(e) => {
+                                setPrepSearchTerm(e.target.value);
+                                setSelectedPrepMold(null);
+                            }}
+                            className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-green-500 outline-none transition-all shadow-sm font-bold"
+                        />
+                        
+                        {prepSearchTerm && !selectedPrepMold && (
+                            <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                {projects.filter(p => p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase()) && p.status !== 'TAMAMLANDI').map(mold => (
+                                    <button 
+                                        key={mold.id}
+                                        onClick={() => { setSelectedPrepMold(mold); setPrepSearchTerm(''); }}
+                                        className="w-full text-left px-4 py-3 hover:bg-green-50 dark:hover:bg-gray-700 border-b last:border-0 border-gray-100 dark:border-gray-700 transition-colors"
+                                    >
+                                        <span className="font-bold text-gray-800 dark:text-white">{mold.moldName}</span>
+                                        <span className="text-xs text-gray-500 block">{mold.customer}</span>
+                                    </button>
+                                ))}
+                                {projects.filter(p => p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase()) && p.status !== 'TAMAMLANDI').length === 0 && (
+                                    <div className="p-4 text-center text-gray-500 font-bold">Aradığınız kriterlere uygun kalıp bulunamadı.</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Seçilen Kalıbın Parçaları */}
+                    {selectedPrepMold ? (
+                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-in slide-in-from-bottom-4">
+                            <div className="flex justify-between items-center mb-6 border-b dark:border-gray-700 pb-4">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white">{selectedPrepMold.moldName}</h3>
+                                    <p className="text-sm text-gray-500 font-bold mt-1">Müşteri: {selectedPrepMold.customer}</p>
+                                </div>
+                                <button onClick={() => {setSelectedPrepMold(null); setPrepSearchTerm('');}} className="text-sm px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 font-bold transition">
+                                    Vazgeç / Kapat
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                {selectedPrepMold.tasks?.map(task => {
+                                    const isPrepared = task.camPreparation?.status === 'HAZIRLANDI';
+                                    return (
+                                        <div key={task.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 md:p-5 rounded-xl border-2 transition-all ${isPrepared ? 'border-green-500 bg-green-50 dark:bg-green-900/10 dark:border-green-800' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
+                                            <div className="mb-3 sm:mb-0">
+                                                <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
+                                                {isPrepared ? (
+                                                    <div className="text-xs text-green-700 dark:text-green-400 mt-1 font-bold flex items-center">
+                                                        <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Hazırlandı (Hedef Tezgah: {task.camPreparation.targetMachineName})
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-bold flex items-center">
+                                                        <span className="w-2 h-2 rounded-full bg-orange-500 mr-2 animate-pulse"></span> Hazırlık Bekliyor
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <button 
+                                                onClick={() => { setPrepTask(task); setIsCamPrepModalOpen(true); }} 
+                                                className={`w-full sm:w-auto px-6 py-2.5 rounded-lg font-black shadow-sm transition-all active:scale-95 ${isPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                                            >
+                                                {isPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
+                                            </button>
+                                        </div>
+                                    )
+                                })}
+                                {(!selectedPrepMold.tasks || selectedPrepMold.tasks.length === 0) && (
+                                    <div className="text-center py-10 text-gray-500 font-bold border-2 border-dashed rounded-xl">Bu kalıba ait henüz bir parça tanımlanmamış.</div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="mt-8">
+                            {allPreparedTasks.length > 0 ? (
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center border-b dark:border-gray-700 pb-2">
+                                        <CheckCircle className="w-5 h-5 mr-2 text-green-500" />
+                                        Ön Hazırlığı Tamamlanmış İşler
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {allPreparedTasks.map(task => (
+                                            <div key={task.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col hover:border-green-300 transition-colors">
+                                                <div className="mb-3">
+                                                    <div className="text-xs font-bold text-gray-500 uppercase">{task.moldName}</div>
+                                                    <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
+                                                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Hedef Tezgah: <strong>{task.camPreparation.targetMachineName}</strong></div>
+                                                    <div className="text-[10px] text-gray-400 mt-1">{task.camPreparation.preparedBy} • {new Date(task.camPreparation.preparedAt).toLocaleDateString('tr-TR')}</div>
+                                                </div>
+                                                <div className="mt-auto pt-3 border-t dark:border-gray-700 flex gap-2">
+                                                    <button onClick={() => { const proj = projects.find(p => p.id === task.moldId); setSelectedPrepMold(proj); setPrepTask(task); setIsCamPrepModalOpen(true); }} className="flex-1 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-bold transition flex items-center justify-center">
+                                                        <Edit2 className="w-3 h-3 mr-1" /> Düzenle
+                                                    </button>
+                                                    <button onClick={() => handleDeleteCamPrep(task.moldId, task.id)} className="flex-1 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center justify-center">
+                                                        <Trash2 className="w-3 h-3 mr-1" /> Sil
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-20 opacity-60">
+                                    <Settings className="w-20 h-20 mx-auto mb-4 text-gray-400" />
+                                    <p className="text-xl font-bold text-gray-500">Hazırlık yapmak için bir kalıp arayın veya seçin.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             )}
             
             {/* MODALLAR */}
@@ -455,6 +653,16 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleCha
                     onSubmit={handleSubmitChangeOperator}
                 />
             )}
+            
+            <CamPreparationModal 
+                isOpen={isCamPrepModalOpen}
+                onClose={() => setIsCamPrepModalOpen(false)}
+                mold={selectedPrepMold}
+                task={prepTask}
+                machines={machines}
+                loggedInUser={loggedInUser}
+                onSave={handleSaveCamPrep}
+            />
         </div>
     );
 };

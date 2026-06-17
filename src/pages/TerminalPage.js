@@ -1,7 +1,7 @@
 // src/pages/TerminalPage.js
 
 import React, { useState, useMemo } from 'react';
-import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward } from 'lucide-react'; 
+import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText } from 'lucide-react'; 
 import { OPERATION_STATUS } from '../config/constants';
 
 const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) => {
@@ -113,6 +113,21 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
             );
         }, [projects, selectedMachine]);
 
+        // YENİ: CAM Ön Hazırlığı bitmiş, bu tezgaha atanmış sıradaki işler
+        const preparedTasks = useMemo(() => {
+            return projects.flatMap(p => 
+                p.tasks.filter(t => 
+                    t.camPreparation && 
+                    t.camPreparation.status === 'HAZIRLANDI' && 
+                    t.camPreparation.targetMachineId === selectedMachine.id
+                ).map(t => ({
+                    ...t, 
+                    moldName: p.moldName, 
+                    moldId: p.id
+                }))
+            );
+        }, [projects, selectedMachine]);
+
         const onAction = (moldId, taskId, opId, action) => {
             if (handleTerminalAction) {
                 handleTerminalAction(moldId, taskId, opId, action, activeOperator.name);
@@ -140,18 +155,68 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     </button>
                 </div>
 
-                {/* İŞ LİSTESİ */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto pb-20">
-                    {tasksOnMachine.length === 0 ? (
-                        <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-96">
-                            <Hash className="w-20 h-20 mb-6 opacity-20" />
-                            <p className="text-2xl font-medium">Bu tezgahta bekleyen veya çalışan iş yok.</p>
-                            <p className="text-sm mt-2 opacity-60">CAM operatörünün iş atamasını bekleyiniz.</p>
+                {/* İŞ LİSTELERİ */}
+                <div className="flex-1 overflow-y-auto pb-20 space-y-8">
+                    
+                    {/* AKTİF İŞLER */}
+                    <div>
+                        <h3 className="text-xl font-bold text-gray-300 mb-4">Mevcut İşler</h3>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                            {tasksOnMachine.length === 0 ? (
+                                <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-48 bg-gray-800/50 rounded-2xl border border-gray-700 border-dashed">
+                                    <Hash className="w-12 h-12 mb-3 opacity-20" />
+                                    <p className="text-lg font-medium">Bu tezgahta bekleyen veya çalışan iş yok.</p>
+                                </div>
+                            ) : (
+                                tasksOnMachine.map(task => (
+                                    <TaskCard key={task.id} task={task} onAction={onAction} />
+                                ))
+                            )}
                         </div>
-                    ) : (
-                        tasksOnMachine.map(task => (
-                            <TaskCard key={task.id} task={task} onAction={onAction} />
-                        ))
+                    </div>
+
+                    {/* YENİ: CAM ÖN HAZIRLIĞI TAMAMLANMIŞ İŞLER */}
+                    {preparedTasks.length > 0 && (
+                        <div className="border-t border-gray-700 pt-8">
+                            <h3 className="text-xl font-bold text-blue-400 mb-4 flex items-center">
+                                <Settings className="w-6 h-6 mr-2" /> Sıradaki İşler (CAM Hazırlığı Tamamlanmış)
+                            </h3>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                {preparedTasks.map(task => (
+                                    <div key={task.id} className="bg-blue-900/20 border-2 border-blue-500/50 rounded-2xl p-6 relative shadow-lg">
+                                        <div className="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded shadow-sm">
+                                            HAZIRLANDI
+                                        </div>
+                                        <h4 className="text-xl font-bold text-white mb-1">{task.moldName}</h4>
+                                        <p className="text-blue-300 text-lg mb-4">{task.taskName}</p>
+                                        
+                                        {task.camPreparation.instructions && (
+                                            <div className="mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700">
+                                                <div className="text-xs text-gray-400 font-bold mb-1 flex items-center"><FileText className="w-3 h-3 mr-1"/> Talimatlar / Notlar:</div>
+                                                <p className="text-sm text-gray-200">{task.camPreparation.instructions}</p>
+                                            </div>
+                                        )}
+
+                                        {task.camPreparation.requiredTools && task.camPreparation.requiredTools.length > 0 && (
+                                            <div>
+                                                <div className="text-xs text-gray-400 font-bold mb-2 flex items-center"><Wrench className="w-3 h-3 mr-1"/> Hazırlanacak Takımlar:</div>
+                                                <ul className="space-y-1">
+                                                    {task.camPreparation.requiredTools.map((tool, idx) => (
+                                                        <li key={idx} className="bg-gray-800 text-gray-300 text-sm px-3 py-2 rounded flex justify-between items-center border border-gray-700">
+                                                            <span>{tool.name} <span className="text-xs opacity-50 ml-1">({tool.productCode})</span></span>
+                                                            {tool.notes && <span className="text-xs text-orange-400 ml-2 italic">{tool.notes}</span>}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        <div className="mt-4 pt-4 border-t border-blue-800/50 text-xs text-blue-400 flex justify-between">
+                                            <span>CAM Op: {task.camPreparation.preparedBy}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
