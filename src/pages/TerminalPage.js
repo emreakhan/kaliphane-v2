@@ -1,7 +1,7 @@
 // src/pages/TerminalPage.js
 
-import React, { useState, useMemo } from 'react';
-import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText, Clock, Activity } from 'lucide-react';
 import { OPERATION_STATUS } from '../config/constants';
 import PauseReasonModal from './PauseReasonModal';
 
@@ -10,6 +10,24 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
     const [error, setError] = useState('');
     const [activeOperator, setActiveOperator] = useState(null); 
     const [selectedMachine, setSelectedMachine] = useState(null); 
+
+    // --- 🚨 KIOSK MODU: TARAYICI GERİ TUŞUNU ENGELLEME 🚨 ---
+    useEffect(() => {
+        // Bulunduğumuz sayfayı tarayıcı geçmişine "ileriye doğru" kilitliyoruz
+        window.history.pushState(null, null, window.location.href);
+        
+        const preventBackNavigation = () => {
+            // Operatör geri tuşuna bastığı an, onu tekrar aynı sayfaya itiyoruz
+            window.history.pushState(null, null, window.location.href);
+        };
+
+        window.addEventListener('popstate', preventBackNavigation);
+
+        return () => {
+            window.removeEventListener('popstate', preventBackNavigation);
+        };
+    }, []);
+    // --------------------------------------------------------
 
     // --- PIN GİRİŞ İŞLEMLERİ ---
     const handleNumPadClick = (num) => {
@@ -39,9 +57,8 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         setPin(''); 
     };
 
-    // --- TEZGAH SEÇİM EKRANI (GÜNCELLENDİ: DAHA SADE VE SIRALI) ---
+    // --- TEZGAH SEÇİM EKRANI ---
     const MachineSelectionScreen = () => {
-        // Tezgahları isme göre doğal sıralama ile (örn: CNC-1, CNC-2, CNC-10) sırala
         const sortedMachines = useMemo(() => {
             const list = machines || [];
             return [...list].sort((a, b) => 
@@ -61,13 +78,12 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                             <p className="text-gray-400">Çalışacağınız tezgahı seçiniz.</p>
                         </div>
                     </div>
-                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center">
+                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center shadow-lg transition">
                         <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
-                    {/* Daha yoğun grid yapısı: Tek sayfada çok tezgah */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                         {sortedMachines.length === 0 ? (
                             <p className="text-gray-500 col-span-full text-center py-10 text-lg">Sistemde kayıtlı tezgah bulunamadı.</p>
@@ -78,7 +94,6 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                                     onClick={() => setSelectedMachine(machine)}
                                     className="bg-gray-800 hover:bg-blue-900 border border-gray-600 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center transition-all shadow-md group min-h-[100px]"
                                 >
-                                    {/* İkonu kaldırdık, ismi öne çıkardık */}
                                     <span className="text-lg font-bold text-white group-hover:text-blue-200 text-center leading-tight">
                                         {machine.name}
                                     </span>
@@ -94,15 +109,19 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         );
     };
 
-    // --- OPERASYON KONTROL PANELİ (DASHBOARD) ---
+    // --- OPERASYON KONTROL PANELİ ---
     const OperatorDashboard = () => {
         const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
         const [jobToPause, setJobToPause] = useState(null);
 
         const tasksOnMachine = useMemo(() => {
             return projects.flatMap(p => 
-                p.tasks.flatMap(t => 
-                    (t.operations || []).filter(op => 
+                p.tasks.flatMap(t => {
+                    // CAM Operatörünün beklemeye (PAUSE) aldığı işleri tezgah ekranından GİZLE.
+                    const isCamPaused = t.status === OPERATION_STATUS.PAUSED || t.status === 'PAUSED' || t.status === 'BEKLEMEDE';
+                    if (isCamPaused) return [];
+
+                    return (t.operations || []).filter(op => 
                         op.machineName === selectedMachine.name && 
                         op.status !== OPERATION_STATUS.COMPLETED &&
                         op.status !== OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW 
@@ -112,12 +131,12 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                         taskName: t.taskName, 
                         moldId: p.id, 
                         taskId: t.id 
-                    }))
-                )
+                    }));
+                })
             );
         }, [projects, selectedMachine]);
 
-        // YENİ: CAM Ön Hazırlığı bitmiş, bu tezgaha atanmış sıradaki işler
+        // CAM Ön Hazırlığı bitmiş işler
         const preparedTasks = useMemo(() => {
             return projects.flatMap(p => 
                 p.tasks.filter(t => 
@@ -152,31 +171,29 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
 
         return (
             <div className="flex flex-col h-screen bg-gray-900 text-white p-6">
-                {/* ÜST BAR */}
-                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4 shrink-0">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setSelectedMachine(null)} className="bg-gray-800 hover:bg-gray-700 p-3 rounded-lg border border-gray-600 transition">
                             <ArrowLeft className="w-6 h-6 text-gray-300" />
                         </button>
                         <div>
                             <h2 className="text-3xl font-bold text-white tracking-wide">{selectedMachine.name}</h2>
-                            <p className="text-gray-400 flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            <p className="text-gray-400 flex items-center gap-2 mt-1">
+                                <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
                                 Operatör: <span className="text-blue-400 font-semibold">{activeOperator.name}</span>
                             </p>
                         </div>
                     </div>
-                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center transition">
+                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center shadow-lg transition">
                         <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
                     </button>
                 </div>
 
-                {/* İŞ LİSTELERİ */}
-                <div className="flex-1 overflow-y-auto pb-20 space-y-8">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pb-10 space-y-8">
                     
                     {/* AKTİF İŞLER */}
                     <div>
-                        <h3 className="text-xl font-bold text-gray-300 mb-4">Mevcut İşler</h3>
+                        <h3 className="text-xl font-bold text-gray-300 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2" /> Mevcut İşler</h3>
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                             {tasksOnMachine.length === 0 ? (
                                 <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-48 bg-gray-800/50 rounded-2xl border border-gray-700 border-dashed">
@@ -191,7 +208,7 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                         </div>
                     </div>
 
-                    {/* YENİ: CAM ÖN HAZIRLIĞI TAMAMLANMIŞ İŞLER */}
+                    {/* CAM ÖN HAZIRLIĞI TAMAMLANMIŞ İŞLER */}
                     {preparedTasks.length > 0 && (
                         <div className="border-t border-gray-700 pt-8">
                             <h3 className="text-xl font-bold text-blue-400 mb-4 flex items-center">
@@ -245,10 +262,38 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         );
     };
 
-    // --- GÖREV KARTI BİLEŞENİ ---
+    // --- GÖREV KARTI & KRONOMETRE BİLEŞENİ ---
     const TaskCard = ({ task, onAction, onPauseClick }) => {
-        let mode = 'WAITING'; 
+        const [currentTime, setCurrentTime] = useState(new Date());
         
+        useEffect(() => {
+            const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+            return () => clearInterval(timer);
+        }, []);
+
+        const parseDate = (dateStr) => {
+            if (!dateStr) return new Date();
+            let d = new Date(dateStr);
+            if (!isNaN(d.getTime())) return d;
+            
+            const parts = dateStr.split(' ');
+            if (parts.length === 2) {
+                const [day, month, year] = parts[0].split('.');
+                const [hour, min, sec] = parts[1].split(':');
+                return new Date(year, month - 1, day, hour, min, sec);
+            }
+            return new Date();
+        };
+
+        const formatDuration = (totalSeconds) => {
+            if (totalSeconds < 0) totalSeconds = 0;
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        };
+
+        let mode = 'WAITING'; 
         if (task.status === OPERATION_STATUS.PAUSED) {
             mode = 'PAUSED';
         } else if (task.status === OPERATION_STATUS.IN_PROGRESS) {
@@ -257,6 +302,39 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         } else if (task.setupStartTime && !task.productionStartTime) {
              mode = 'SETUP';
         }
+
+        let timeline = [];
+        if (task.setupStartTime) timeline.push({ name: 'Ayar Süresi', time: parseDate(task.setupStartTime), type: 'SETUP' });
+        if (task.productionStartTime) timeline.push({ name: 'İmalat Süresi', time: parseDate(task.productionStartTime), type: 'PRODUCTION' });
+        
+        (task.pauseHistory || []).forEach(p => {
+            timeline.push({ name: `Duraklama (${p.reason})`, time: parseDate(p.pausedAt), type: 'PAUSE' });
+            timeline.push({ name: 'Devam Edildi', time: parseDate(p.resumedAt), type: 'RESUME' });
+        });
+        
+        if (task.lastPausedAt && mode === 'PAUSED') {
+            timeline.push({ name: `Duraklama (${task.lastPauseReason || ''})`, time: parseDate(task.lastPausedAt), type: 'PAUSE' });
+        }
+        
+        timeline.sort((a, b) => a.time - b.time);
+        
+        const displayList = [];
+        for (let i = 0; i < timeline.length; i++) {
+            const current = timeline[i];
+            const next = timeline[i + 1];
+            const endTime = next ? next.time : currentTime;
+            const durationSec = Math.max(0, Math.floor((endTime - current.time) / 1000));
+            
+            let label = current.name;
+            if (current.type === 'RESUME') {
+                const isProd = task.productionStartTime && parseDate(task.productionStartTime) < current.time;
+                label = isProd ? 'İmalat Süresi (Devam)' : 'Ayar Süresi (Devam)';
+            }
+            
+            displayList.push({ id: i, label, duration: durationSec, isCurrent: i === timeline.length - 1 });
+        }
+
+        const currentAction = displayList.length > 0 ? displayList[displayList.length - 1] : null;
 
         let cardStyle = 'bg-gray-800 border-gray-600';
         let statusLabel = 'BEKLİYOR';
@@ -277,25 +355,53 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         }
 
         return (
-            <div className={`p-6 rounded-2xl border-l-8 shadow-2xl transition-all relative overflow-hidden ${cardStyle}`}>
+            <div className={`p-6 rounded-2xl border-t-4 border-l-8 shadow-2xl transition-all relative flex flex-col ${cardStyle}`}>
                 <div className="absolute top-4 right-4">
                     <span className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-wider shadow-sm ${statusColor}`}>
                         {statusLabel}
                     </span>
                 </div>
 
-                <div className="mb-6 pr-20">
-                    <h4 className="text-xl font-bold text-white leading-tight mb-1">{task.moldName}</h4>
-                    <p className="text-gray-400 text-lg">{task.taskName}</p>
+                <div className="mb-4 pr-20">
+                    <h4 className="text-xl font-black text-white leading-tight mb-1">{task.moldName}</h4>
+                    <p className="text-gray-300 text-lg font-bold">{task.taskName}</p>
                     <div className="mt-2 flex gap-2">
-                        <span className="text-xs bg-blue-900/50 text-blue-200 px-2 py-1 rounded border border-blue-800">
+                        <span className="text-xs bg-blue-900/50 text-blue-200 font-bold px-2 py-1 rounded border border-blue-800 uppercase">
                             {task.type}
                         </span>
                     </div>
                 </div>
 
+                <div className="flex-1 flex flex-col mb-4">
+                    {currentAction ? (
+                        <div className="bg-black/40 rounded-xl p-4 mb-2 border border-gray-700 flex flex-col items-center justify-center shadow-inner">
+                            <div className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1 flex items-center">
+                                <Clock className="w-3 h-3 mr-1" /> {currentAction.label} (CANLI)
+                            </div>
+                            <div className="text-4xl font-mono font-black text-white tracking-widest drop-shadow-md">
+                                {formatDuration(currentAction.duration)}
+                            </div>
+                        </div>
+                    ) : (
+                         <div className="bg-gray-900/30 rounded-xl p-4 mb-2 border border-gray-700 flex flex-col items-center justify-center opacity-50">
+                            <Clock className="w-8 h-8 text-gray-500 mb-2" />
+                            <div className="text-gray-500 text-xs font-bold uppercase tracking-widest">İşlem Başlamadı</div>
+                        </div>
+                    )}
+
+                    {displayList.length > 1 && (
+                        <div className="bg-gray-900/50 rounded-xl p-3 space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar border border-gray-700/50 shadow-inner">
+                            {displayList.slice(0, -1).map(item => (
+                                <div key={item.id} className="flex justify-between items-center text-xs border-b border-gray-800/80 pb-1.5 px-1">
+                                    <span className="text-gray-400 font-medium truncate pr-2">{item.label}</span>
+                                    <span className="font-mono text-gray-300 font-bold bg-gray-800 px-2 py-0.5 rounded">{formatDuration(item.duration)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <div className="mt-auto space-y-3">
-                    
                     {mode === 'WAITING' && (
                         <button 
                             onClick={() => onAction(task.moldId, task.taskId, task.id, 'START_SETUP')} 
@@ -306,21 +412,30 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     )}
 
                     {mode === 'SETUP' && (
-                        <button 
-                            onClick={() => onAction(task.moldId, task.taskId, task.id, 'START_PRODUCTION')} 
-                            className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center animate-pulse hover:animate-none transition-transform active:scale-95"
-                        >
-                            <PlayCircle className="w-6 h-6 mr-2" /> SERİYE AL (BAŞLA)
-                        </button>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => onPauseClick(task)}
+                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                            >
+                                <PauseCircle className="w-5 h-5 mr-2" /> DURAKLAT
+                            </button> 
+                            
+                            <button 
+                                onClick={() => onAction(task.moldId, task.taskId, task.id, 'START_PRODUCTION')} 
+                                className="flex-[1.5] bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center animate-pulse hover:animate-none transition-transform active:scale-95"
+                            >
+                                <PlayCircle className="w-5 h-5 mr-2" /> SERİYE AL
+                            </button>
+                        </div>
                     )}
 
                     {mode === 'PRODUCTION' && (
                         <div className="flex gap-3">
                             <button 
                                 onClick={() => onPauseClick(task)}
-                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
                             >
-                                <PauseCircle className="w-6 h-6 mr-2" /> DURAKLAT
+                                <PauseCircle className="w-5 h-5 mr-2" /> DURAKLAT
                             </button> 
                             
                             <button 
@@ -328,9 +443,9 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                                     if(window.confirm("Parça tamamlandı mı? İşlem yetkili onayına gönderilecek.")) 
                                         onAction(task.moldId, task.taskId, task.id, 'FINISH_JOB'); 
                                 }} 
-                                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
                             >
-                                <CheckCircle className="w-6 h-6 mr-2" /> TAMAMLA
+                                <CheckCircle className="w-5 h-5 mr-2" /> TAMAMLA
                             </button>
                         </div>
                     )}
@@ -343,7 +458,6 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                             <FastForward className="w-6 h-6 mr-2" /> DEVAM ET
                         </button>
                     )}
-
                 </div>
             </div>
         );
