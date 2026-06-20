@@ -13,23 +13,17 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
 
     // --- 🚨 KIOSK MODU: TARAYICI GERİ TUŞUNU ENGELLEME 🚨 ---
     useEffect(() => {
-        // Bulunduğumuz sayfayı tarayıcı geçmişine "ileriye doğru" kilitliyoruz
         window.history.pushState(null, null, window.location.href);
-        
         const preventBackNavigation = () => {
-            // Operatör geri tuşuna bastığı an, onu tekrar aynı sayfaya itiyoruz
             window.history.pushState(null, null, window.location.href);
         };
-
         window.addEventListener('popstate', preventBackNavigation);
-
         return () => {
             window.removeEventListener('popstate', preventBackNavigation);
         };
     }, []);
     // --------------------------------------------------------
 
-    // --- PIN GİRİŞ İŞLEMLERİ ---
     const handleNumPadClick = (num) => {
         if (pin.length < 4) {
             setPin(pin + num);
@@ -114,17 +108,16 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
         const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
         const [jobToPause, setJobToPause] = useState(null);
 
+        // GÜNCELLEME: Sadece en aktif/geçerli olan 1 İŞİ çekme mantığı
         const tasksOnMachine = useMemo(() => {
-            return projects.flatMap(p => 
+            const allAssigned = projects.flatMap(p => 
                 p.tasks.flatMap(t => {
-                    // CAM Operatörünün beklemeye (PAUSE) aldığı işleri tezgah ekranından GİZLE.
                     const isCamPaused = t.status === OPERATION_STATUS.PAUSED || t.status === 'PAUSED' || t.status === 'BEKLEMEDE';
                     if (isCamPaused) return [];
 
                     return (t.operations || []).filter(op => 
                         op.machineName === selectedMachine.name && 
-                        op.status !== OPERATION_STATUS.COMPLETED &&
-                        op.status !== OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW 
+                        (op.status === OPERATION_STATUS.IN_PROGRESS || op.status === OPERATION_STATUS.PAUSED)
                     ).map(op => ({ 
                         ...op, 
                         moldName: p.moldName, 
@@ -134,9 +127,23 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     }));
                 })
             );
+
+            // Sadece çalışan 1 adet işi bul
+            let activeTask = allAssigned.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+
+            // Eğer çalışan yoksa, duraklatılanlar arasından "en son" duraklatılan 1 adet işi bul
+            if (!activeTask) {
+                activeTask = allAssigned.sort((a, b) => {
+                    const timeA = new Date(a.lastPausedAt || a.startDate).getTime();
+                    const timeB = new Date(b.lastPausedAt || b.startDate).getTime();
+                    return timeB - timeA;
+                }).find(op => op.status === OPERATION_STATUS.PAUSED);
+            }
+
+            return activeTask ? [activeTask] : [];
         }, [projects, selectedMachine]);
 
-        // CAM Ön Hazırlığı bitmiş işler
+        // CAM Ön Hazırlığı bitmiş işler (Sıradaki işler)
         const preparedTasks = useMemo(() => {
             return projects.flatMap(p => 
                 p.tasks.filter(t => 
@@ -193,12 +200,12 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     
                     {/* AKTİF İŞLER */}
                     <div>
-                        <h3 className="text-xl font-bold text-gray-300 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2" /> Mevcut İşler</h3>
+                        <h3 className="text-xl font-bold text-gray-300 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2" /> Mevcut İş</h3>
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                             {tasksOnMachine.length === 0 ? (
                                 <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-48 bg-gray-800/50 rounded-2xl border border-gray-700 border-dashed">
                                     <Hash className="w-12 h-12 mb-3 opacity-20" />
-                                    <p className="text-lg font-medium">Bu tezgahta bekleyen veya çalışan iş yok.</p>
+                                    <p className="text-lg font-medium">CAM operatörü tarafından aktif edilmiş bir iş yok.</p>
                                 </div>
                             ) : (
                                 tasksOnMachine.map(task => (
