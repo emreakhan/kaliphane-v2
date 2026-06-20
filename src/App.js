@@ -704,7 +704,7 @@ const App = () => {
                         } />
 
                         <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
-                        <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} handleChangeMachineOperator={handleChangeMachineOperator} personnel={personnel} machines={machines} />} />
+                        <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleChangeMachineOperator={handleChangeMachineOperator} personnel={personnel} machines={machines} />} />
                         <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                         <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
                         <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
