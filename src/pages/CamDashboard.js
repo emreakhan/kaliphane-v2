@@ -26,6 +26,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
     const [activeTab, setActiveTab] = useState('active');
     const [expandedMoldId, setExpandedMoldId] = useState(null);
+    const [groupMode, setGroupMode] = useState('mold'); // 'mold' veya 'machine'
     
     // --- CAM ÖN HAZIRLIK STATE'LERİ ---
     const [prepSearchTerm, setPrepSearchTerm] = useState('');
@@ -40,9 +41,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
     const [mpSelectedTasks, setMpSelectedTasks] = useState([]); // Çoklu parça seçimi için Dizi (Array)
 
     const allPreparedTasks = useMemo(() => {
-        if (!projects) return [];
+        if (!projects || !loggedInUser?.name) return [];
         return projects.flatMap(p => 
-            (p.tasks || []).filter(t => t.camPreparation && t.camPreparation.status === 'HAZIRLANDI')
+            (p.tasks || []).filter(t => t.camPreparation && t.camPreparation.status === 'HAZIRLANDI' && t.camPreparation.preparedBy === loggedInUser.name)
             .map(t => ({
                 ...t,
                 moldId: p.id,
@@ -50,7 +51,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                 customer: p.customer
             }))
         );
-    }, [projects]);
+    }, [projects, loggedInUser?.name]);
 
     const groupedActiveWork = useMemo(() => {
         const groups = {};
@@ -69,7 +70,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                             };
                         }
                         groups[mold.id].operations.push({
-                            ...op, taskName: task.taskName, taskId: task.id, moldId: mold.id
+                            ...op, taskName: task.taskName, taskId: task.id, moldId: mold.id, moldName: mold.moldName, customer: mold.customer
                         });
                     }
                 });
@@ -79,6 +80,43 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
             const aActive = a.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
             const bActive = b.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
             return bActive - aActive; 
+        });
+    }, [projects, loggedInUser.name]);
+
+    const activeWorkByMachine = useMemo(() => {
+        const groups = {};
+        projects.forEach(mold => {
+            mold.tasks?.forEach(task => {
+                if (!task.operations) return;
+                task.operations.forEach(op => {
+                    const isAssigned = op.assignedOperator === loggedInUser.name;
+                    const isActive = op.status !== OPERATION_STATUS.NOT_STARTED && op.status !== OPERATION_STATUS.COMPLETED;
+                    
+                    if (isAssigned && isActive) {
+                        const machine = op.machineName || "Belirtilmemiş";
+                        if (!groups[machine]) {
+                            groups[machine] = {
+                                machineName: machine,
+                                operations: []
+                            };
+                        }
+                        groups[machine].operations.push({
+                            ...op,
+                            taskName: task.taskName,
+                            taskId: task.id,
+                            moldId: mold.id,
+                            moldName: mold.moldName,
+                            customer: mold.customer,
+                            moldDeadline: mold.moldDeadline
+                        });
+                    }
+                });
+            });
+        });
+        return Object.values(groups).sort((a, b) => {
+            const aActive = a.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
+            const bActive = b.operations.some(o => o.status === OPERATION_STATUS.IN_PROGRESS);
+            return bActive - aActive || a.machineName.localeCompare(b.machineName);
         });
     }, [projects, loggedInUser.name]);
 
@@ -99,7 +137,12 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                     tasks: []
                                 };
                             }
-                            groups[mold.id].tasks.push(task);
+                            groups[mold.id].tasks.push({
+                                ...task,
+                                moldId: mold.id,
+                                moldName: mold.moldName,
+                                customer: mold.customer
+                            });
                         }
                     }
                 });
@@ -107,6 +150,41 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
         });
         return Object.values(groups);
     }, [projects, loggedInUser.name]);
+
+    const plannedWorkByMachine = useMemo(() => {
+        const groups = {};
+        projects.forEach(mold => {
+            const isResponsible = mold.camResponsible === loggedInUser.name || mold.tasks?.some(t => t.operations?.some(op => op.assignedOperator === loggedInUser.name));
+            if (isResponsible) {
+                mold.tasks?.forEach(task => {
+                    if (task.plannedMachine) {
+                        const isTaskCompleted = task.operations?.length > 0 && task.operations.every(op => op.status === OPERATION_STATUS.COMPLETED);
+                        const hasActiveOperation = task.operations?.some(op => op.status !== OPERATION_STATUS.NOT_STARTED && op.status !== OPERATION_STATUS.COMPLETED);
+                        
+                        if (!isTaskCompleted && !hasActiveOperation) {
+                            const machine = task.plannedMachine;
+                            if (!groups[machine]) {
+                                groups[machine] = {
+                                    machineName: machine,
+                                    tasks: []
+                                };
+                            }
+                            groups[machine].tasks.push({
+                                ...task,
+                                moldId: mold.id,
+                                moldName: mold.moldName,
+                                customer: mold.customer
+                            });
+                        }
+                    }
+                });
+            }
+        });
+        return Object.values(groups).sort((a, b) => a.machineName.localeCompare(b.machineName));
+    }, [projects, loggedInUser.name]);
+
+    const activeDisplayData = groupMode === 'mold' ? groupedActiveWork : activeWorkByMachine;
+    const plannedDisplayData = groupMode === 'mold' ? groupedPlannedWork : plannedWorkByMachine;
 
     const toggleExpand = (moldId) => { setExpandedMoldId(prev => prev === moldId ? null : moldId); };
 
@@ -230,10 +308,30 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl min-h-[80vh] relative flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-                    <Layers className="w-6 h-6 mr-2 text-blue-600" />
-                    İşlerim
-                </h2>
+                <div className="flex items-center gap-4 flex-wrap">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                        <Layers className="w-6 h-6 mr-2 text-blue-600" />
+                        İşlerim
+                    </h2>
+                    {activeTab !== 'prep' && (
+                        <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 text-xs font-bold shadow-inner">
+                            <button
+                                type="button"
+                                onClick={() => { setGroupMode('mold'); setExpandedMoldId(null); }}
+                                className={`px-3 py-1.5 rounded-md transition-all ${groupMode === 'mold' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
+                            >
+                                Kalıba Göre
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setGroupMode('machine'); setExpandedMoldId(null); }}
+                                className={`px-3 py-1.5 rounded-md transition-all ${groupMode === 'machine' ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-400 shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
+                            >
+                                Tezgaha Göre
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <div className="flex gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg overflow-x-auto w-full md:w-auto">
                     <button onClick={() => setActiveTab('active')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'active' ? 'bg-white dark:bg-gray-600 shadow text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
                         Aktif Çalışan ({groupedActiveWork.length})
@@ -255,29 +353,40 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
 
             <div className="flex-1 min-h-0">
                 {activeTab === 'active' ? (
-                    groupedActiveWork.length === 0 ? (
+                    activeDisplayData.length === 0 ? (
                         <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
                             <Box className="w-12 h-12 mx-auto text-gray-400 mb-3" />
                             <p className="text-gray-500 dark:text-gray-400 font-medium">Şu anda çalıştığınız aktif bir iş bulunmamaktadır.</p>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {groupedActiveWork.map((group) => {
-                                const isExpanded = expandedMoldId === group.moldInfo.id;
+                            {activeDisplayData.map((group) => {
+                                const groupId = groupMode === 'mold' ? group.moldInfo.id : group.machineName;
+                                const isExpanded = expandedMoldId === groupId;
                                 const activeCount = group.operations.filter(op => op.status === OPERATION_STATUS.IN_PROGRESS).length;
                                 return (
-                                    <div key={`active-${group.moldInfo.id}`} className={`border rounded-xl transition-all duration-300 overflow-hidden ${activeCount > 0 ? 'border-blue-500 shadow-md shadow-blue-100 dark:shadow-none' : 'border-gray-200 dark:border-gray-700'}`}>
-                                        <div onClick={() => toggleExpand(group.moldInfo.id)} className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                                    <div key={`active-${groupId}`} className={`border rounded-xl transition-all duration-300 overflow-hidden ${activeCount > 0 ? 'border-blue-500 shadow-md shadow-blue-100 dark:shadow-none' : 'border-gray-200 dark:border-gray-700'}`}>
+                                        <div onClick={() => toggleExpand(groupId)} className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                                             <div className="flex items-center space-x-4 flex-1">
                                                 <div className={`p-3 rounded-full flex-shrink-0 ${activeCount > 0 ? 'bg-blue-100 text-blue-600 animate-pulse' : 'bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-300'}`}>
-                                                    <Box className="w-6 h-6" />
+                                                    {groupMode === 'mold' ? <Box className="w-6 h-6" /> : <Monitor className="w-6 h-6" />}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 flex-wrap">
-                                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
-                                                        <Link to={`/mold/${group.moldInfo.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition">Detaya Git <ExternalLink className="w-3 h-3 ml-1" /></Link>
+                                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
+                                                            {groupMode === 'mold' ? group.moldInfo.name : group.machineName}
+                                                        </h3>
+                                                        {groupMode === 'mold' && (
+                                                            <Link to={`/mold/${group.moldInfo.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-blue-600 dark:text-blue-400 text-xs font-bold rounded transition">Detaya Git <ExternalLink className="w-3 h-3 ml-1" /></Link>
+                                                        )}
                                                     </div>
-                                                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">{group.moldInfo.customer} • <span className="text-blue-600 dark:text-blue-400">{group.operations.length} Parça İşleniyor</span></p>
+                                                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
+                                                        {groupMode === 'mold' 
+                                                            ? `${group.moldInfo.customer} • ` 
+                                                            : ''
+                                                        }
+                                                        <span className="text-blue-600 dark:text-blue-400">{group.operations.length} Parça İşleniyor</span>
+                                                    </p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center space-x-4 flex-shrink-0">
@@ -296,7 +405,13 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                                 <span className="px-2 py-0.5 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded text-xs font-bold text-gray-600 dark:text-gray-300">{op.type}</span>
                                                             </div>
                                                             <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
-                                                                <p>Tezgah: <span className="font-semibold">{op.machineName}</span> | Op: {op.machineOperatorName}</p>
+                                                                <p>
+                                                                    {groupMode === 'mold' 
+                                                                        ? <>Tezgah: <span className="font-semibold">{op.machineName}</span></> 
+                                                                        : <>Kalıp: <span className="font-semibold">{op.moldName} ({op.customer})</span></>
+                                                                    }
+                                                                    {" "}| Op: {op.machineOperatorName}
+                                                                </p>
                                                                 <p>Başlangıç: {formatDateTime(op.startDate)}</p>
                                                             </div>
                                                             <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-600 mt-2 max-w-xs">
@@ -311,10 +426,10 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                             
                                                             {op.status === OPERATION_STATUS.IN_PROGRESS && (
                                                                 <div className="w-full flex flex-col gap-2">
-                                                                    <button onClick={() => handleProgressClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm">
+                                                                    <button onClick={() => handleProgressClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm">
                                                                         <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
                                                                     </button>
-                                                                    <button onClick={() => handleChangeOperatorClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm">
+                                                                    <button onClick={() => handleChangeOperatorClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm">
                                                                         <Users className="w-4 h-4 mr-1"/> Operatör Değiştir
                                                                     </button>
                                                                     {/* YENİ: BU TEZGAHA ÇOKLU PARÇA İLAVE ET BUTONU */}
@@ -325,7 +440,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                             )}
 
                                                             {op.status === OPERATION_STATUS.PAUSED && (
-                                                                <button onClick={() => handleResumeClick(group.moldInfo.id, group.moldInfo.name, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm">
+                                                                <button onClick={() => handleResumeClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm">
                                                                     <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
                                                                 </button>
                                                             )}
@@ -340,28 +455,39 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                         </div>
                     )
                 ) : activeTab === 'planned' ? (
-                    groupedPlannedWork.length === 0 ? (
+                    plannedDisplayData.length === 0 ? (
                         <div className="text-center py-12 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-600">
                             <Monitor className="w-12 h-12 mx-auto text-gray-400 mb-3" />
                             <p className="text-gray-500 dark:text-gray-400 font-medium">Sorumlu olduğunuz kalıplarda tezgaha planlanmış parça bulunmamaktadır.</p>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {groupedPlannedWork.map((group) => {
-                                const isExpanded = expandedMoldId === group.moldInfo.id;
+                            {plannedDisplayData.map((group) => {
+                                const groupId = groupMode === 'mold' ? group.moldInfo.id : group.machineName;
+                                const isExpanded = expandedMoldId === groupId;
                                 return (
-                                    <div key={`planned-${group.moldInfo.id}`} className="border border-purple-200 dark:border-purple-800 rounded-xl transition-all duration-300 overflow-hidden">
-                                        <div onClick={() => toggleExpand(group.moldInfo.id)} className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-purple-50 dark:bg-purple-900/20' : 'bg-white dark:bg-gray-800 hover:bg-purple-50/50 dark:hover:bg-gray-700'}`}>
+                                    <div key={`planned-${groupId}`} className="border border-purple-200 dark:border-purple-800 rounded-xl transition-all duration-300 overflow-hidden">
+                                        <div onClick={() => toggleExpand(groupId)} className={`p-4 cursor-pointer flex flex-col md:flex-row md:justify-between md:items-center gap-4 ${isExpanded ? 'bg-purple-50 dark:bg-purple-900/20' : 'bg-white dark:bg-gray-800 hover:bg-purple-50/50 dark:hover:bg-gray-700'}`}>
                                             <div className="flex items-center space-x-4 flex-1">
                                                 <div className="p-3 rounded-full flex-shrink-0 bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300">
                                                     <Monitor className="w-6 h-6" />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 flex-wrap">
-                                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{group.moldInfo.name}</h3>
-                                                        <Link to={`/mold/${group.moldInfo.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center px-2 py-1 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/50 dark:hover:bg-purple-800 text-purple-700 dark:text-purple-300 text-xs font-bold rounded transition ml-2">Detaya Git <ExternalLink className="w-3 h-3 ml-1" /></Link>
+                                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
+                                                            {groupMode === 'mold' ? group.moldInfo.name : group.machineName}
+                                                        </h3>
+                                                        {groupMode === 'mold' && (
+                                                            <Link to={`/mold/${group.moldInfo.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center px-2 py-1 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/50 dark:hover:bg-purple-800 text-purple-700 dark:text-purple-300 text-xs font-bold rounded transition ml-2">Detaya Git <ExternalLink className="w-3 h-3 ml-1" /></Link>
+                                                        )}
                                                     </div>
-                                                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">{group.moldInfo.customer} • <span className="text-purple-600 dark:text-purple-400">{group.tasks.length} Parça Planlandı</span></p>
+                                                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
+                                                        {groupMode === 'mold' 
+                                                            ? `${group.moldInfo.customer} • ` 
+                                                            : ''
+                                                        }
+                                                        <span className="text-purple-600 dark:text-purple-400">{group.tasks.length} Parça Planlandı</span>
+                                                    </p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center space-x-4 flex-shrink-0">
@@ -376,16 +502,23 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                         <div key={task.id} className="p-4 border rounded-lg bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-purple-300 transition-colors">
                                                             <div>
                                                                 <h4 className="font-bold text-gray-800 dark:text-white">{task.taskName}</h4>
-                                                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1"><Clock className="w-3 h-3 inline mr-1" />Öngörülen Süre: <span className="font-semibold text-gray-700 dark:text-gray-300">{task.estimatedCamTime || '?'} Saat</span></p>
+                                                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-0.5">
+                                                                    {groupMode === 'machine' && (
+                                                                        <p>Kalıp: <span className="font-semibold text-gray-700 dark:text-gray-300">{task.moldName} ({task.customer})</span></p>
+                                                                    )}
+                                                                    <p><Clock className="w-3 h-3 inline mr-1" />Öngörülen Süre: <span className="font-semibold text-gray-700 dark:text-gray-300">{task.estimatedCamTime || '?'} Saat</span></p>
+                                                                </div>
                                                             </div>
                                                             <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
-                                                                <div className="flex flex-col items-end md:items-start">
-                                                                    <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Planlanan Tezgah</span>
-                                                                    <span className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 font-black rounded-lg text-sm flex items-center border border-purple-200 dark:border-purple-700 shadow-sm">
-                                                                        <Monitor className="w-4 h-4 mr-1.5"/> {task.plannedMachine}
-                                                                    </span>
-                                                                </div>
-                                                                <button onClick={() => handleResumeClick(group.moldInfo.id, group.moldInfo.name, task.id, task.taskName, firstOp)} className="px-4 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition flex items-center shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                                                                {groupMode === 'mold' && (
+                                                                    <div className="flex flex-col items-end md:items-start">
+                                                                        <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Planlanan Tezgah</span>
+                                                                        <span className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 font-black rounded-lg text-sm flex items-center border border-purple-200 dark:border-purple-700 shadow-sm">
+                                                                            <Monitor className="w-4 h-4 mr-1.5"/> {task.plannedMachine}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                <button onClick={() => handleResumeClick(task.moldId, task.moldName, task.id, task.taskName, firstOp)} className="px-4 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition flex items-center shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
                                                                     <PlayCircle className="w-4 h-4 mr-2"/> İşe Başla
                                                                 </button>
                                                             </div>
@@ -431,13 +564,18 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                 <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 flex-1 min-h-0">
                                     {selectedPrepMold.tasks?.map(task => {
                                         const isPrepared = task.camPreparation?.status === 'HAZIRLANDI';
+                                        const isPreparedByOthers = isPrepared && task.camPreparation.preparedBy !== loggedInUser?.name;
                                         return (
-                                            <div key={task.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 md:p-5 rounded-xl border-2 transition-all ${isPrepared ? 'border-green-500 bg-green-50 dark:bg-green-900/10 dark:border-green-800' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
+                                            <div key={task.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 md:p-5 rounded-xl border-2 transition-all ${isPrepared ? (isPreparedByOthers ? 'border-gray-200 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700 opacity-60' : 'border-green-500 bg-green-50 dark:bg-green-900/10 dark:border-green-800') : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
                                                 <div className="mb-3 sm:mb-0">
                                                     <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
                                                     {isPrepared ? (
-                                                        <div className="text-xs text-green-700 dark:text-green-400 mt-1 font-bold flex items-center">
-                                                            <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Hazırlandı (Hedef Tezgah: {task.camPreparation.targetMachineName})
+                                                        <div className={`text-xs mt-1 font-bold flex items-center ${isPreparedByOthers ? 'text-gray-500 dark:text-gray-400' : 'text-green-700 dark:text-green-400'}`}>
+                                                            <span className={`w-2 h-2 rounded-full mr-2 ${isPreparedByOthers ? 'bg-gray-400' : 'bg-green-500'}`}></span> 
+                                                            {isPreparedByOthers 
+                                                                ? `Hazırlandı (Hazırlayan: ${task.camPreparation.preparedBy})` 
+                                                                : `Hazırlandı (Hedef Tezgah: ${task.camPreparation.targetMachineName})`
+                                                            }
                                                         </div>
                                                     ) : (
                                                         <div className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-bold flex items-center">
@@ -445,9 +583,13 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                         </div>
                                                     )}
                                                 </div>
-                                                <button onClick={() => { setPrepTask(task); setIsCamPrepModalOpen(true); }} className={`w-full sm:w-auto px-6 py-2.5 rounded-lg font-black shadow-sm transition-all active:scale-95 ${isPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                                                    {isPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
-                                                </button>
+                                                {!isPreparedByOthers ? (
+                                                    <button onClick={() => { setPrepTask(task); setIsCamPrepModalOpen(true); }} className={`w-full sm:w-auto px-6 py-2.5 rounded-lg font-black shadow-sm transition-all active:scale-95 ${isPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                                                        {isPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700">Düzenlenemez</span>
+                                                )}
                                             </div>
                                         )
                                     })}
