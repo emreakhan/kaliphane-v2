@@ -51,6 +51,7 @@ export const ROLES = {
     FORKLIFT_OPERATORU: 'Forklift Operatörü',
     MONTAJ_ELEMANI: 'Montaj Elemanı',
     MONTAJ_SORUMLUSU: 'Montaj Sorumlusu',
+    TERMINAL_USER: 'Tezgah Terminali',
 };
 
 export const PERSONNEL_ROLES = ROLES;

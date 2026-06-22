@@ -5,7 +5,7 @@ import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, Paus
 import { OPERATION_STATUS } from '../config/constants';
 import PauseReasonModal from './PauseReasonModal';
 
-const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) => {
+const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isTerminalRole = false, onLogout }) => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [activeOperator, setActiveOperator] = useState(null); 
@@ -491,7 +491,21 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction }) =
                     <button onClick={handleLogin} className="h-20 rounded-2xl bg-green-600 text-white text-lg font-bold shadow-lg border-b-4 border-green-800 active:border-b-0 active:translate-y-1 flex items-center justify-center"><LogIn className="w-8 h-8" /></button>
                 </div>
                 <div className="bg-gray-900 p-4 text-center">
-                    <button onClick={() => { localStorage.removeItem('kaliphane_user'); window.location.href = '/'; }} className="text-gray-500 text-sm hover:text-white transition underline">Yönetici Paneline Dön</button>
+                    {isTerminalRole ? (
+                        <button 
+                            onClick={onLogout} 
+                            className="text-red-500 text-sm hover:text-red-400 font-bold transition flex items-center justify-center gap-1 mx-auto underline"
+                        >
+                            <LogOut className="w-4 h-4" /> Güvenli Çıkış (Oturumu Kapat)
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => { window.location.href = '/'; }} 
+                            className="text-gray-500 text-sm hover:text-white transition underline"
+                        >
+                            Yönetici Paneline Dön
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

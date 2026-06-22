@@ -74,6 +74,7 @@ import CanliDurum from './pages/CanliDurum.jsx';
 import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
 import NightShiftPlanner from './pages/NightShiftPlanner.js'; // <-- GECE VARDİYASI EKLENDİ
 import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
+import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -538,6 +539,7 @@ const App = () => {
             { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptCnc },
             { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
             { path: '/vardiya-plani', label: 'Gece Vardiyası Planı', icon: Moon, roles: allLoginRoles }, // <-- YENİ EKLENDİ
+            { path: '/vardiya-takip', label: 'Vardiya & Servis Planı', icon: Truck, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.ADMIN] },
             { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
             { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
@@ -567,6 +569,24 @@ const App = () => {
     if (!userId) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Kimlik doğrulanıyor...</p></div>;
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Personel verisi yükleniyor...</p></div>;
     
+    if (loggedInUser && loggedInUser.role === ROLES.TERMINAL_USER) {
+        const handleLogoutApp = () => {
+            setLoggedInUser(null);
+            localStorage.removeItem('kaliphane_user');
+            navigate('/');
+        };
+        return (
+            <TerminalPage 
+                personnel={personnel} 
+                projects={projects} 
+                machines={machines} 
+                handleTerminalAction={handleTerminalAction} 
+                isTerminalRole={true}
+                onLogout={handleLogoutApp}
+            />
+        );
+    }
+
     if (location.pathname === '/terminal') {
         return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />;
     }
@@ -689,6 +709,11 @@ const App = () => {
                         {/* YENİ EKLENEN CANLI DURUM VE VARDİYA PLANI ROTALARI */}
                         <Route path="/canli-durum" element={<CanliDurum db={db} />} />
                         <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/vardiya-takip" element={
+                            (loggedInUser?.role === ROLES.CAM_OPERATOR || loggedInUser?.role === 'CAM Sorumlusu' || loggedInUser?.role === ROLES.ADMIN)
+                            ? <ShiftPlannerPage db={db} loggedInUser={loggedInUser} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
                         <Route path="/continuous-improvement" element={<ContinuousImprovementPage loggedInUser={loggedInUser} />} />
 
                         <Route path="/forklift" element={
