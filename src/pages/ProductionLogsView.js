@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Clock, PauseCircle, Activity, Box, BarChart2, Layers, AlertTriangle, Settings } from 'lucide-react';
+import { Search, Clock, PauseCircle, Activity, Box, BarChart2, Layers, AlertTriangle, Settings, ChevronDown, ChevronUp, Users, User, Calendar } from 'lucide-react';
 
 // --- YARDIMCI FONKSİYONLAR ---
 const calcMs = (startStr, endStr) => {
@@ -14,17 +14,32 @@ const calcMs = (startStr, endStr) => {
 };
 
 const formatDuration = (ms) => {
-    if (!ms || ms <= 0) return '0 dk';
+    if (!ms || ms <= 0) return '0 Dk';
     const totalMins = Math.floor(ms / 60000);
-    const hours = Math.floor(totalMins / 60);
+    const totalHours = Math.floor(totalMins / 60);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
     const mins = totalMins % 60;
-    if (hours > 0) return `${hours}s ${mins}d`;
-    return `${mins} dk`;
+    
+    const parts = [];
+    if (days > 0) parts.push(`${days} Gün`);
+    if (hours > 0) parts.push(`${hours} Saat`);
+    if (mins > 0 || parts.length === 0) parts.push(`${mins} Dk`);
+    return parts.join(' ');
 };
 
 const ProductionLogsView = ({ projects }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState(null);
+    const [moldFilter, setMoldFilter] = useState('all');
+    const [expandedTasks, setExpandedTasks] = useState({});
+
+    const toggleTask = (taskId) => {
+        setExpandedTasks(prev => ({
+            ...prev,
+            [taskId]: !prev[taskId]
+        }));
+    };
 
     // --- TÜM VERİLERİ VE SÜRELERİ HESAPLAYAN MOTOR ---
     const moldsWithStats = useMemo(() => {
@@ -154,13 +169,27 @@ const ProductionLogsView = ({ projects }) => {
 
     // --- FİLTRELEME VE SEÇİM ---
     const filteredMolds = useMemo(() => {
-        if (!searchTerm) return moldsWithStats;
-        const lower = searchTerm.toLowerCase();
-        return moldsWithStats.filter(m => 
-            m.moldName.toLowerCase().includes(lower) || 
-            (m.customer && m.customer.toLowerCase().includes(lower))
-        );
-    }, [moldsWithStats, searchTerm]);
+        let list = moldsWithStats || [];
+        if (moldFilter === 'completed') {
+            list = list.filter(p => {
+                const st = p.status ? String(p.status).toUpperCase().trim() : '';
+                return st.includes('ONAY') || 
+                       st.includes('TAMAM') || 
+                       st.includes('BİTTİ') || 
+                       st.includes('BITTI') || 
+                       st === 'COMPLETED' || 
+                       st === 'DONE';
+            });
+        }
+        const query = (searchTerm || '').toLowerCase().trim();
+        if (query) {
+            list = list.filter(p => 
+                (p.moldName || '').toLowerCase().includes(query) || 
+                (p.customer || '').toLowerCase().includes(query)
+            );
+        }
+        return list;
+    }, [moldsWithStats, moldFilter, searchTerm]);
 
     const selectedMold = useMemo(() => {
         return moldsWithStats.find(m => m.id === selectedMoldId) || null;
@@ -176,11 +205,38 @@ const ProductionLogsView = ({ projects }) => {
         <div className="flex h-[calc(100vh-100px)] overflow-hidden bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl">
             
             {/* SOL PANEL: LİSTE */}
-            <div className="w-1/3 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-gray-800">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                    <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-3 flex items-center">
+            <div className="w-1/4 min-w-[275px] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-gray-800">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex flex-col gap-3">
+                    <h2 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
                         <Layers className="w-5 h-5 mr-2 text-indigo-500" /> Kalıp Logları
                     </h2>
+                    
+                    {/* Filtre: Tümü / Tamamlananlar */}
+                    <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
+                        <button 
+                            type="button"
+                            onClick={() => setMoldFilter('all')}
+                            className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                                moldFilter === 'all' 
+                                    ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-white shadow' 
+                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                            }`}
+                        >
+                            Tüm Kalıplar
+                        </button>
+                        <button 
+                            type="button"
+                            onClick={() => setMoldFilter('completed')}
+                            className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                                moldFilter === 'completed' 
+                                    ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-white shadow' 
+                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                            }`}
+                        >
+                            Tamamlananlar
+                        </button>
+                    </div>
+
                     <div className="relative">
                         <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
                         <input 
@@ -188,7 +244,7 @@ const ProductionLogsView = ({ projects }) => {
                             placeholder="Kalıp Adı veya Müşteri Ara..." 
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-9 p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-1 focus:ring-indigo-500"
+                            className="w-full pl-9 p-2 text-xs border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-1 focus:ring-indigo-500 font-bold outline-none"
                         />
                     </div>
                 </div>
@@ -214,6 +270,9 @@ const ProductionLogsView = ({ projects }) => {
                             </div>
                         </button>
                     ))}
+                    {filteredMolds.length === 0 && (
+                        <p className="text-gray-400 text-center py-8 text-xs font-bold">Kalıp bulunamadı.</p>
+                    )}
                 </div>
             </div>
 
@@ -276,29 +335,169 @@ const ProductionLogsView = ({ projects }) => {
                             <h3 className="font-bold text-gray-800 dark:text-white mb-4 border-b dark:border-gray-700 pb-2 flex items-center">
                                 <Box className="w-5 h-5 mr-2 text-blue-500"/> Alt Parça (Task) Logları
                             </h3>
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                                    <thead className="bg-gray-50 dark:bg-gray-800/50">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">Parça Adı</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-blue-500 uppercase tracking-wider dark:text-blue-400">Ayar Süresi</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-green-500 uppercase tracking-wider dark:text-green-400">İmalat Süresi</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-orange-500 uppercase tracking-wider dark:text-orange-400">Duruş Süresi</th>
-                                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider dark:text-gray-400">En Çok Durduran Sebep</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                                        {selectedMold.tasksStats.map(task => (
-                                            <tr key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                                <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">{task.taskName}</td>
-                                            <td className="px-4 py-3 text-sm font-semibold text-blue-600 dark:text-blue-400">{formatDuration(task.setupMs)}</td>
-                                            <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">{formatDuration(task.prodMs)}</td>
-                                                <td className="px-4 py-3 text-sm font-semibold text-orange-600 dark:text-orange-400">{formatDuration(task.pauseMs)}</td>
-                                                <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{task.topReason}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            
+                            <div className="space-y-3">
+                                {selectedMold.tasksStats.map(task => {
+                                    const isExpanded = !!expandedTasks[task.id];
+                                    const ops = task.operations || [];
+                                    
+                                    // CAM Operatörü (Hazırlayan)
+                                    const camOperatorName = task.camPreparation?.preparedBy || selectedMold.camResponsible || 'Belirtilmedi';
+
+                                    // Tezgah/İşlem Operatörleri
+                                    const machineOperators = Array.from(new Set(
+                                        ops.map(op => op.machineOperatorName || op.assignedOperator).filter(Boolean)
+                                    ));
+
+                                    return (
+                                        <div key={task.id} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800 shadow-sm transition-all hover:shadow">
+                                            {/* Akordiyon Başlığı */}
+                                            <div 
+                                                onClick={() => toggleTask(task.id)}
+                                                className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer bg-gray-50/50 dark:bg-gray-900/40 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition select-none"
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-extrabold text-sm text-gray-900 dark:text-white">{task.taskName}</span>
+                                                        
+                                                        {/* CAM Operatörü */}
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="CAM Operatörü">
+                                                            CAM: {camOperatorName}
+                                                        </span>
+
+                                                        {/* Tezgah Operatörleri */}
+                                                        {machineOperators.length > 0 && (
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 border border-blue-100 dark:border-blue-800" title="Tezgah Operatörleri">
+                                                                Tezgah: {machineOperators.join(', ')}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 font-mono">ID: {task.id}</p>
+                                                </div>
+                                                
+                                                <div className="flex flex-wrap items-center gap-4 text-xs font-bold">
+                                                    <span className="text-blue-600 dark:text-blue-300 flex items-center bg-blue-50 dark:bg-blue-900/40 px-2 py-1 rounded" title="Ayar Süresi">
+                                                        <Settings className="w-3.5 h-3.5 mr-1"/> {formatDuration(task.setupMs)}
+                                                    </span>
+                                                    <span className="text-green-600 dark:text-green-300 flex items-center bg-green-50 dark:bg-green-900/40 px-2 py-1 rounded" title="İmalat Süresi">
+                                                        <Activity className="w-3.5 h-3.5 mr-1"/> {formatDuration(task.prodMs)}
+                                                    </span>
+                                                    <span className="text-orange-600 dark:text-orange-300 flex items-center bg-orange-50 dark:bg-orange-900/40 px-2 py-1 rounded" title="Duruş Süresi">
+                                                        <PauseCircle className="w-3.5 h-3.5 mr-1"/> {formatDuration(task.pauseMs)}
+                                                    </span>
+                                                    {isExpanded ? (
+                                                        <ChevronUp className="w-5 h-5 text-gray-400 transition" />
+                                                    ) : (
+                                                        <ChevronDown className="w-5 h-5 text-gray-400 transition" />
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Akordiyon Gövdesi */}
+                                            {isExpanded && (
+                                                <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800/40 space-y-4 animate-fadeIn">
+                                                    {ops.length === 0 ? (
+                                                        <p className="text-gray-400 text-center py-4 text-xs">Bu parçaya ait operasyon kaydı bulunamadı.</p>
+                                                    ) : (
+                                                        ops.map((op, idx) => {
+                                                            // Duruş geçmişini ve anlık aktif duruşu hesapla
+                                                            const pauses = [];
+                                                            if (op.pauseHistory && Array.isArray(op.pauseHistory)) {
+                                                                op.pauseHistory.forEach(ph => {
+                                                                    if (ph.pausedAt && ph.resumedAt) {
+                                                                        pauses.push({
+                                                                            start: ph.pausedAt,
+                                                                            end: ph.resumedAt,
+                                                                            dur: calcMs(ph.pausedAt, ph.resumedAt),
+                                                                            reason: ph.reason || 'Belirtilmedi',
+                                                                            operator: ph.pausedBy || op.machineOperatorName || op.assignedOperator || 'Belirtilmedi'
+                                                                        });
+                                                                    }
+                                                                });
+                                                            }
+                                                            if ((op.status === 'PAUSED' || op.status === 'DURAKLATILDI') && op.lastPausedAt) {
+                                                                pauses.push({
+                                                                    start: op.lastPausedAt,
+                                                                    end: null, // devam ediyor
+                                                                    dur: calcMs(op.lastPausedAt, null),
+                                                                    reason: op.lastPauseReason || 'Belirtilmedi',
+                                                                    operator: op.machineOperatorName || op.assignedOperator || 'Belirtilmedi'
+                                                                });
+                                                            }
+
+                                                            return (
+                                                                <div key={op.id || idx} className="p-4 bg-gray-50/50 dark:bg-gray-900/20 rounded-lg border border-gray-100 dark:border-gray-700/50">
+                                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b dark:border-gray-700 pb-2 mb-3">
+                                                                        <div>
+                                                                            <span className="font-extrabold text-sm text-gray-900 dark:text-white">{op.type}</span>
+                                                                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({op.machineName || 'Tezgahsız'})</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                                                op.status === 'COMPLETED' || op.status === 'TAMAMLANDI'
+                                                                                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                                                                    : op.status === 'IN_PROGRESS' || op.status === 'YÜRÜTÜLÜYOR'
+                                                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                                                                                    : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                                                                            }`}>
+                                                                                {op.status}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                                                                        <div className="space-y-2">
+                                                                            <p className="flex items-center text-gray-600 dark:text-gray-300 font-semibold">
+                                                                                <User className="w-3.5 h-3.5 mr-1.5 text-gray-400" /> Operatör: <span className="font-bold text-gray-900 dark:text-white ml-1">{op.machineOperatorName || op.assignedOperator || 'Atanmamış'}</span>
+                                                                            </p>
+                                                                            <p className="flex items-center text-gray-600 dark:text-gray-300 font-semibold">
+                                                                                <Calendar className="w-3.5 h-3.5 mr-1.5 text-gray-400" /> Başlangıç: <span className="text-gray-900 dark:text-white ml-1">{op.startDate ? new Date(op.startDate).toLocaleString('tr-TR') : 'Başlamadı'}</span>
+                                                                            </p>
+                                                                            <p className="flex items-center text-gray-600 dark:text-gray-300 font-semibold">
+                                                                                <Calendar className="w-3.5 h-3.5 mr-1.5 text-gray-400" /> Bitiş: <span className="text-gray-900 dark:text-white ml-1">{op.finishDate ? new Date(op.finishDate).toLocaleString('tr-TR') : 'Tamamlanmadı'}</span>
+                                                                            </p>
+                                                                        </div>
+
+                                                                        <div>
+                                                                            <p className="font-extrabold text-xs text-orange-600 dark:text-orange-400 mb-2 flex items-center">
+                                                                                <PauseCircle className="w-4 h-4 mr-1"/> Duruş Detayları ({pauses.length} Kayıt)
+                                                                            </p>
+                                                                            {pauses.length === 0 ? (
+                                                                                <p className="text-[11px] text-gray-400 italic">Bu operasyonda duruş kaybı yaşanmadı.</p>
+                                                                            ) : (
+                                                                                <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
+                                                                                    {pauses.map((p, pIdx) => (
+                                                                                        <div key={pIdx} className="p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700/50 shadow-sm flex justify-between items-start gap-2">
+                                                                                            <div className="min-w-0">
+                                                                                                <div className="font-extrabold text-[11px] text-gray-800 dark:text-gray-200">Neden: {p.reason}</div>
+                                                                                                <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                                                                                    {new Date(p.start).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} - {p.end ? new Date(p.end).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam Ediyor'}
+                                                                                                </div>
+                                                                                                <div className="text-[10px] text-gray-450 dark:text-gray-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                                                                                                    <span className="font-medium text-gray-500 dark:text-gray-400">Duruş Yapan:</span>
+                                                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-orange-100 dark:bg-orange-950/20 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
+                                                                                                        {p.operator}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <span className="shrink-0 text-[10px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-1.5 py-0.5 rounded">
+                                                                                                {formatDuration(p.dur)}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
 

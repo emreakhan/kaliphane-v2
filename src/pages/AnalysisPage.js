@@ -6,7 +6,7 @@ import {
     Search, Users, Box, Calendar, Clock, CheckCircle, 
     BarChart2, PieChart, Monitor, TrendingUp, 
     CalendarDays, AlertOctagon, History, ClipboardList,
-    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle, Target 
+    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle 
 } from 'lucide-react';
 
 import { 
@@ -17,14 +17,431 @@ import {
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
-import ProjectCompletionAnalysis from '../components/Analysis/ProjectCompletionAnalysis.js'; 
 import ProductionLogsView from './ProductionLogsView.js';
+
+const MoldReportTab = ({ projects, formatDate, OPERATION_STATUS }) => {
+    const [selectedId, setSelectedId] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [moldFilter, setMoldFilter] = useState('all');
+
+    const filteredMolds = useMemo(() => {
+        let list = projects || [];
+        if (moldFilter === 'completed') {
+            list = list.filter(p => {
+                const st = p.status ? String(p.status).toUpperCase().trim() : '';
+                return st.includes('ONAY') || 
+                       st.includes('TAMAM') || 
+                       st.includes('BİTTİ') || 
+                       st.includes('BITTI') || 
+                       st === 'COMPLETED' || 
+                       st === 'DONE';
+            });
+        }
+        const query = (searchTerm || '').toLowerCase().trim();
+        if (query) {
+            list = list.filter(p => 
+                (p.moldName || '').toLowerCase().includes(query) || 
+                (p.customer || '').toLowerCase().includes(query)
+            );
+        }
+        return list.sort((a, b) => (a.moldName || '').localeCompare(b.moldName));
+    }, [projects, moldFilter, searchTerm]);
+
+    const selectedMoldData = useMemo(() => {
+        if (!selectedId) return null;
+        const mold = projects.find(p => p.id === selectedId);
+        if (!mold) return null;
+        const allOps = (mold.tasks || []).flatMap(t => t.operations || []);
+        const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
+        const startDates = allOps.map(op => op.startDate ? new Date(op.startDate).getTime() : null).filter(d => d);
+        const endDates = completedOps.map(op => op.finishDate ? new Date(op.finishDate).getTime() : null).filter(d => d);
+        const firstStartDate = startDates.length > 0 ? new Date(Math.min(...startDates)) : null;
+        const lastFinishDate = endDates.length > 0 ? new Date(Math.max(...endDates)) : null;
+        let totalDurationDays = 0;
+        if (firstStartDate && lastFinishDate) totalDurationDays = Math.ceil((lastFinishDate - firstStartDate) / (1000 * 60 * 60 * 24));
+        const totalManHours = completedOps.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
+        let totalQuality = 0; let qualityCount = 0;
+        completedOps.forEach(op => { if(op.supervisorRating) { totalQuality += op.supervisorRating; qualityCount++; } });
+        const averageQuality = qualityCount > 0 ? (totalQuality / qualityCount).toFixed(1) : "---";
+        let deadlineStatus = "Belirsiz"; let deadlineColor = "text-gray-500";
+        if (mold.moldDeadline && lastFinishDate) {
+            const deadline = new Date(mold.moldDeadline);
+            const diffTime = deadline - lastFinishDate;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            if (diffDays >= 0) { deadlineStatus = `${diffDays} Gün Erken Bitti`; deadlineColor = "text-green-600"; } 
+            else { deadlineStatus = `${Math.abs(diffDays)} Gün Gecikti`; deadlineColor = "text-red-600"; }
+        } else if (mold.moldDeadline) { deadlineStatus = "Devam Ediyor"; deadlineColor = "text-blue-600"; }
+        const opDistribution = {}; allOps.forEach(op => { opDistribution[op.type] = (opDistribution[op.type] || 0) + 1; });
+        const opHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; opHourDistribution[op.type] = (opHourDistribution[op.type] || 0) + duration; });
+        const machineHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; const machineName = op.machineName && op.machineName !== 'SEÇ' ? op.machineName : 'Tezgahsız / Diğer'; machineHourDistribution[machineName] = (machineHourDistribution[machineName] || 0) + duration; });
+        return { ...mold, stats: { firstStartDate, lastFinishDate, totalDurationDays, totalManHours: totalManHours.toFixed(1), averageQuality, deadlineStatus, deadlineColor, totalOps: allOps.length, completedOpsCount: completedOps.length, opDistribution, opHourDistribution, machineHourDistribution } };
+    }, [selectedId, projects, OPERATION_STATUS]);
+
+    return (
+        <div className="flex flex-col lg:flex-row gap-6 min-h-[550px] animate-fadeIn">
+            {/* Sol Taraf: Kalıp Listesi */}
+            <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl shadow-inner flex flex-col gap-4">
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">Kalıp Karnesi</h3>
+                
+                {/* Filtre: Tümü / Tamamlananlar */}
+                <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg shrink-0">
+                    <button 
+                        type="button"
+                        onClick={() => setMoldFilter('all')}
+                        className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                            moldFilter === 'all' 
+                                ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-white shadow' 
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                        }`}
+                    >
+                        Tüm Kalıplar
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={() => setMoldFilter('completed')}
+                        className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                            moldFilter === 'completed' 
+                                ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-white shadow' 
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                        }`}
+                    >
+                        Tamamlananlar
+                    </button>
+                </div>
+
+                {/* Arama Kutusu */}
+                <div className="relative shrink-0">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input 
+                        type="text" 
+                        placeholder="Kalıp ara..." 
+                        value={searchTerm} 
+                        onChange={(e) => setSearchTerm(e.target.value)} 
+                        className="w-full pl-10 pr-4 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent font-bold outline-none" 
+                    />
+                </div>
+
+                {/* Liste */}
+                <div className="max-h-[55vh] overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700 pr-1 custom-scrollbar flex-1">
+                    {filteredMolds.map(mold => (
+                        <button 
+                            key={mold.id} 
+                            onClick={() => setSelectedId(mold.id)} 
+                            className={`w-full text-left p-3 mb-1 transition rounded-lg ${
+                                selectedId === mold.id 
+                                    ? 'bg-purple-600 text-white font-extrabold' 
+                                    : 'hover:bg-gray-200 dark:hover:bg-gray-700/50 text-gray-950 dark:text-gray-200 font-bold'
+                            }`}
+                        >
+                            <p className="text-sm truncate">{mold.moldName}</p>
+                            <p className={`text-xs ${selectedId === mold.id ? 'text-purple-200' : 'text-gray-500 dark:text-gray-400'}`}>
+                                {mold.customer}
+                            </p>
+                        </button>
+                    ))}
+                    {filteredMolds.length === 0 && (
+                        <p className="text-gray-400 text-center py-8 text-xs font-bold">Kalıp bulunamadı.</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Sağ Taraf: Kalıp Karnesi Detayları */}
+            <div className="flex-1 border rounded-xl p-6 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-inner flex flex-col justify-start min-h-[500px]">
+                {selectedMoldData ? (
+                    <div className="space-y-6 w-full animate-fadeIn">
+                        <div className="flex justify-between items-start border-b dark:border-gray-700 pb-4">
+                            <div>
+                                <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{selectedMoldData.moldName}</h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedMoldData.customer} | {selectedMoldData.status}</p>
+                            </div>
+                            <div className={`text-right font-bold text-xl ${selectedMoldData.stats.deadlineColor}`}>
+                                {selectedMoldData.stats.deadlineStatus}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm">
+                                <div className="flex items-center text-blue-600 dark:text-blue-400 mb-2">
+                                    <Calendar className="w-5 h-5 mr-2" /> <span className="font-semibold text-xs">Toplam Süre</span>
+                                </div>
+                                <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedMoldData.stats.totalDurationDays} Gün</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400">İlk işlemden teslime</p>
+                            </div>
+                            <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 shadow-sm">
+                                <div className="flex items-center text-green-600 dark:text-green-400 mb-2">
+                                    <Clock className="w-5 h-5 mr-2" /> <span className="font-semibold text-xs">İşçilik Saati</span>
+                                </div>
+                                <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedMoldData.stats.totalManHours} Saat</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400">Toplam makine/insan saati</p>
+                            </div>
+                            <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 shadow-sm">
+                                <div className="flex items-center text-purple-600 dark:text-purple-400 mb-2">
+                                    <CheckCircle className="w-5 h-5 mr-2" /> <span className="font-semibold text-xs">Kalite Skoru</span>
+                                </div>
+                                <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedMoldData.stats.averageQuality} / 10</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400">Yetkili puan ortalaması</p>
+                            </div>
+                            <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800 shadow-sm">
+                                <div className="flex items-center text-orange-600 dark:text-orange-400 mb-2">
+                                    <Box className="w-5 h-5 mr-2" /> <span className="font-semibold text-xs">Operasyonlar</span>
+                                </div>
+                                <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedMoldData.stats.completedOpsCount} / {selectedMoldData.stats.totalOps}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400">Tamamlanan / Toplam</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><BarChart2 className="w-5 h-5 mr-2 text-blue-500" /> Operasyon Adetleri</h4>
+                                <div className="space-y-3">
+                                    {Object.entries(selectedMoldData.stats.opDistribution).map(([type, count]) => (
+                                        <div key={type} className="flex justify-between items-center">
+                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span>
+                                            <div className="flex items-center w-2/3">
+                                                <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700 mr-2 overflow-hidden">
+                                                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${(count / selectedMoldData.stats.totalOps) * 100}%` }}></div>
+                                                </div>
+                                                <span className="text-xs font-bold text-gray-900 dark:text-white w-8 text-right">{count}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><PieChart className="w-5 h-5 mr-2 text-emerald-500" /> Operasyon Süreleri (Saat)</h4>
+                                <div className="space-y-3">
+                                    {Object.keys(selectedMoldData.stats.opHourDistribution).length === 0 ? (
+                                        <p className="text-gray-500 text-xs">Henüz tamamlanmış işlem süresi yok.</p>
+                                    ) : (
+                                        Object.entries(selectedMoldData.stats.opHourDistribution).map(([type, hours]) => (
+                                            <div key={type} className="flex justify-between items-center">
+                                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span>
+                                                <div className="flex items-center w-2/3">
+                                                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700 mr-2 overflow-hidden">
+                                                        <div className="bg-green-600 h-2 rounded-full" style={{ width: `${(hours / (parseFloat(selectedMoldData.stats.totalManHours) || 1)) * 100}%` }}></div>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><Monitor className="w-5 h-5 mr-2 text-orange-500" /> Tezgah/İstasyon Kullanımı (Saat)</h4>
+                                <div className="space-y-3">
+                                    {Object.keys(selectedMoldData.stats.machineHourDistribution).length === 0 ? (
+                                        <p className="text-gray-500 text-xs">Henüz makine verisi yok.</p>
+                                    ) : (
+                                        Object.entries(selectedMoldData.stats.machineHourDistribution).map(([machine, hours]) => (
+                                            <div key={machine} className="flex justify-between items-center">
+                                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate w-1/3">{machine}</span>
+                                                <div className="flex items-center w-2/3">
+                                                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700 mr-2 overflow-hidden">
+                                                        <div className="bg-orange-500 h-2 rounded-full" style={{ width: `${(hours / (parseFloat(selectedMoldData.stats.totalManHours) || 1)) * 100}%` }}></div>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><AlertTriangle className="w-5 h-5 mr-2 text-yellow-500" /> Kritik Bilgiler</h4>
+                                <ul className="space-y-2 text-xs text-gray-600 dark:text-gray-300 font-bold font-mono">
+                                    <li>• <strong className="text-gray-500 dark:text-gray-400">Başlangıç:</strong> {selectedMoldData.stats.firstStartDate ? formatDate(selectedMoldData.stats.firstStartDate) : 'Henüz başlamadı'}</li>
+                                    <li>• <strong className="text-gray-500 dark:text-gray-400">Bitiş (Son İşlem):</strong> {selectedMoldData.stats.lastFinishDate ? formatDate(selectedMoldData.stats.lastFinishDate) : 'Devam ediyor'}</li>
+                                    <li>• <strong className="text-gray-500 dark:text-gray-400">Hedeflenen Termin:</strong> {selectedMoldData.moldDeadline ? formatDate(selectedMoldData.moldDeadline) : 'Belirtilmemiş'}</li>
+                                    <li>• <strong className="text-gray-500 dark:text-gray-400">Proje Sorumlusu:</strong> {selectedMoldData.projectManager || 'Atanmamış'}</li>
+                                    <li>• <strong className="text-gray-500 dark:text-gray-400">Tasarım Sorumlusu:</strong> {selectedMoldData.moldDesigner || 'Atanmamış'}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 py-12">
+                        <Box className="w-16 h-16 mb-3 opacity-20" />
+                        <p className="text-lg font-bold">Kalıp Karnesi Raporu</p>
+                        <p className="text-sm opacity-80 mt-1">Lütfen analiz etmek için sol listeden bir kalıp seçiniz.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const TimelineCard = ({ 
+    projects, 
+    selectedTimelineMoldId, 
+    setSelectedTimelineMoldId, 
+    timelineAnalysis 
+}) => {
+    const [timelineSearchQuery, setTimelineSearchQuery] = useState('');
+    const [timelineFilter, setTimelineFilter] = useState('all');
+
+    const filteredTimelineMolds = useMemo(() => {
+        let list = projects;
+        if (timelineFilter === 'completed') {
+            list = list.filter(p => {
+                const st = p.status ? String(p.status).toUpperCase().trim() : '';
+                return st.includes('ONAY') || 
+                       st.includes('TAMAM') || 
+                       st.includes('BİTTİ') || 
+                       st.includes('BITTI') || 
+                       st === 'COMPLETED' || 
+                       st === 'DONE';
+            });
+        }
+        if (timelineSearchQuery.trim()) {
+            const query = timelineSearchQuery.toLowerCase();
+            list = list.filter(p => 
+                p.moldName.toLowerCase().includes(query) || 
+                (p.customer || '').toLowerCase().includes(query)
+            );
+        }
+        return list.sort((a, b) => a.moldName.localeCompare(b.moldName));
+    }, [projects, timelineFilter, timelineSearchQuery]);
+
+    return (
+        <div className="flex flex-col lg:flex-row gap-6 min-h-[550px] animate-fadeIn">
+            {/* Sol Taraf: Kalıp Listesi */}
+            <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl shadow-inner flex flex-col gap-4">
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">Kalıp Çizelgeleri</h3>
+                
+                {/* Filtre: Tümü / Tamamlananlar */}
+                <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg shrink-0">
+                    <button 
+                        type="button"
+                        onClick={() => setTimelineFilter('all')}
+                        className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                            timelineFilter === 'all' 
+                                ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-white shadow' 
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                        }`}
+                    >
+                        Tüm Kalıplar
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={() => setTimelineFilter('completed')}
+                        className={`flex-1 text-center py-1.5 text-xs font-black rounded-md transition ${
+                            timelineFilter === 'completed' 
+                                ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-white shadow' 
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                        }`}
+                    >
+                        Tamamlananlar
+                    </button>
+                </div>
+
+                {/* Arama Kutusu */}
+                <div className="relative shrink-0">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input 
+                        type="text" 
+                        placeholder="Kalıp ara..." 
+                        value={timelineSearchQuery} 
+                        onChange={(e) => setTimelineSearchQuery(e.target.value)} 
+                        className="w-full pl-10 pr-4 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent font-bold outline-none" 
+                    />
+                </div>
+
+                {/* Liste */}
+                <div className="max-h-[55vh] overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700 pr-1 custom-scrollbar flex-1">
+                    {filteredTimelineMolds.map(mold => (
+                        <button 
+                            key={mold.id} 
+                            onClick={() => setSelectedTimelineMoldId(mold.id)} 
+                            className={`w-full text-left p-3 mb-1 transition rounded-lg ${
+                                selectedTimelineMoldId === mold.id 
+                                    ? 'bg-blue-600 text-white font-extrabold' 
+                                    : 'hover:bg-gray-200 dark:hover:bg-gray-700/50 text-gray-950 dark:text-gray-200 font-bold'
+                            }`}
+                        >
+                            <p className="text-sm truncate">{mold.moldName}</p>
+                            <p className={`text-xs ${selectedTimelineMoldId === mold.id ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                                {mold.customer}
+                            </p>
+                        </button>
+                    ))}
+                    {filteredTimelineMolds.length === 0 && (
+                        <p className="text-gray-400 text-center py-8 text-xs font-bold">Kalıp bulunamadı.</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Sağ Taraf: Zaman Çizelgesi Detayları */}
+            <div className="flex-1 border rounded-xl p-6 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-inner flex flex-col justify-start min-h-[500px]">
+                {timelineAnalysis && !timelineAnalysis.noData ? (
+                    <div className="space-y-6 w-full animate-fadeIn">
+                        <div className="border-b dark:border-gray-700 pb-4">
+                            <h3 className="text-2xl font-black text-gray-900 dark:text-white flex items-center">
+                                <Layers className="w-6 h-6 mr-2 text-blue-600" />
+                                {timelineAnalysis.moldName} Zaman Çizelgesi
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-1">Parça çakışmaları ve gerçek takvim süresi analizi.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 flex justify-between items-center shadow-sm">
+                                <div>
+                                    <p className="text-sm font-bold text-green-800 dark:text-green-300 uppercase tracking-wider">Toplam Efor (Maliyet)</p>
+                                    <h4 className="text-3xl font-black text-green-900 dark:text-white mt-1">{timelineAnalysis.totalEffortHours.toFixed(1)} Saat</h4>
+                                    <p className="text-xs text-green-700 dark:text-green-400 mt-1">İşçilik ve makine saati toplamı</p>
+                                </div>
+                                <Clock className="w-12 h-12 text-green-300 dark:text-green-700 opacity-80" />
+                            </div>
+                            <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex justify-between items-center shadow-sm">
+                                <div>
+                                    <p className="text-sm font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">Takvim Süresi (Termin)</p>
+                                    <h4 className="text-3xl font-black text-blue-900 dark:text-white mt-1">{timelineAnalysis.calendarDays} Gün <span className="text-lg text-blue-600">({timelineAnalysis.calendarHours} Sa)</span></h4>
+                                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">Başlangıçtan bitişe geçen gerçek zaman</p>
+                                </div>
+                                <Calendar className="w-12 h-12 text-blue-300 dark:text-blue-700 opacity-80" />
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <h4 className="font-bold text-gray-800 dark:text-white mb-4 flex justify-between">
+                                <span>İş Akış Şeması</span>
+                                <span className="text-xs font-normal text-gray-500">{formatDate(timelineAnalysis.minDate)} <ArrowRight className="w-3 h-3 inline mx-1"/> {formatDate(timelineAnalysis.maxDate)}</span>
+                            </h4>
+                            <div className="space-y-3 overflow-x-auto pb-2 custom-scrollbar">
+                                {timelineAnalysis.timelineData.map(item => (
+                                    <div key={item.id} className="flex items-center text-xs group">
+                                        <div className="w-48 flex-shrink-0 truncate text-gray-600 dark:text-gray-300 pr-2" title={`${item.taskName} - ${item.opType}`}>
+                                            <span className="font-bold">{item.taskName}</span> <span className="text-gray-400">- {item.opType}</span>
+                                        </div>
+                                        <div className="flex-1 h-6 bg-gray-100 dark:bg-gray-700 rounded relative min-w-[300px]">
+                                            <div 
+                                                className={`absolute h-full rounded transition-all hover:opacity-80 cursor-pointer flex items-center justify-center text-[10px] text-white font-bold shadow-sm ${item.status === OPERATION_STATUS.COMPLETED ? 'bg-green-500' : 'bg-blue-500 animate-pulse'}`} 
+                                                style={{ left: `${item.offsetPercent}%`, width: `${item.widthPercent}%` }} 
+                                                title={`${formatDate(item.startDate)} - ${formatDate(item.finishDate || new Date())}\n${item.machineName} (${item.assignedOperator})`}
+                                            >
+                                                {item.widthPercent > 5 && item.machineName}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 py-12">
+                        <Activity className="w-16 h-16 mb-3 opacity-20" />
+                        <p className="text-lg font-bold">Zaman Çizelgesi Analizi</p>
+                        <p className="text-sm opacity-80 mt-1">Lütfen analiz etmek için sol listeden bir kalıp seçiniz.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     
     const [activeTab, setActiveTab] = useState('general'); 
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedId, setSelectedId] = useState(null); 
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear()); 
     const [selectedTimelineMoldId, setSelectedTimelineMoldId] = useState('');
 
@@ -166,45 +583,9 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         return { moldName: mold.moldName, noData: false, totalEffortHours, calendarDays, calendarHours, timelineData, minDate: new Date(minTime), maxDate: new Date(maxTime) };
     }, [selectedTimelineMoldId, validMoldProjects]);
 
-    const filteredMolds = useMemo(() => {
-        const lowerSearchTerm = (searchTerm || '').toLowerCase();
-        return validMoldProjects
-            .filter(p => 
-                (p.moldName || '').toLowerCase().includes(lowerSearchTerm) || 
-                (p.customer || '').toLowerCase().includes(lowerSearchTerm)
-            )
-            .sort((a, b) => a.moldName.localeCompare(b.moldName));
-    }, [validMoldProjects, searchTerm]);
+    // filteredMolds memo was removed and moved to MoldReportTab.
 
-    const selectedMoldData = useMemo(() => {
-        if (activeTab !== 'mold' || !selectedId) return null;
-        const mold = validMoldProjects.find(p => p.id === selectedId);
-        if (!mold) return null;
-        const allOps = mold.tasks.flatMap(t => t.operations);
-        const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
-        const startDates = allOps.map(op => op.startDate ? new Date(op.startDate).getTime() : null).filter(d => d);
-        const endDates = completedOps.map(op => op.finishDate ? new Date(op.finishDate).getTime() : null).filter(d => d);
-        const firstStartDate = startDates.length > 0 ? new Date(Math.min(...startDates)) : null;
-        const lastFinishDate = endDates.length > 0 ? new Date(Math.max(...endDates)) : null;
-        let totalDurationDays = 0;
-        if (firstStartDate && lastFinishDate) totalDurationDays = Math.ceil((lastFinishDate - firstStartDate) / (1000 * 60 * 60 * 24));
-        const totalManHours = completedOps.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
-        let totalQuality = 0; let qualityCount = 0;
-        completedOps.forEach(op => { if(op.supervisorRating) { totalQuality += op.supervisorRating; qualityCount++; } });
-        const averageQuality = qualityCount > 0 ? (totalQuality / qualityCount).toFixed(1) : "---";
-        let deadlineStatus = "Belirsiz"; let deadlineColor = "text-gray-500";
-        if (mold.moldDeadline && lastFinishDate) {
-            const deadline = new Date(mold.moldDeadline);
-            const diffTime = deadline - lastFinishDate;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            if (diffDays >= 0) { deadlineStatus = `${diffDays} Gün Erken Bitti`; deadlineColor = "text-green-600"; } 
-            else { deadlineStatus = `${Math.abs(diffDays)} Gün Gecikti`; deadlineColor = "text-red-600"; }
-        } else if (mold.moldDeadline) { deadlineStatus = "Devam Ediyor"; deadlineColor = "text-blue-600"; }
-        const opDistribution = {}; allOps.forEach(op => { opDistribution[op.type] = (opDistribution[op.type] || 0) + 1; });
-        const opHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; opHourDistribution[op.type] = (opHourDistribution[op.type] || 0) + duration; });
-        const machineHourDistribution = {}; completedOps.forEach(op => { const duration = parseFloat(op.durationInHours) || 0; const machineName = op.machineName && op.machineName !== 'SEÇ' ? op.machineName : 'Tezgahsız / Diğer'; machineHourDistribution[machineName] = (machineHourDistribution[machineName] || 0) + duration; });
-        return { ...mold, stats: { firstStartDate, lastFinishDate, totalDurationDays, totalManHours: totalManHours.toFixed(1), averageQuality, deadlineStatus, deadlineColor, totalOps: allOps.length, completedOpsCount: completedOps.length, opDistribution, opHourDistribution, machineHourDistribution } };
-    }, [selectedId, validMoldProjects, activeTab]);
+    // selectedMoldData memo was removed and moved to MoldReportTab.
 
     const WorkTypeAnalysisCard = () => {
         const [analysisYear, setAnalysisYear] = useState(availableYears.length > 0 ? availableYears[0] : new Date().getFullYear());
@@ -405,58 +786,20 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         );
     };
 
-    const TimelineCard = () => {
-        const moldList = validMoldProjects.map(p => ({ id: p.id, name: p.moldName }));
-        return (
-            <div className="space-y-6 animate-fadeIn">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                    <div><h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center"><Layers className="w-6 h-6 mr-2 text-blue-600" />Kalıp Zaman Çizelgesi</h3><p className="text-sm text-gray-500">Parça çakışmaları ve gerçek takvim süresi analizi.</p></div>
-                    <select value={selectedTimelineMoldId} onChange={(e) => setSelectedTimelineMoldId(e.target.value)} className="bg-gray-50 border border-gray-300 text-gray-900 rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-64 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"><option value="">Bir Kalıp Seçiniz...</option>{moldList.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-                </div>
-                {timelineAnalysis && !timelineAnalysis.noData ? (
-                    <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 flex justify-between items-center"><div><p className="text-sm font-bold text-green-800 dark:text-green-300 uppercase tracking-wider">Toplam Efor (Maliyet)</p><h4 className="text-3xl font-black text-green-900 dark:text-white mt-1">{timelineAnalysis.totalEffortHours.toFixed(1)} Saat</h4><p className="text-xs text-green-700 dark:text-green-400 mt-1">İşçilik ve makine saati toplamı</p></div><Clock className="w-12 h-12 text-green-300 opacity-80" /></div><div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex justify-between items-center"><div><p className="text-sm font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider">Takvim Süresi (Termin)</p><h4 className="text-3xl font-black text-blue-900 dark:text-white mt-1">{timelineAnalysis.calendarDays} Gün <span className="text-lg text-blue-600">({timelineAnalysis.calendarHours} Sa)</span></h4><p className="text-xs text-blue-700 dark:text-blue-400 mt-1">Başlangıçtan bitişe geçen gerçek zaman</p></div><Calendar className="w-12 h-12 text-blue-300 opacity-80" /></div></div>
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"><h4 className="font-bold text-gray-800 dark:text-white mb-4 flex justify-between"><span>İş Akış Şeması</span><span className="text-xs font-normal text-gray-500">{formatDate(timelineAnalysis.minDate)} <ArrowRight className="w-3 h-3 inline mx-1"/> {formatDate(timelineAnalysis.maxDate)}</span></h4><div className="space-y-3 overflow-x-auto pb-2">{timelineAnalysis.timelineData.map(item => (<div key={item.id} className="flex items-center text-xs group"><div className="w-48 flex-shrink-0 truncate text-gray-600 dark:text-gray-300 pr-2" title={`${item.taskName} - ${item.opType}`}><span className="font-bold">{item.taskName}</span> <span className="text-gray-400">- {item.opType}</span></div><div className="flex-1 h-6 bg-gray-100 dark:bg-gray-700 rounded relative min-w-[300px]"><div className={`absolute h-full rounded transition-all hover:opacity-80 cursor-pointer flex items-center justify-center text-[10px] text-white font-bold shadow-sm ${item.status === OPERATION_STATUS.COMPLETED ? 'bg-green-500' : 'bg-blue-500 animate-pulse'}`} style={{ left: `${item.offsetPercent}%`, width: `${item.widthPercent}%` }} title={`${formatDate(item.startDate)} - ${formatDate(item.finishDate || new Date())}\n${item.machineName} (${item.assignedOperator})`}>{item.widthPercent > 5 && item.machineName}</div></div></div>))}</div></div>
-                    </>
-                ) : selectedTimelineMoldId ? (<div className="text-center py-12 text-gray-500">Bu kalıp için henüz zaman verisi oluşmamış.</div>) : (<div className="text-center py-12 text-gray-500 flex flex-col items-center"><Activity className="w-12 h-12 mb-2 opacity-20" />Lütfen analiz etmek için yukarıdan bir kalıp seçiniz.</div>)}
-            </div>
-        );
-    };
-
-    const SidebarList = () => (
-        <div className="w-full lg:w-1/3 xl:w-1/4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-inner h-full min-h-[500px]">
-            <div className="relative mb-4"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" /><input type="text" placeholder="Kalıp ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent" /></div>
-            <div className="max-h-[60vh] overflow-y-auto"><div className="divide-y divide-gray-200 dark:divide-gray-700">{filteredMolds.map(mold => (<button key={mold.id} onClick={() => setSelectedId(mold.id)} className={`w-full text-left p-3 transition rounded-lg ${selectedId === mold.id ? 'bg-purple-600 text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200'}`}><p className="font-medium">{mold.moldName}</p><p className={`text-sm ${selectedId === mold.id ? 'text-purple-200' : 'text-gray-500 dark:text-gray-400'}`}>{mold.customer}</p></button>))}</div></div>
-        </div>
-    );
-
-    const MoldReportCard = () => {
-        if (!selectedMoldData) return <div className="flex-1 p-10 text-center text-gray-500">Lütfen soldan bir kalıp seçiniz.</div>;
-        const stats = selectedMoldData.stats;
-        return (
-            <div className="flex-1 space-y-6 p-2">
-                <div className="flex justify-between items-start border-b dark:border-gray-700 pb-4"><div><h3 className="text-3xl font-bold text-gray-900 dark:text-white">{selectedMoldData.moldName}</h3><p className="text-lg text-gray-600 dark:text-gray-400">{selectedMoldData.customer} | {selectedMoldData.status}</p></div><div className={`text-right font-bold text-xl ${stats.deadlineColor}`}>{stats.deadlineStatus}</div></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800"><div className="flex items-center text-blue-600 dark:text-blue-400 mb-2"><Calendar className="w-5 h-5 mr-2" /> <span className="font-semibold">Toplam Süre</span></div><p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalDurationDays} Gün</p><p className="text-xs text-gray-500 dark:text-gray-400">İlk işlemden teslime</p></div><div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800"><div className="flex items-center text-green-600 dark:text-green-400 mb-2"><Clock className="w-5 h-5 mr-2" /> <span className="font-semibold">İşçilik Saati</span></div><p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalManHours} Saat</p><p className="text-xs text-gray-500 dark:text-gray-400">Toplam makine/insan saati</p></div><div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800"><div className="flex items-center text-purple-600 dark:text-purple-400 mb-2"><CheckCircle className="w-5 h-5 mr-2" /> <span className="font-semibold">Kalite Skoru</span></div><p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.averageQuality} / 10</p><p className="text-xs text-gray-500 dark:text-gray-400">Yetkili puan ortalaması</p></div><div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800"><div className="flex items-center text-orange-600 dark:text-orange-400 mb-2"><Box className="w-5 h-5 mr-2" /> <span className="font-semibold">Operasyonlar</span></div><p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.completedOpsCount} / {stats.totalOps}</p><p className="text-xs text-gray-500 dark:text-gray-400">Tamamlanan / Toplam</p></div></div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800"><h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><BarChart2 className="w-5 h-5 mr-2" /> Operasyon Adetleri</h4><div className="space-y-3">{Object.entries(stats.opDistribution).map(([type, count]) => (<div key={type} className="flex justify-between items-center"><span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span><div className="flex items-center w-2/3"><div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${(count / stats.totalOps) * 100}%` }}></div></div><span className="text-sm font-bold text-gray-900 dark:text-white w-8 text-right">{count}</span></div></div>))}</div></div><div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800"><h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><PieChart className="w-5 h-5 mr-2" /> Operasyon Süreleri (Saat)</h4><div className="space-y-3">{Object.keys(stats.opHourDistribution).length === 0 ? (<p className="text-gray-500 text-sm">Henüz tamamlanmış işlem süresi yok.</p>) : (Object.entries(stats.opHourDistribution).map(([type, hours]) => (<div key={type} className="flex justify-between items-center"><span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{type}</span><div className="flex items-center w-2/3"><div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2"><div className="bg-green-600 h-2.5 rounded-full" style={{ width: `${(hours / (parseFloat(stats.totalManHours) || 1)) * 100}%` }}></div></div><span className="text-sm font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span></div></div>)))}</div></div><div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800"><h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><Monitor className="w-5 h-5 mr-2" /> Tezgah/İstasyon Kullanımı (Saat)</h4><div className="space-y-3">{Object.keys(stats.machineHourDistribution).length === 0 ? (<p className="text-gray-500 text-sm">Henüz makine verisi yok.</p>) : (Object.entries(stats.machineHourDistribution).map(([machine, hours]) => (<div key={machine} className="flex justify-between items-center"><span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate w-1/3">{machine}</span><div className="flex items-center w-2/3"><div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mr-2"><div className="bg-orange-500 h-2.5 rounded-full" style={{ width: `${(hours / (parseFloat(stats.totalManHours) || 1)) * 100}%` }}></div></div><span className="text-sm font-bold text-gray-900 dark:text-white w-16 text-right">{hours.toFixed(1)} s</span></div></div>)))}</div></div><div className="p-5 border rounded-xl dark:border-gray-700 bg-gray-50 dark:bg-gray-800"><h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center"><AlertTriangle className="w-5 h-5 mr-2" /> Kritik Bilgiler</h4><ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300"><li>• <strong>Başlangıç:</strong> {stats.firstStartDate ? formatDate(stats.firstStartDate) : 'Henüz başlamadı'}</li><li>• <strong>Bitiş (Son İşlem):</strong> {stats.lastFinishDate ? formatDate(stats.lastFinishDate) : 'Devam ediyor'}</li><li>• <strong>Hedeflenen Termin:</strong> {selectedMoldData.moldDeadline ? formatDate(selectedMoldData.moldDeadline) : 'Belirtilmemiş'}</li><li>• <strong>Proje Sorumlusu:</strong> {selectedMoldData.projectManager || 'Atanmamış'}</li><li>• <strong>Tasarım Sorumlusu:</strong> {selectedMoldData.moldDesigner || 'Atanmamış'}</li></ul></div></div></div>
-        );
-    };
-
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl min-h-[85vh]">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performans ve Analiz Merkezi</h2>
             
             {/* Sekme Başlıkları */}
             <div className="flex space-x-4 border-b border-gray-200 dark:border-gray-700 mb-6 overflow-x-auto">
-                <button onClick={() => { setActiveTab('general'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'general' ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><TrendingUp className="w-4 h-4 inline mr-2" /> Genel / Yıllık</button>
+                <button onClick={() => { setActiveTab('general'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'general' ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><TrendingUp className="w-4 h-4 inline mr-2" /> Genel / Yıllık</button>
                 <button onClick={() => { setActiveTab('work_types'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'work_types' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><PieChart className="w-4 h-4 inline mr-2" /> İş Tipi Dağılımı</button>
                 
-                {/* YENİ EKLENEN TESLİM SÜRELERİ SEKME BUTONU */}
-                <button onClick={() => { setActiveTab('completion'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'completion' ? 'border-teal-500 text-teal-600 dark:text-teal-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Target className="w-4 h-4 inline mr-2" /> Teslim Süreleri</button>
                 
                 <button onClick={() => { setActiveTab('timeline'); setSelectedTimelineMoldId(''); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'timeline' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Activity className="w-4 h-4 inline mr-2" /> Zaman Çizelgesi</button>
                 <button onClick={() => { setActiveTab('production_logs'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'production_logs' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><ClipboardList className="w-4 h-4 inline mr-2" /> Üretim Logları</button>
-                <button onClick={() => { setActiveTab('personnel'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel</button>
-                <button onClick={() => { setActiveTab('mold'); setSelectedId(null); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mold' ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Box className="w-4 h-4 inline mr-2" /> Kalıp Karnesi</button>
+                <button onClick={() => { setActiveTab('personnel'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'personnel' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Users className="w-4 h-4 inline mr-2" /> Personel</button>
+                <button onClick={() => { setActiveTab('mold'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'mold' ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><Box className="w-4 h-4 inline mr-2" /> Kalıp Karnesi</button>
                 {canViewReworkTab && (
                     <button onClick={() => { setActiveTab('rework'); }} className={`py-2 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === 'rework' ? 'border-red-500 text-red-600 dark:text-red-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}><History className="w-4 h-4 inline mr-2" /> Hata & Kalite</button>
                 )}
@@ -465,9 +808,14 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             {/* İÇERİK RENDER */}
             {activeTab === 'general' ? <GeneralAnalysisCard /> :
              activeTab === 'work_types' ? <WorkTypeAnalysisCard /> : 
-             /* DÜZELTME: BURAYA ARTIK FİLTRELENMEMİŞ ANA "projects" VERİSİ GÖNDERİLİYOR */
-             activeTab === 'completion' ? <ProjectCompletionAnalysis projects={projects} /> : 
-             activeTab === 'timeline' ? <TimelineCard /> :
+             activeTab === 'timeline' ? (
+                 <TimelineCard 
+                     projects={validMoldProjects}
+                     selectedTimelineMoldId={selectedTimelineMoldId}
+                     setSelectedTimelineMoldId={setSelectedTimelineMoldId}
+                     timelineAnalysis={timelineAnalysis}
+                 />
+             ) :
              activeTab === 'production_logs' ? <ProductionLogsView projects={projects} /> :
              activeTab === 'rework' ? <ReworkAnalysisCard /> : 
              activeTab === 'personnel' ? (
@@ -476,12 +824,11 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                     projects={validMoldProjects} 
                 />
              ) : (
-                <div className="flex flex-col lg:flex-row gap-6 h-full">
-                    <SidebarList />
-                    <div className="flex-1 border rounded-lg p-4 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-inner">
-                        <MoldReportCard />
-                    </div>
-                </div>
+                <MoldReportTab 
+                    projects={validMoldProjects}
+                    formatDate={formatDate}
+                    OPERATION_STATUS={OPERATION_STATUS}
+                />
             )}
         </div>
     );

@@ -138,47 +138,7 @@ const ProjectCompletionAnalysis = ({ projects }) => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                
-                {/* ETİKET BAZLI ORTALAMA SÜRE GRAFİĞİ */}
-                <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm flex flex-col">
-                    <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4 shrink-0">
-                        <TrendingUp className="w-4 h-4 mr-2 text-indigo-500"/> Etiket Bazlı Ortalama Teslim Süresi
-                    </h3>
-                    
-                    {stats.chartData.length > 0 ? (
-                        <div className="flex-1 w-full min-h-[320px]">
-                            {/* width 99% Recharts container hatasını engeller */}
-                            <ResponsiveContainer width="99%" height={320}>
-                                <BarChart data={stats.chartData} layout="vertical" margin={{ top: 5, right: 40, left: 0, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" opacity={0.05} horizontal={true} vertical={false} />
-                                    <XAxis type="number" hide />
-                                    <YAxis 
-                                        dataKey="name" 
-                                        type="category" 
-                                        axisLine={false} 
-                                        tickLine={false} 
-                                        width={140}
-                                        tick={{fill: '#6B7280', fontSize: 10, fontWeight: '900'}}
-                                    />
-                                    <Tooltip 
-                                        cursor={{fill: 'rgba(59, 130, 246, 0.05)'}}
-                                        contentStyle={{ backgroundColor: '#111827', color: '#F3F4F6', borderRadius: '12px', border: 'none' }}
-                                        formatter={(value) => [`${value} Gün`, 'Ortalama Süre']}
-                                    />
-                                    <Bar dataKey="avgDays" fill="#3B82F6" radius={[0, 10, 10, 0]} barSize={24}>
-                                        <LabelList dataKey="avgDays" position="right" fill="#3B82F6" fontSize={12} fontWeight="900" formatter={(v) => `${v} Gün`} />
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center text-gray-400 font-bold min-h-[320px]">
-                            Henüz tamamlanan kalıp verisi bulunmuyor.
-                        </div>
-                    )}
-                </div>
-
+            <div className="grid grid-cols-1 max-w-2xl mx-auto w-full">
                 {/* PROJE DAĞILIMI (PASTA) */}
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm flex flex-col">
                     <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4 shrink-0">
@@ -214,7 +174,6 @@ const ProjectCompletionAnalysis = ({ projects }) => {
                         </div>
                     )}
                 </div>
-
             </div>
 
             {/* DETAYLI LİSTE TABLOSU */}
