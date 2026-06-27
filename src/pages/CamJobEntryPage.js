@@ -1,21 +1,33 @@
 // src/pages/CamJobEntryPage.js
 
-import React, { useState, useMemo } from 'react';
-import { Plus, AlertTriangle, List, Briefcase } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Plus, AlertTriangle, List, Briefcase, Search, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
 
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 
 const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
+    const [searchParams] = useSearchParams();
+    const urlMoldId = searchParams.get('moldId') || '';
+
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
 
     const [batchTaskNames, setBatchTaskNames] = useState('');
-    const [selectedMoldId, setSelectedMoldId] = useState('');
+    const [selectedMoldId, setSelectedMoldId] = useState(urlMoldId);
+    const [isSearchableSelectOpen, setIsSearchableSelectOpen] = useState(false);
+    const [moldSearchQuery, setMoldSearchQuery] = useState('');
     const [moldError, setMoldError] = useState('');
     const [batchError, setBatchError] = useState('');
+
+    useEffect(() => {
+        if (urlMoldId) {
+            setSelectedMoldId(urlMoldId);
+        }
+    }, [urlMoldId]);
 
     // --- GÜVENLİK ÖNLEMİ: Hatalı verileri filtrele ---
     const cleanProjects = useMemo(() => {
@@ -205,11 +217,80 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                     <div className="p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/10">
                         <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> İŞ PARÇASI EKLEME</h3>
                         <div className="space-y-4">
-                            <select value={selectedMoldId} onChange={(e) => { setSelectedMoldId(e.target.value); setBatchError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2">
-                                <option value="">Kalıp Seçiniz</option>
-                                {/* Liste render edilirken cleanProjects kullan */}
-                                {cleanProjects.map(p => <option key={p.id} value={p.id}>{p.moldName}</option>)}
-                            </select>
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsSearchableSelectOpen(!isSearchableSelectOpen)}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <span className="truncate">
+                                        {selectedMoldId 
+                                            ? (cleanProjects.find(p => p.id === selectedMoldId)?.moldName || "Kalıp Seçiniz") 
+                                            : "Kalıp Seçiniz"}
+                                    </span>
+                                    <span className="text-gray-400 text-xs">▼</span>
+                                </button>
+                                {isSearchableSelectOpen && (
+                                    <>
+                                        <div 
+                                            className="fixed inset-0 z-20" 
+                                            onClick={() => { setIsSearchableSelectOpen(false); setMoldSearchQuery(''); }}
+                                        />
+                                        <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-lg p-2 flex flex-col gap-2">
+                                            <div className="flex items-center gap-2 relative">
+                                                <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Kalıp adı ara..."
+                                                    value={moldSearchQuery}
+                                                    onChange={(e) => setMoldSearchQuery(e.target.value)}
+                                                    className="w-full pl-9 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                                                    autoFocus
+                                                />
+                                            </div>
+                                            <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-600 pr-1 custom-scrollbar">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedMoldId('');
+                                                        setBatchError('');
+                                                        setIsSearchableSelectOpen(false);
+                                                        setMoldSearchQuery('');
+                                                    }}
+                                                    className="w-full text-left px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded font-medium transition-colors"
+                                                >
+                                                    Kalıp Seçiniz (Seçimi Temizle)
+                                                </button>
+                                                {cleanProjects
+                                                    .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()))
+                                                    .map(p => (
+                                                        <button
+                                                            key={p.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSelectedMoldId(p.id);
+                                                                setBatchError('');
+                                                                setIsSearchableSelectOpen(false);
+                                                                setMoldSearchQuery('');
+                                                            }}
+                                                            className={`w-full text-left px-3 py-2 text-sm rounded font-medium transition-colors ${
+                                                                selectedMoldId === p.id 
+                                                                    ? 'bg-blue-600 text-white' 
+                                                                    : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                                                            }`}
+                                                        >
+                                                            {p.moldName}
+                                                        </button>
+                                                    ))
+                                                }
+                                                {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase())).length === 0 && (
+                                                    <div className="text-sm text-gray-400 dark:text-gray-500 py-2 text-center">Eşleşen kalıp bulunamadı</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                             <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Parça İsimleri (Her satıra bir parça)</label><textarea value={batchTaskNames} onChange={(e) => { setBatchTaskNames(e.target.value); setBatchError(''); }} rows={6} placeholder={`Örnek:\nANA GÖVDE SOL\nANA GÖVDE SAĞ\nSICAK YOLLUK\n...`} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
                             {batchError && (<div className={`flex items-center text-sm p-3 rounded-lg ${batchError.startsWith('ℹ️') ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}><AlertTriangle className="w-4 h-4 mr-2" />{batchError}</div>)}
                             <button onClick={handleBatchAddTasks} className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50" disabled={!selectedMoldId || !batchTaskNames.trim()}>Toplu Parça Ekle ({batchTaskNames.split('\n').filter(name => name.trim().length > 0).length} parça)</button>

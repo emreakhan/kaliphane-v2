@@ -288,7 +288,11 @@ const MoldDetailPage = ({
 
     const isAdmin = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
     const isManager = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
-    const canAddOperations = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
+    const canAddOperations = loggedInUser.role === ROLES.ADMIN || 
+                             loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || 
+                             loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI ||
+                             loggedInUser.role === ROLES.CAM_OPERATOR ||
+                             loggedInUser.role === 'CAM Sorumlusu';
     const canSetCritical = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
     const canManageDrawings = loggedInUser.role === ROLES.ADMIN || loggedInUser.role === ROLES.PROJE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_YONETICISI;
     const canManageMaterials = isAdmin || loggedInUser.role === ROLES.GIRIS_KALITE || loggedInUser.role === ROLES.DEPO_SORUMLUSU || loggedInUser.role === ROLES.TAKIMHANE_SORUMLUSU || loggedInUser.role === ROLES.KALIP_TASARIM_SORUMLUSU;
@@ -748,7 +752,16 @@ const MoldDetailPage = ({
             {/* TAB İÇERİĞİ: OPERASYONLAR */}
             {activeTab === 'operations' && (
                 <>
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">İş Parçaları</h3>
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xl font-semibold text-gray-900 dark:text-white">İş Parçaları</h3>
+                        <button 
+                            onClick={() => navigate(`/cam-job-entry?moldId=${mold.id}`)}
+                            className="flex items-center px-4 py-2 text-xs font-black text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition shadow-md active:scale-95 transform hover:-translate-y-0.5"
+                            title="Yeni Parça Ekle / Düzenle"
+                        >
+                            <Plus className="w-4 h-4 mr-1.5" /> PARÇA EKLE / DÜZENLE
+                        </button>
+                    </div>
                     <div className="space-y-1">
                         <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase rounded-t-lg bg-gray-100 dark:bg-gray-700">
                             <div className="col-span-3">Parça Adı</div>
