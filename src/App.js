@@ -75,6 +75,7 @@ import CamOperatorDashboard from './pages/CamOperatorDashboard.js';
 import NightShiftPlanner from './pages/NightShiftPlanner.js'; // <-- GECE VARDİYASI EKLENDİ
 import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
 import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
+import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -548,6 +549,7 @@ const App = () => {
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
+            { path: '/mold-material-debits', label: 'Kalıp Malzeme Zimmetleri', icon: Layers, roles: canSeeTools },
             { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: canSeeTools },
             { path: '/tool-analysis', label: 'Takım Analizi', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
@@ -736,6 +738,11 @@ const App = () => {
                         <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
                         <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
                         <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} projects={projects} />} />
+                        <Route path="/mold-material-debits" element={
+                            (loggedInUser?.role === ROLES.TAKIMHANE_SORUMLUSU || loggedInUser?.role === ROLES.ADMIN)
+                            ? <MoldMaterialDebitsPage loggedInUser={loggedInUser} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
                         <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
                         <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 

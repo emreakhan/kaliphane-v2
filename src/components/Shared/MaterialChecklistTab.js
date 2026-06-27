@@ -80,68 +80,127 @@ const BarcodeLabel = React.forwardRef(({ material, moldName }, ref) => {
 });
 
 // --- BARKOD ÖNİZLEME MODALI (99mm x 99mm) ---
-const BarcodePreviewModal = ({ isOpen, onClose, material, moldName }) => {
+const BarcodePreviewModal = ({ isOpen, onClose, materials, moldName }) => {
     const contentRef = useRef(null);
-    const handlePrint = useReactToPrint({ contentRef: contentRef, content: () => contentRef.current, documentTitle: `Etiket_${material?.name || 'Malzeme'}` });
+    const handlePrint = useReactToPrint({ contentRef: contentRef, content: () => contentRef.current, documentTitle: `Etiketler_${moldName || 'Kalıp'}` });
 
-    if (!isOpen || !material) return null;
-    const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, erp: material.erpCode || '' });
+    if (!isOpen || !materials || materials.length === 0) return null;
 
-    const hasEn = material.dimObj?.en && String(material.dimObj.en).trim() !== '0';
-    const hasBoy = material.dimObj?.boy && String(material.dimObj.boy).trim() !== '0';
-    const hasKal = material.dimObj?.kal && String(material.dimObj.kal).trim() !== '0';
-    const hasCap = material.dimObj?.cap && String(material.dimObj.cap).trim() !== '0';
-    const hasAnyDim = hasEn || hasBoy || hasKal || hasCap;
-    
-    const cleanName = material.name.replace(/ÇELİK BLOK/gi, '').replace(/CELIK BLOK/gi, '').trim();
+    // Her malzemeyi adeti kadar kopyalayarak listeye ekle
+    const itemsToPrint = [];
+    materials.forEach(mat => {
+        const qty = parseInt(mat.quantity) || 1;
+        for (let i = 0; i < qty; i++) {
+            itemsToPrint.push(mat);
+        }
+    });
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Etiket Önizleme (99 x 99 mm)">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Etiket Önizleme (${itemsToPrint.length} Adet Etiket)`}>
             <div className="flex flex-col items-center space-y-5">
-                <div className="bg-gray-200 dark:bg-gray-700 p-6 rounded-xl flex justify-center w-full overflow-auto">
-                    
-                    {/* YAZDIRILACAK ALAN (ÖNİZLEME) */}
-                    <div ref={contentRef} style={{
-                        width: '99mm', height: '99mm', padding: '5mm 5mm 5mm 8mm', margin: '0 auto', backgroundColor: '#FFFFFF',
-                        color: '#000000', display: 'flex', flexDirection: 'column', fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', overflow: 'hidden'
-                    }}>
-                        {/* YAZICI AYARLARI İÇİN CSS (2. sayfaya taşmayı engeller) */}
-                        <style type="text/css" media="print">
-                            {`@page { size: 99mm 99mm; margin: 0; } body { margin: 0; }`}
-                        </style>
+                {/* Önizleme Alanı: Kaydırılabilir */}
+                <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-xl flex flex-col items-center w-full max-h-[400px] overflow-y-auto gap-6 border dark:border-gray-600">
+                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 text-center">Yazdırılacak toplam etiket adeti: {itemsToPrint.length}</p>
+                    {itemsToPrint.map((material, idx) => {
+                        const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, erp: material.erpCode || '' });
+                        const hasEn = material.dimObj?.en && String(material.dimObj.en).trim() !== '0';
+                        const hasBoy = material.dimObj?.boy && String(material.dimObj.boy).trim() !== '0';
+                        const hasKal = material.dimObj?.kal && String(material.dimObj.kal).trim() !== '0';
+                        const hasCap = material.dimObj?.cap && String(material.dimObj.cap).trim() !== '0';
+                        const hasAnyDim = hasEn || hasBoy || hasKal || hasCap;
+                        const cleanName = material.name.replace(/ÇELİK BLOK/gi, '').replace(/CELIK BLOK/gi, '').trim();
 
-                        <div style={{ fontSize: '24px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', borderBottom: '3px solid black', paddingBottom: '4px', marginBottom: '8px' }}>
-                            {moldName}
-                        </div>
-
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                            <div style={{ fontSize: '30px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', lineHeight: '1.1', marginBottom: '8px' }}>
-                                {material.moldSurface || 'YÜZEY BELİRTİLMEDİ'}
+                        return (
+                            <div key={idx} className="border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg bg-white p-2 relative">
+                                <span className="absolute top-1 right-2 text-[10px] font-black text-gray-400">Kopya: {idx + 1} / {itemsToPrint.length}</span>
+                                <div style={{
+                                    width: '99mm', height: '99mm', padding: '5mm 5mm 5mm 8mm', backgroundColor: '#FFFFFF',
+                                    color: '#000000', display: 'flex', flexDirection: 'column', fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', overflow: 'hidden'
+                                }}>
+                                    <div style={{ fontSize: '24px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', borderBottom: '3px solid black', paddingBottom: '4px', marginBottom: '8px' }}>
+                                        {moldName}
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                                        <div style={{ fontSize: '30px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', lineHeight: '1.1', marginBottom: '8px' }}>
+                                            {material.moldSurface || 'YÜZEY BELİRTİLMEDİ'}
+                                        </div>
+                                        <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', color: '#222', textTransform: 'uppercase' }}>
+                                            {cleanName}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '3px solid black', paddingTop: '6px' }}>
+                                        <div style={{ fontSize: '16px', fontWeight: '900', lineHeight: '1.4', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                            {hasEn && <div>EN: {material.dimObj.en}</div>}
+                                            {hasBoy && <div>BOY: {material.dimObj.boy}</div>}
+                                            {hasKal && <div>KALINLIK: {material.dimObj.kal}</div>}
+                                            {hasCap && <div>ÇAP: {material.dimObj.cap}</div>}
+                                            {!hasAnyDim && <div style={{ fontSize: '12px', color: '#888' }}>Ölçü Yok</div>}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingLeft: '5px' }}>
+                                            <QRCodeSVG value={qrData} size={75} level={"H"} />
+                                            <div style={{ fontSize: '9px', fontWeight: 'bold', marginTop: '3px' }}>{material.erpCode || material.id.substring(0,8).toUpperCase()}</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', color: '#222', textTransform: 'uppercase' }}>
-                                {cleanName}
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '3px solid black', paddingTop: '6px' }}>
-                            <div style={{ fontSize: '16px', fontWeight: '900', lineHeight: '1.4', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                {hasEn && <div>EN: {material.dimObj.en}</div>}
-                                {hasBoy && <div>BOY: {material.dimObj.boy}</div>}
-                                {hasKal && <div>KALINLIK: {material.dimObj.kal}</div>}
-                                {hasCap && <div>ÇAP: {material.dimObj.cap}</div>}
-                                {!hasAnyDim && (
-                                    <div style={{ fontSize: '12px', color: '#888' }}>Ölçü Yok</div>
-                                )}
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingLeft: '5px' }}>
-                                <QRCodeSVG value={qrData} size={75} level={"H"} />
-                                <div style={{ fontSize: '9px', fontWeight: 'bold', marginTop: '3px' }}>{material.erpCode || material.id.substring(0,8).toUpperCase()}</div>
-                            </div>
-                        </div>
-                    </div>
-
+                        );
+                    })}
                 </div>
+
+                {/* YAZDIRILACAK GERÇEK GİZLİ ALAN */}
+                <div style={{ display: 'none' }}>
+                    <div ref={contentRef}>
+                        <style type="text/css" media="print">
+                            {`
+                            @page { size: 99mm 99mm; margin: 0; }
+                            body { margin: 0; }
+                            .page-break { page-break-after: always; break-after: page; }
+                            `}
+                        </style>
+                        {itemsToPrint.map((material, idx) => {
+                            const qrData = JSON.stringify({ id: material.id, proj: moldName, mat: material.name, erp: material.erpCode || '' });
+                            const hasEn = material.dimObj?.en && String(material.dimObj.en).trim() !== '0';
+                            const hasBoy = material.dimObj?.boy && String(material.dimObj.boy).trim() !== '0';
+                            const hasKal = material.dimObj?.kal && String(material.dimObj.kal).trim() !== '0';
+                            const hasCap = material.dimObj?.cap && String(material.dimObj.cap).trim() !== '0';
+                            const hasAnyDim = hasEn || hasBoy || hasKal || hasCap;
+                            const cleanName = material.name.replace(/ÇELİK BLOK/gi, '').replace(/CELIK BLOK/gi, '').trim();
+
+                            return (
+                                <div key={idx} className="page-break" style={{
+                                    width: '99mm', height: '99mm', padding: '5mm 5mm 5mm 8mm', margin: '0', backgroundColor: '#FFFFFF',
+                                    color: '#000000', display: 'flex', flexDirection: 'column', fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', overflow: 'hidden'
+                                }}>
+                                    <div style={{ fontSize: '24px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', borderBottom: '3px solid black', paddingBottom: '4px', marginBottom: '8px' }}>
+                                        {moldName}
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                                        <div style={{ fontSize: '30px', fontWeight: '900', textAlign: 'center', textTransform: 'uppercase', lineHeight: '1.1', marginBottom: '8px' }}>
+                                            {material.moldSurface || 'YÜZEY BELİRTİLMEDİ'}
+                                        </div>
+                                        <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', color: '#222', textTransform: 'uppercase' }}>
+                                            {cleanName}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '3px solid black', paddingTop: '6px' }}>
+                                        <div style={{ fontSize: '16px', fontWeight: '900', lineHeight: '1.4', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                            {hasEn && <div>EN: {material.dimObj.en}</div>}
+                                            {hasBoy && <div>BOY: {material.dimObj.boy}</div>}
+                                            {hasKal && <div>KALINLIK: {material.dimObj.kal}</div>}
+                                            {hasCap && <div>ÇAP: {material.dimObj.cap}</div>}
+                                            {!hasAnyDim && <div style={{ fontSize: '12px', color: '#888' }}>Ölçü Yok</div>}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingLeft: '5px' }}>
+                                            <QRCodeSVG value={qrData} size={75} level={"H"} />
+                                            <div style={{ fontSize: '9px', fontWeight: 'bold', marginTop: '3px' }}>{material.erpCode || material.id.substring(0,8).toUpperCase()}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
                 <div className="flex justify-end gap-3 w-full border-t dark:border-gray-700 pt-4">
                     <button onClick={onClose} className="px-5 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-bold transition text-sm">İptal</button>
                     <button onClick={handlePrint} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition flex items-center text-sm"><Printer className="w-5 h-5 mr-2" /> Yazdır</button>
@@ -165,7 +224,8 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
     const [isSaving, setIsSaving] = useState(false);
     
     const [isBarcodePreviewOpen, setIsBarcodePreviewOpen] = useState(false);
-    const [selectedMaterialForPrint, setSelectedMaterialForPrint] = useState(null);
+    const [selectedMaterialsForPrint, setSelectedMaterialsForPrint] = useState([]);
+    const [selectedMaterialIds, setSelectedMaterialIds] = useState([]);
 
     const [isErpModalOpen, setIsErpModalOpen] = useState(false);
     const [erpPreviewData, setErpPreviewData] = useState([]);
@@ -175,14 +235,22 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
     const [selectedMaterialForForklift, setSelectedMaterialForForklift] = useState(null);
     const [selectedTargetMachine, setSelectedTargetMachine] = useState('');
 
-    const printRef = useRef();
     const listPrintRef = useRef(null);
+
+    useEffect(() => {
+        setSelectedMaterialIds([]);
+    }, [mold.id]);
 
     const handlePrintList = useReactToPrint({ 
         contentRef: listPrintRef, 
         content: () => listPrintRef.current, 
         documentTitle: `Malzeme_Listesi_${mold?.moldName || 'Kalıp'}` 
     });
+
+    const handleOpenBarcodePreview = (material) => { 
+        setSelectedMaterialsForPrint([material]); 
+        setIsBarcodePreviewOpen(true); 
+    };
 
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, MACHINES_COLLECTION)), (snap) => {
@@ -324,7 +392,7 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
         }
     };
 
-    const handleOpenBarcodePreview = (material) => { setSelectedMaterialForPrint(material); setIsBarcodePreviewOpen(true); };
+
 
     // YENİ FORMATLI EXCEL VERİSİNİ OKUMA (Ölçü 0 ise atlama eklendi, Çap Eklendi)
     const handleExcelFileUpload = (e) => { 
@@ -402,6 +470,18 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                     <ListChecks className="w-5 h-5 mr-2 text-indigo-600" /> Siparişi Verilen / Gelen Malzemeler
                 </h3>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    {selectedMaterialIds.length > 0 && (
+                        <button 
+                            onClick={() => {
+                                const selectedObjects = materials.filter(m => selectedMaterialIds.includes(m.id));
+                                setSelectedMaterialsForPrint(selectedObjects);
+                                setIsBarcodePreviewOpen(true);
+                            }} 
+                            className="flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black rounded-lg shadow-md transition flex-1 md:flex-none animate-bounce-short"
+                        >
+                            <QrCode className="w-4 h-4 mr-2" /> Seçilen Etiketleri Çıkar ({selectedMaterialIds.length})
+                        </button>
+                    )}
                     <button onClick={handlePrintList} className="flex items-center justify-center px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-bold rounded-lg shadow-md transition flex-1 md:flex-none">
                         <Printer className="w-4 h-4 mr-2" /> Listeyi Yazdır
                     </button>
@@ -423,6 +503,20 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                         <tr>
+                            <th className="px-4 py-3 text-left w-10">
+                                <input 
+                                    type="checkbox"
+                                    checked={materials.length > 0 && selectedMaterialIds.length === materials.length}
+                                    onChange={(e) => {
+                                        if (e.target.checked) {
+                                            setSelectedMaterialIds(materials.map(m => m.id));
+                                        } else {
+                                            setSelectedMaterialIds([]);
+                                        }
+                                    }}
+                                    className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 bg-white dark:bg-gray-700"
+                                />
+                            </th>
                             <th className="px-6 py-3 text-left text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Malzeme Adı & Yüzeyi</th>
                             <th className="px-6 py-3 text-left text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tür / Ölçü</th>
                             <th className="px-6 py-3 text-center text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Durum</th>
@@ -431,10 +525,24 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {materials.length === 0 ? (
-                            <tr><td colSpan="4" className="px-6 py-8 text-center text-sm text-gray-500">Henüz malzeme kaydı girilmemiş.</td></tr>
+                            <tr><td colSpan="5" className="px-6 py-8 text-center text-sm text-gray-500">Henüz malzeme kaydı girilmemiş.</td></tr>
                         ) : (
                             materials.map(mat => (
                                 <tr key={mat.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                    <td className="px-4 py-4 whitespace-nowrap text-left">
+                                        <input 
+                                            type="checkbox"
+                                            checked={selectedMaterialIds.includes(mat.id)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedMaterialIds([...selectedMaterialIds, mat.id]);
+                                                } else {
+                                                    setSelectedMaterialIds(selectedMaterialIds.filter(id => id !== mat.id));
+                                                }
+                                            }}
+                                            className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 bg-white dark:bg-gray-700"
+                                        />
+                                    </td>
                                     <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
                                         <div className="font-bold flex items-center">
                                             {mat.name} <span className="text-gray-500 text-xs ml-2">x{mat.quantity}</span>
@@ -474,11 +582,9 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                                                 </button>
                                             )}
 
-                                            {(mat.status === OPERATION_STATUS.DEPODA || mat.status === OPERATION_STATUS.TASIMA_BEKLIYOR || mat.status === OPERATION_STATUS.BUFFER_BEKLIYOR) && (
-                                                <button onClick={() => handleOpenBarcodePreview(mat)} className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded transition flex items-center" title="Etiket Yazdır">
-                                                    <QrCode className="w-4 h-4" />
-                                                </button>
-                                            )}
+                                            <button onClick={() => handleOpenBarcodePreview(mat)} className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded transition flex items-center" title="Etiket Yazdır">
+                                                <QrCode className="w-4 h-4" />
+                                            </button>
 
                                             {/* DÜZENLEME BUTONU */}
                                             {canManageMaterials && (
@@ -693,8 +799,7 @@ const MaterialChecklistTab = ({ mold, materials, canManageMaterials, loggedInUse
                 </div>
             )}
 
-            <BarcodePreviewModal isOpen={isBarcodePreviewOpen} onClose={() => setIsBarcodePreviewOpen(false)} material={selectedMaterialForPrint} moldName={mold.moldName} />
-            <BarcodeLabel ref={printRef} material={selectedMaterialForPrint} moldName={mold.moldName} />
+            <BarcodePreviewModal isOpen={isBarcodePreviewOpen} onClose={() => setIsBarcodePreviewOpen(false)} materials={selectedMaterialsForPrint} moldName={mold.moldName} />
             
             {/* YENİ: YAZDIRILABİLİR MALZEME LİSTESİ ÇEK LİSTESİ (GİZLİ) */}
             <div style={{ display: 'none' }}>

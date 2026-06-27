@@ -10,7 +10,7 @@ import {
 } from '../config/firebase.js';
 import { 
     MACHINES_COLLECTION, INVENTORY_COLLECTION, PERSONNEL_COLLECTION,
-    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES
+    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES, MOLD_MATERIAL_HANDOUTS_COLLECTION
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
@@ -179,19 +179,35 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                 if (!item.isMoldMaterial) {
                     const toolRef = doc(db, INVENTORY_COLLECTION, item.toolId);
                     await updateDoc(toolRef, { totalStock: increment(-item.quantity) });
-                }
-                for (let i = 0; i < item.quantity; i++) {
-                    toolsToAdd.push({
-                        instanceId: Date.now() + Math.random(),
-                        toolId: item.toolId,
-                        toolName: item.toolName,
+                    
+                    for (let i = 0; i < item.quantity; i++) {
+                        toolsToAdd.push({
+                            instanceId: Date.now() + Math.random(),
+                            toolId: item.toolId,
+                            toolName: item.toolName,
+                            productCode: item.productCode || '',
+                            category: item.category || 'DİĞER',
+                            condition: item.condition,
+                            givenDate: now,
+                            givenBy: loggedInUser.name,
+                            receivedBy: operatorName,
+                            isMoldMaterial: false
+                        });
+                    }
+                } else {
+                    // Kalıp malzemesi ise: Alıcının zimmetine (currentTools) EKLEME!
+                    // Yeni koleksiyona kaydet.
+                    await addDoc(collection(db, MOLD_MATERIAL_HANDOUTS_COLLECTION), {
+                        materialId: item.toolId,
+                        materialName: item.toolName,
                         productCode: item.productCode || '',
-                        category: item.category || 'DİĞER',
-                        condition: item.condition,
+                        quantity: item.quantity,
                         givenDate: now,
                         givenBy: loggedInUser.name,
                         receivedBy: operatorName,
-                        isMoldMaterial: item.isMoldMaterial || false
+                        targetName: selectedOwner.name,
+                        targetType: viewMode,
+                        date: now
                     });
                 }
                 const prefix = item.condition === 'USED' ? '[KULLANILMIŞ] ' : '';
