@@ -76,6 +76,7 @@ import NightShiftPlanner from './pages/NightShiftPlanner.js'; // <-- GECE VARDİ
 import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
 import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
 import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
+import SurveyEvaluationPage from './pages/SurveyEvaluationPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -139,6 +140,16 @@ const App = () => {
             navigate('/');
         }
     }, [loggedInUser, navigate]);
+
+    // Tezgah Operatörleri için rota sınırlandırma
+    useEffect(() => {
+        if (loggedInUser && loggedInUser.role === ROLES.MACHINE_OPERATOR) {
+            const allowedPaths = ['/terminal', '/survey-evaluation'];
+            if (!allowedPaths.includes(location.pathname)) {
+                navigate('/terminal', { replace: true });
+            }
+        }
+    }, [loggedInUser, location.pathname, navigate]);
 
     const seedInitialData = useCallback(async () => {
         if (!db) return;
@@ -529,6 +540,14 @@ const App = () => {
         
         const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
         const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
+        const isMachineOp = loggedInUser.role === ROLES.MACHINE_OPERATOR;
+
+        if (isMachineOp) {
+            return [
+                { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.MACHINE_OPERATOR] },
+                { path: '/survey-evaluation', label: 'Anket & Değerlendirme', icon: ClipboardCheck, roles: [ROLES.MACHINE_OPERATOR] }
+            ];
+        }
 
         if (isCncLatheOp) {
             return [
@@ -587,6 +606,7 @@ const App = () => {
             { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, 
             { path: '/assembly', label: 'Montaj Paneli', icon: Wrench, roles: [ROLES.ADMIN] }, 
             { path: '/continuous-improvement', label: 'Sürekli İyileştirme', icon: Target, roles: rolesExceptToolRoomAndCnc },
+            { path: '/survey-evaluation', label: 'Anket & Değerlendirme', icon: ClipboardCheck, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.MACHINE_OPERATOR, ROLES.CNC_TORNA_OPERATORU, ROLES.CNC_TORNA_SORUMLUSU] },
         ];
         return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
     }, [loggedInUser]);
@@ -612,7 +632,7 @@ const App = () => {
         );
     }
 
-    if (location.pathname === '/terminal') {
+    if (location.pathname === '/terminal' && loggedInUser?.role !== ROLES.MACHINE_OPERATOR) {
         return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />;
     }
 
@@ -786,8 +806,26 @@ const App = () => {
                         <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
                         <Route path="/history" element={<HistoryPage projects={projects} />} />
                         <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                        <Route path="/terminal" element={<TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />} />
+                        <Route path="/terminal" element={
+                            <TerminalPage 
+                                personnel={personnel} 
+                                projects={projects} 
+                                machines={machines} 
+                                handleTerminalAction={handleTerminalAction} 
+                                loggedInUser={loggedInUser}
+                                onLogout={() => {
+                                    setLoggedInUser(null);
+                                    localStorage.removeItem('kaliphane_user');
+                                    navigate('/');
+                                }}
+                            />
+                        } />
                         <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                        <Route path="/survey-evaluation" element={
+                            (loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.CAM_OPERATOR || loggedInUser?.role === 'CAM Sorumlusu' || loggedInUser?.role === ROLES.MACHINE_OPERATOR || loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                            ? <SurveyEvaluationPage loggedInUser={loggedInUser} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
                         <Route path="/mold/:moldId" element={<MoldDetailPage loggedInUser={loggedInUser} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleReportOperationIssue={handleReportOperationIssue} handleSetCriticalTask={handleSetCriticalTask} handleUpdateMoldStatus={handleUpdateMoldStatus} handleUpdateMoldDeadline={handleUpdateMoldDeadline} handleUpdateMoldPriority={handleUpdateMoldPriority} handleUpdateTrialReportUrl={handleUpdateTrialReportUrl} handleUpdateProductImageUrl={handleUpdateProductImageUrl} handleUpdateProjectManager={handleUpdateProjectManager} handleUpdateMoldDesigner={handleUpdateMoldDesigner} handleUpdateCamResponsible={handleUpdateCamResponsible} projects={projects} personnel={personnel} machines={machines} db={db} />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

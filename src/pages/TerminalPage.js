@@ -5,7 +5,7 @@ import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, Paus
 import { OPERATION_STATUS } from '../config/constants';
 import PauseReasonModal from './PauseReasonModal';
 
-const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isTerminalRole = false, onLogout }) => {
+const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isTerminalRole = false, onLogout, loggedInUser }) => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [activeOperator, setActiveOperator] = useState(null); 
@@ -23,6 +23,26 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
         };
     }, []);
     // --------------------------------------------------------
+
+    // Tezgah Operatörü olarak giriş yapılmışsa otomatik oturum aç
+    useEffect(() => {
+        if (loggedInUser && loggedInUser.role === 'Tezgah Operatörü') {
+            const matchingPerson = (personnel || []).find(p => p.name === loggedInUser.name || p.id === loggedInUser.id);
+            if (matchingPerson) {
+                setActiveOperator(matchingPerson);
+            } else {
+                setActiveOperator({
+                    id: loggedInUser.id || 'logged-in-op',
+                    name: loggedInUser.name,
+                    role: loggedInUser.role
+                });
+            }
+        } else {
+            if (!isTerminalRole) {
+                setActiveOperator(null);
+            }
+        }
+    }, [loggedInUser, personnel, isTerminalRole]);
 
     const handleNumPadClick = (num) => {
         if (pin.length < 4) {
@@ -46,9 +66,13 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
     };
 
     const handleLogout = () => { 
-        setActiveOperator(null); 
-        setSelectedMachine(null); 
-        setPin(''); 
+        if (loggedInUser && loggedInUser.role === 'Tezgah Operatörü' && onLogout) {
+            onLogout();
+        } else {
+            setActiveOperator(null); 
+            setSelectedMachine(null); 
+            setPin(''); 
+        }
     };
 
     // --- TEZGAH SEÇİM EKRANI ---
