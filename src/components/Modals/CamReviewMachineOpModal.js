@@ -16,19 +16,19 @@ import { calculateDurationInHours } from '../../utils/mathUtils';
 import Modal from './Modal.js';
 
 const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSubmit }) => {
-    const [rating, setRating] = useState(10);
+    const [rating, setRating] = useState(null);
     const [comment, setComment] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if(isOpen) {
-            setRating(10);
+            setRating(null);
             setComment('');
         }
     }, [isOpen]);
 
     const handleSave = async () => {
-        if (!operation || !task || !mold) return;
+        if (!operation || !task || !mold || rating === null) return;
         setIsSaving(true);
         const finishDate = getCurrentDateTimeString();
         const durationInHours = calculateDurationInHours(operation.startDate, finishDate);
@@ -41,7 +41,6 @@ const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSub
             camOperatorRatingForMachineOp: rating,
             camOperatorCommentForMachineOp: comment,
             camOperatorReviewDate: getCurrentDateTimeString(),
-            // DEĞİŞİKLİK BURADA: Artık onay beklemiyor, direkt tamamlanıyor.
             status: OPERATION_STATUS.COMPLETED, 
         };
         
@@ -63,16 +62,28 @@ const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSub
 
             <div className="space-y-4 mt-4">
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tezgah Operatörü Puanı: {rating} / 10</label>
-                     <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        step="1"
-                         value={rating}
-                        onChange={(e) => setRating(parseInt(e.target.value))}
-                        className="mt-1 block w-full h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer dark:bg-blue-700"
-                    />
+                    <label className="block text-sm font-black text-gray-700 dark:text-gray-300 mb-2">
+                        Tezgah Operatörü Puanı: {rating !== null ? `${rating} / 10` : <span className="text-red-500 font-extrabold">(Puan seçilmesi zorunludur)</span>}
+                    </label>
+                    <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                            const isSelected = rating === num;
+                            return (
+                                <button
+                                    key={num}
+                                    type="button"
+                                    onClick={() => setRating(num)}
+                                    className={`py-3 rounded-xl font-black text-sm border-2 transition-all text-center flex items-center justify-center ${
+                                        isSelected 
+                                        ? 'bg-blue-600 border-blue-600 text-white shadow-md scale-105' 
+                                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-blue-300 hover:text-blue-500 dark:hover:border-blue-800'
+                                    }`}
+                                >
+                                    {num}
+                                </button>
+                            );
+                        })}
+                    </div>
                  </div>
                  <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Yorum (Opsiyonel)</label>
@@ -95,8 +106,8 @@ const CamReviewMachineOpModal = ({ isOpen, onClose, mold, task, operation, onSub
                 </button>
                  <button
                     onClick={handleSave}
-                    disabled={isSaving}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition flex items-center disabled:bg-green-400"
+                    disabled={isSaving || rating === null}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition flex items-center disabled:bg-gray-400 dark:disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
                  >
                     <UserCheck className="w-4 h-4 mr-2"/> {isSaving ? 'Kaydediliyor...' : 'Değerlendir ve Bitir'}
                 </button>

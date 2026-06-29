@@ -314,6 +314,28 @@ const App = () => {
     
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
         if (!db) return;
+        
+        if (actionType === 'SHIFT_START' || actionType === 'SHIFT_END') {
+            const now = getCurrentDateTimeString();
+            const today = now.substring(0, 10);
+            const logId = `${operatorName.replace(/\s+/g, '_')}-${Date.now()}`;
+            const machineName = (pauseReason && pauseReason.machineName) ? pauseReason.machineName : 'Bilinmeyen Tezgah';
+            
+            try {
+                await setDoc(doc(db, `artifacts/default-app-id/public/data/operatorShiftLogs`, logId), {
+                    id: logId,
+                    operatorName,
+                    machineName,
+                    action: actionType,
+                    timestamp: now,
+                    date: today
+                });
+            } catch (err) {
+                console.error("Vardiya logu kaydedilemedi:", err);
+            }
+            return;
+        }
+        
         const moldRef = doc(db, PROJECT_COLLECTION, moldId);
         
         const currentProject = projects.find(p => p.id === moldId);
@@ -336,6 +358,7 @@ const App = () => {
         if (actionType === 'START_SETUP') {
             updatedOp.status = OPERATION_STATUS.IN_PROGRESS;
             updatedOp.setupStartTime = now;
+            updatedOp.productionStartTime = null;
             updatedOp.isSettingUp = true;
             updatedOp.isOperatorFinished = false; 
         } 

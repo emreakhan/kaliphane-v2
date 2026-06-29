@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Clock, PauseCircle, Activity, Box, BarChart2, Layers, AlertTriangle, Settings, ChevronDown, ChevronUp, Users, User, Calendar } from 'lucide-react';
+import PersonnelProductionLogsView from './PersonnelProductionLogsView.js';
 
 // --- YARDIMCI FONKSİYONLAR ---
 const calcMs = (startStr, endStr) => {
@@ -28,11 +29,12 @@ const formatDuration = (ms) => {
     return parts.join(' ');
 };
 
-const ProductionLogsView = ({ projects }) => {
+const ProductionLogsView = ({ projects, personnel }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState(null);
     const [moldFilter, setMoldFilter] = useState('all');
     const [expandedTasks, setExpandedTasks] = useState({});
+    const [subTab, setSubTab] = useState('mold'); // 'mold' or 'personnel'
 
     const toggleTask = (taskId) => {
         setExpandedTasks(prev => ({
@@ -202,7 +204,35 @@ const ProductionLogsView = ({ projects }) => {
     }, [selectedMold]);
 
     return (
-        <div className="flex h-[calc(100vh-100px)] overflow-hidden bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl">
+        <div className="space-y-4">
+            {/* Alt Sekme Seçici */}
+            <div className="flex bg-gray-100 dark:bg-gray-800 p-1.5 rounded-xl max-w-md shadow-sm border border-gray-200/50 dark:border-gray-700/50">
+                <button
+                    onClick={() => setSubTab('mold')}
+                    className={`flex-1 py-2 px-4 text-xs font-black rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                        subTab === 'mold'
+                            ? 'bg-white dark:bg-gray-700 text-orange-600 dark:text-white shadow-md ring-1 ring-black/5'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    }`}
+                >
+                    <Layers className="w-4 h-4" /> Kalıp Bazlı Loglar
+                </button>
+                <button
+                    onClick={() => setSubTab('personnel')}
+                    className={`flex-1 py-2 px-4 text-xs font-black rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                        subTab === 'personnel'
+                            ? 'bg-white dark:bg-gray-700 text-orange-600 dark:text-white shadow-md ring-1 ring-black/5'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    }`}
+                >
+                    <Users className="w-4 h-4" /> Personel Bazlı Loglar
+                </button>
+            </div>
+
+            {subTab === 'personnel' ? (
+                <PersonnelProductionLogsView projects={projects} personnel={personnel} />
+            ) : (
+                <div className="flex h-[calc(100vh-170px)] overflow-hidden bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl">
             
             {/* SOL PANEL: LİSTE */}
             <div className="w-1/4 min-w-[275px] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-gray-800">
@@ -508,7 +538,9 @@ const ProductionLogsView = ({ projects }) => {
                         <p className="text-xl font-medium">Loglarını görmek istediğiniz kalıbı soldan seçin.</p>
                     </div>
                 )}
-            </div>
+                </div>
+                </div>
+            )}
         </div>
     );
 };

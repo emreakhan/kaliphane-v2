@@ -198,6 +198,38 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar pb-10 space-y-8">
                     
+                    {/* VARDİYA İŞLEMLERİ PANELİ */}
+                    <div className="bg-gray-800/80 border border-gray-700 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg shrink-0">
+                        <div>
+                            <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-orange-500 animate-pulse" /> Vardiya Kontrolü
+                            </h4>
+                            <p className="text-xs text-gray-400 mt-1">
+                                Günlük çalışma sürenizin hesaplanması için vardiya başlangıcında ve sonunda bu butonları kullanın.
+                            </p>
+                        </div>
+                        <div className="flex gap-4 w-full md:w-auto">
+                            <button
+                                onClick={() => {
+                                    onAction(null, null, null, 'SHIFT_START', { machineName: selectedMachine.name });
+                                    alert("İş Başı / Vardiya başlangıcı kaydı başarıyla oluşturuldu.");
+                                }}
+                                className="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2"
+                            >
+                                <PlayCircle className="w-4 h-4" /> İş Başı Yap
+                            </button>
+                            <button
+                                onClick={() => {
+                                    onAction(null, null, null, 'SHIFT_END', { machineName: selectedMachine.name });
+                                    alert("Vardiya Sonu kaydı başarıyla oluşturuldu.");
+                                }}
+                                className="flex-1 md:flex-initial bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2"
+                            >
+                                <FastForward className="w-4 h-4" /> Vardiya Sonu
+                            </button>
+                        </div>
+                    </div>
+                    
                     {/* AKTİF İŞLER */}
                     <div>
                         <h3 className="text-xl font-bold text-gray-300 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2" /> Mevcut İş</h3>
@@ -437,20 +469,32 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
                     )}
 
                     {mode === 'PRODUCTION' && (
-                        <div className="flex gap-3">
-                            <button 
-                                onClick={() => onPauseClick(task)}
-                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
-                            >
-                                <PauseCircle className="w-5 h-5 mr-2" /> DURAKLAT
-                            </button> 
+                        <div className="flex flex-col gap-2">
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => {
+                                        if(window.confirm("İmalat durdurulup yeniden ayar moduna geçilsin mi?"))
+                                            onAction(task.moldId, task.taskId, task.id, 'START_SETUP');
+                                    }} 
+                                    className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3.5 rounded-xl text-xs sm:text-sm shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                                >
+                                    <Settings className="w-4 h-4 mr-1.5" /> YENİDEN AYAR
+                                </button>
+                                
+                                <button 
+                                    onClick={() => onPauseClick(task)}
+                                    className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-xl text-xs sm:text-sm shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                                >
+                                    <PauseCircle className="w-4 h-4 mr-1.5" /> DURAKLAT
+                                </button> 
+                            </div>
                             
                             <button 
                                 onClick={() => { 
                                     if(window.confirm("Parça tamamlandı mı? İşlem yetkili onayına gönderilecek.")) 
                                         onAction(task.moldId, task.taskId, task.id, 'FINISH_JOB'); 
                                 }} 
-                                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
+                                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-sm sm:text-base shadow-lg flex items-center justify-center transition-transform active:scale-95"
                             >
                                 <CheckCircle className="w-5 h-5 mr-2" /> TAMAMLA
                             </button>

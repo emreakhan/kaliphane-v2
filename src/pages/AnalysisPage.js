@@ -816,7 +816,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                      timelineAnalysis={timelineAnalysis}
                  />
              ) :
-             activeTab === 'production_logs' ? <ProductionLogsView projects={projects} /> :
+             activeTab === 'production_logs' ? <ProductionLogsView projects={projects} personnel={personnel} /> :
              activeTab === 'rework' ? <ReworkAnalysisCard /> : 
              activeTab === 'personnel' ? (
                 <PersonnelPerformanceAnalysis 
