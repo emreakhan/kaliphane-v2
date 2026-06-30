@@ -1,7 +1,7 @@
 // src/components/Shared/PersonnelManagement.js
 
-import React, { useState } from 'react';
-import { Users, AlertTriangle, Edit2, Trash2, Cpu, Hash, Mail } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Users, AlertTriangle, Edit2, Trash2, Cpu, Hash, Mail, Search } from 'lucide-react';
 import { PERSONNEL_ROLES } from '../../config/constants.js';
 import { getCurrentDateTimeString } from '../../utils/dateUtils';
 
@@ -27,11 +27,51 @@ const PersonnelManagement = ({ personnel, setPersonnel, machines, setMachines })
     const [editingPersonnel, setEditingPersonnel] = useState(null);
     const [editPersonnelData, setEditPersonnelData] = useState({ name: '', role: '', username: '', password: '', pinCode: '', email: '' });
 
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedRole, setSelectedRole] = useState('');
+
+    const filteredPersonnel = useMemo(() => {
+        if (!personnel || !Array.isArray(personnel)) return [];
+        return personnel.filter(p => {
+            const matchesSearch = !searchTerm.trim() || 
+                (p.name && p.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (p.username && p.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (p.email && p.email.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            const matchesRole = !selectedRole || p.role === selectedRole;
+
+            return matchesSearch && matchesRole;
+        });
+    }, [personnel, searchTerm, selectedRole]);
+
     const handleAddPersonnel = async () => {
         if (!newPersonnel.name || !newPersonnel.role) {
             alert("Lütfen isim ve rol giriniz.");
             return;
         }
+
+        // Kullanıcı Adı Benzersizlik Kontrolü
+        if (newPersonnel.username) {
+            const isUsernameExists = personnel.some(p => 
+                p.username && p.username.toLowerCase().trim() === newPersonnel.username.toLowerCase().trim()
+            );
+            if (isUsernameExists) {
+                alert(`⚠️ "${newPersonnel.username}" kullanıcı adı başka bir personel tarafından kullanılmaktadır! Lütfen farklı bir kullanıcı adı seçin.`);
+                return;
+            }
+        }
+
+        // PIN Kodu Benzersizlik Kontrolü
+        if (newPersonnel.pinCode) {
+            const isPinExists = personnel.some(p => 
+                p.pinCode && p.pinCode.trim() === newPersonnel.pinCode.trim()
+            );
+            if (isPinExists) {
+                alert(`⚠️ "${newPersonnel.pinCode}" PIN kodu başka bir personel tarafından kullanılmaktadır! Lütfen farklı bir PIN kodu seçin.`);
+                return;
+            }
+        }
+
         if (newPersonnel.role !== PERSONNEL_ROLES.MACHINE_OPERATOR) {
              if (!newPersonnel.username || !newPersonnel.password) {
                 alert("Bu rol için Kullanıcı Adı ve Şifre zorunludur.");
@@ -78,6 +118,31 @@ const PersonnelManagement = ({ personnel, setPersonnel, machines, setMachines })
     
     const handleUpdatePersonnel = async () => {
         if (!editingPersonnel || !db) return;
+
+        // Kullanıcı Adı Benzersizlik Kontrolü
+        if (editPersonnelData.username) {
+            const isUsernameExists = personnel.some(p => 
+                p.id !== editingPersonnel.id &&
+                p.username && p.username.toLowerCase().trim() === editPersonnelData.username.toLowerCase().trim()
+            );
+            if (isUsernameExists) {
+                alert(`⚠️ "${editPersonnelData.username}" kullanıcı adı başka bir personel tarafından kullanılmaktadır! Lütfen farklı bir kullanıcı adı seçin.`);
+                return;
+            }
+        }
+
+        // PIN Kodu Benzersizlik Kontrolü
+        if (editPersonnelData.pinCode) {
+            const isPinExists = personnel.some(p => 
+                p.id !== editingPersonnel.id &&
+                p.pinCode && p.pinCode.trim() === editPersonnelData.pinCode.trim()
+            );
+            if (isPinExists) {
+                alert(`⚠️ "${editPersonnelData.pinCode}" PIN kodu başka bir personel tarafından kullanılmaktadır! Lütfen farklı bir PIN kodu seçin.`);
+                return;
+            }
+        }
+
         try {
             const personRef = doc(db, PERSONNEL_COLLECTION, editingPersonnel.id);
             await updateDoc(personRef, {
@@ -155,6 +220,32 @@ const PersonnelManagement = ({ personnel, setPersonnel, machines, setMachines })
                 </div>
 
                 <div className="overflow-x-auto">
+                    {/* Arama ve Filtreleme */}
+                    <div className="flex flex-col sm:flex-row gap-4 mb-4 items-center justify-between">
+                        <div className="relative w-full sm:max-w-xs">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                            <input
+                                type="text"
+                                placeholder="Personel adı, k. adı veya e-posta ara..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 text-sm"
+                            />
+                        </div>
+                        <div className="w-full sm:w-48">
+                            <select
+                                value={selectedRole}
+                                onChange={(e) => setSelectedRole(e.target.value)}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                            >
+                                <option value="">Tüm Roller</option>
+                                {Object.values(PERSONNEL_ROLES).map(role => (
+                                    <option key={role} value={role}>{role}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -167,19 +258,27 @@ const PersonnelManagement = ({ personnel, setPersonnel, machines, setMachines })
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                            {personnel.map(p => (
-                                <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{p.name}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300"><span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-semibold">{p.role}</span></td>
-                                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{p.email || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{p.username || '-'}</td>
-                                    <td className="px-4 py-3 text-sm font-mono text-gray-900 dark:text-white">{p.pinCode ? <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded border dark:border-gray-600">{p.pinCode}</span> : <span className="text-gray-400 text-xs italic">Yok</span>}</td>
-                                    <td className="px-4 py-3 text-right text-sm font-medium space-x-2">
-                                        <button onClick={() => handleEditPersonnel(p)} className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"><Edit2 className="w-4 h-4" /></button>
-                                        <button onClick={() => handleDeletePersonnel(p.id)} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"><Trash2 className="w-4 h-4" /></button>
+                            {filteredPersonnel.length === 0 ? (
+                                <tr>
+                                    <td colSpan="6" className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 font-semibold italic">
+                                        Eşleşen personel bulunamadı.
                                     </td>
                                 </tr>
-                            ))}
+                            ) : (
+                                filteredPersonnel.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">{p.name}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300"><span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-semibold">{p.role}</span></td>
+                                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{p.email || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{p.username || '-'}</td>
+                                        <td className="px-4 py-3 text-sm font-mono text-gray-900 dark:text-white">{p.pinCode ? <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded border dark:border-gray-600">{p.pinCode}</span> : <span className="text-gray-400 text-xs italic">Yok</span>}</td>
+                                        <td className="px-4 py-3 text-right text-sm font-medium space-x-2">
+                                            <button onClick={() => handleEditPersonnel(p)} className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"><Edit2 className="w-4 h-4" /></button>
+                                            <button onClick={() => handleDeletePersonnel(p.id)} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"><Trash2 className="w-4 h-4" /></button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>

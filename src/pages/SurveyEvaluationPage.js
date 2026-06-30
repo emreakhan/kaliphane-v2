@@ -129,24 +129,28 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
         if (!loggedInUser || !personnel) return [];
         const role = loggedInUser.role;
 
+        let filtered = [];
         if (isAdmin) {
             // Admin evaluates anyone except admins
-            return personnel.filter(p => p.role !== 'Yönetici' && p.role !== 'Admin');
+            filtered = personnel.filter(p => p.role !== 'Yönetici' && p.role !== 'Admin');
+        } else {
+            const isCam = role.toUpperCase().includes('CAM');
+            if (isCam) {
+                // CAM evaluates Machine Operators
+                filtered = personnel.filter(p => p.role && (
+                    p.role.toUpperCase().includes('TEZGAH') || 
+                    p.role.toUpperCase().includes('OPERATÖR') || 
+                    p.role.toUpperCase().includes('CNC') || 
+                    p.role.toUpperCase().includes('MONTAJ')
+                ));
+            } else {
+                // Machine Operators evaluate CAM operators
+                filtered = personnel.filter(p => p.role && p.role.toUpperCase().includes('CAM'));
+            }
         }
 
-        const isCam = role.toUpperCase().includes('CAM');
-        if (isCam) {
-            // CAM evaluates Machine Operators
-            return personnel.filter(p => p.role && (
-                p.role.toUpperCase().includes('TEZGAH') || 
-                p.role.toUpperCase().includes('OPERATÖR') || 
-                p.role.toUpperCase().includes('CNC') || 
-                p.role.toUpperCase().includes('MONTAJ')
-            ));
-        } else {
-            // Machine Operators evaluate CAM operators
-            return personnel.filter(p => p.role && p.role.toUpperCase().includes('CAM'));
-        }
+        // Kişinin kendisini değerlendirmesini engelle (haksızlık/kafa karışıklığı önleme)
+        return filtered.filter(p => p.id !== loggedInUser.id && p.name !== loggedInUser.name);
     }, [loggedInUser, personnel, isAdmin]);
 
     // Filter target personnel list based on dropdown search input

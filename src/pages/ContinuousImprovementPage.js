@@ -201,7 +201,6 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
         try {
             const kaizenData = {
                 ...formData,
-                reportedBy: loggedInUser?.name || 'Bilinmiyor',
             };
 
             if (beforeImage) {
@@ -218,6 +217,8 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
             if (editingKaizenId) {
                 await updateDoc(doc(db, 'ci_kaizens', editingKaizenId), kaizenData);
             } else {
+                kaizenData.reportedBy = loggedInUser?.name || 'Bilinmiyor';
+                kaizenData.reportedById = loggedInUser?.id || '';
                 kaizenData.createdAt = getCurrentDateTimeString();
                 if (!kaizenData.beforeImageUrl) kaizenData.beforeImageUrl = '';
                 if (!kaizenData.afterImageUrl) kaizenData.afterImageUrl = '';
@@ -649,117 +650,188 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                         <p className="text-gray-500 font-medium">Henüz bir Kaizen (İyileştirme) girilmemiş.</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {kaizens.map(kz => (
-                            <div key={kz.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden relative">
-                                
-                                {/* A3 Formu Tasarımı (Burası PDF'e dönüşecek) */}
-                                <div id={`kaizen-card-${kz.id}`} className="bg-white text-gray-900 p-6">
-                                    {/* A3 Rapor Başlığı */}
-                                    <div className="border-b-2 border-gray-800 pb-3 mb-4 flex justify-between items-end">
-                                        <div>
-                                            <h3 className="text-2xl font-black uppercase tracking-tight text-gray-900">{kz.title}</h3>
-                                            <div className="flex items-center flex-wrap gap-y-1 text-xs font-bold text-gray-500 mt-1 uppercase">
-                                                <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded mr-3">KAIZEN / ÖNCE-SONRA</span>
-                                                <Calendar className="w-3 h-3 mr-1"/> {formatDateTime(kz.createdAt).split(' ')[0]}
+                    <div className="space-y-4">
+                        {kaizens.map(kz => {
+                            const isExpanded = expandedKaizenId === kz.id;
+                            const isOwnerOrAdmin = loggedInUser && (
+                                loggedInUser.role === 'Yönetici' || 
+                                loggedInUser.role === 'Admin' || 
+                                kz.reportedById === loggedInUser.id || 
+                                kz.reportedBy === loggedInUser.name
+                            );
+
+                            return (
+                                <div key={kz.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-300">
+                                    {/* Liste Satırı (Başlık, İsim ve Özet) */}
+                                    <div 
+                                        onClick={() => setExpandedKaizenId(isExpanded ? null : kz.id)}
+                                        className="p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 cursor-pointer hover:bg-gray-50/50 dark:hover:bg-gray-750/30 transition-colors select-none"
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-lg font-extrabold text-gray-900 dark:text-white hover:text-indigo-600 transition-colors truncate">
+                                                    {kz.title}
+                                                </span>
+                                                <span className="bg-yellow-100 dark:bg-yellow-950/45 text-yellow-800 dark:text-yellow-400 text-[10px] font-black px-2 py-0.5 rounded uppercase">
+                                                    {kz.benefitType}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-4 text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase">
+                                                <span>Öneren: <strong className="text-gray-700 dark:text-gray-300 font-extrabold">{kz.reportedBy}</strong></span>
+                                                <span>•</span>
+                                                <span>{formatDateTime(kz.createdAt).split(' ')[0]}</span>
                                                 {kz.evaluation && (
-                                                    <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded ml-0 md:ml-3 mt-1 md:mt-0 flex items-center shadow-sm">
-                                                        <Award className="w-3.5 h-3.5 mr-1" /> Değerlendirme: {kz.evaluation}
-                                                    </span>
+                                                    <>
+                                                        <span>•</span>
+                                                        <span className="text-purple-600 dark:text-purple-400 flex items-center font-black">
+                                                            <Award className="w-3.5 h-3.5 mr-0.5" /> Değerlendirildi
+                                                        </span>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="flex flex-col items-end gap-1">
-                                            {(loggedInUser?.role === 'Yönetici' || loggedInUser?.role === 'Admin') && (
-                                                <button 
-                                                    onClick={() => handleEvaluateKaizen(kz)}
-                                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-extrabold uppercase transition shadow-sm flex items-center gap-1 shrink-0"
-                                                    data-html2canvas-ignore="true"
-                                                >
-                                                    <MessageSquare className="w-3.5 h-3.5" /> Değerlendir
-                                                </button>
-                                            )}
-                                            <div className="text-right text-xs font-bold text-gray-500 mt-1">
-                                                Öneren / Yapan:
-                                            </div>
-                                            <div className="text-sm text-gray-900 bg-gray-100 px-3 py-1 rounded font-black mt-0.5 inline-block whitespace-nowrap">
-                                                {kz.reportedBy}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-6">
-                                        {/* ÖNCEKI DURUM */}
-                                        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col h-full">
-                                            <div className="font-black text-red-700 uppercase mb-2 flex items-center border-b border-red-200 pb-2">
-                                                <X className="w-5 h-5 mr-1"/> Mevcut Problem (Önce)
-                                            </div>
-                                            {kz.beforeImageUrl ? (
-                                                <div 
-                                                    className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-red-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
-                                                    onClick={() => setPreviewImage(kz.beforeImageUrl)}
-                                                >
-                                                    <img src={kz.beforeImageUrl} alt="Önce" className="w-full h-full object-cover" crossOrigin="anonymous"/>
-                                                </div>
+                                        
+                                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                                            {isExpanded ? (
+                                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/30 px-3 py-1.5 rounded-lg border border-indigo-200/50 dark:border-indigo-900/50">
+                                                    Detayları Kapat <ChevronUp className="w-4 h-4" />
+                                                </span>
                                             ) : (
-                                                <div className="w-full h-48 bg-red-100 rounded-lg flex items-center justify-center text-red-300 mb-3 border border-red-200 shrink-0">
-                                                    <ImageIcon className="w-10 h-10" />
-                                                </div>
+                                                <span className="text-xs font-black text-gray-500 dark:text-gray-400 flex items-center gap-1 bg-gray-50 dark:bg-gray-750 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                                                    Detayları Göster <ChevronDown className="w-4 h-4" />
+                                                </span>
                                             )}
-                                            <p className="text-sm font-medium text-gray-800 flex-1 whitespace-pre-wrap">{kz.problem}</p>
-                                        </div>
-
-                                        {/* SONRAKİ DURUM */}
-                                        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col h-full">
-                                            <div className="font-black text-green-700 uppercase mb-2 flex items-center border-b border-green-200 pb-2">
-                                                <CheckSquare className="w-5 h-5 mr-1"/> Çözüm (Sonra)
-                                            </div>
-                                            {kz.afterImageUrl ? (
-                                                <div 
-                                                    className="w-full h-48 bg-gray-200 rounded-lg overflow-hidden mb-3 border border-green-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
-                                                    onClick={() => setPreviewImage(kz.afterImageUrl)}
-                                                >
-                                                    <img src={kz.afterImageUrl} alt="Sonra" className="w-full h-full object-cover" crossOrigin="anonymous"/>
-                                                </div>
-                                            ) : (
-                                                <div className="w-full h-48 bg-green-100 rounded-lg flex items-center justify-center text-green-300 mb-3 border border-green-200 shrink-0">
-                                                    <ImageIcon className="w-10 h-10" />
-                                                </div>
-                                            )}
-                                            <p className="text-sm font-medium text-gray-800 flex-1 whitespace-pre-wrap">{kz.solution}</p>
                                         </div>
                                     </div>
 
-                                    {/* KAZANÇ / SONUÇ */}
-                                    <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start">
-                                        <Award className="w-8 h-8 text-blue-500 mr-4 shrink-0" />
-                                        <div>
-                                            <div className="font-black text-blue-800 uppercase mb-1 flex items-center">
-                                                Sağlanan Fayda: <span className="ml-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs">{kz.benefitType}</span>
+                                    {/* Genişleyen Detay (A3 Formu Tasarımı) */}
+                                    {isExpanded && (
+                                        <div className="border-t border-gray-150 dark:border-gray-700 transition-all duration-300">
+                                            {/* A3 Formu Tasarımı (Burası PDF'e dönüşecek) */}
+                                            <div id={`kaizen-card-${kz.id}`} className="bg-white text-gray-900 p-6">
+                                                {/* A3 Rapor Başlığı */}
+                                                <div className="border-b-2 border-gray-800 pb-3 mb-4 flex justify-between items-end">
+                                                    <div>
+                                                        <h3 className="text-2xl font-black uppercase tracking-tight text-gray-900">{kz.title}</h3>
+                                                        <div className="flex items-center flex-wrap gap-y-1 text-xs font-bold text-gray-500 mt-1 uppercase">
+                                                            <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded mr-3">KAIZEN / ÖNCE-SONRA</span>
+                                                            <Calendar className="w-3 h-3 mr-1"/> {formatDateTime(kz.createdAt).split(' ')[0]}
+                                                            {kz.evaluation && (
+                                                                <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded ml-0 md:ml-3 mt-1 md:mt-0 flex items-center shadow-sm">
+                                                                    <Award className="w-3.5 h-3.5 mr-1" /> Değerlendirme: {kz.evaluation}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        {(loggedInUser?.role === 'Yönetici' || loggedInUser?.role === 'Admin') && (
+                                                            <button 
+                                                                onClick={() => handleEvaluateKaizen(kz)}
+                                                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-extrabold uppercase transition shadow-sm flex items-center gap-1 shrink-0"
+                                                                data-html2canvas-ignore="true"
+                                                            >
+                                                                <MessageSquare className="w-3.5 h-3.5" /> Değerlendir
+                                                            </button>
+                                                        )}
+                                                        <div className="text-right text-xs font-bold text-gray-500 mt-1">
+                                                            Öneren / Yapan:
+                                                        </div>
+                                                        <div className="text-sm text-gray-900 bg-gray-100 px-3 py-1 rounded font-black mt-0.5 inline-block whitespace-nowrap">
+                                                            {kz.reportedBy}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    {/* ÖNCEKI DURUM */}
+                                                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col h-full">
+                                                        <div className="font-black text-red-700 uppercase mb-2 flex items-center border-b border-red-200 pb-2">
+                                                            <X className="w-5 h-5 mr-1"/> Mevcut Problem (Önce)
+                                                        </div>
+                                                        {kz.beforeImageUrl ? (
+                                                            <div 
+                                                                className="w-full h-64 bg-gray-100 rounded-lg overflow-hidden mb-3 border border-red-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity flex items-center justify-center"
+                                                                onClick={() => setPreviewImage(kz.beforeImageUrl)}
+                                                            >
+                                                                <img src={kz.beforeImageUrl} alt="Önce" className="max-w-full max-h-full object-contain" crossOrigin="anonymous"/>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-full h-64 bg-red-50 rounded-lg flex items-center justify-center text-red-300 mb-3 border border-red-200 shrink-0">
+                                                                <ImageIcon className="w-10 h-10" />
+                                                            </div>
+                                                        )}
+                                                        <p className="text-sm font-medium text-gray-800 flex-1 whitespace-pre-wrap">{kz.problem}</p>
+                                                    </div>
+
+                                                    {/* SONRAKİ DURUM */}
+                                                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col h-full">
+                                                        <div className="font-black text-green-700 uppercase mb-2 flex items-center border-b border-green-200 pb-2">
+                                                            <CheckSquare className="w-5 h-5 mr-1"/> Çözüm (Sonra)
+                                                        </div>
+                                                        {kz.afterImageUrl ? (
+                                                            <div 
+                                                                className="w-full h-64 bg-gray-100 rounded-lg overflow-hidden mb-3 border border-green-200 shadow-sm shrink-0 cursor-pointer hover:opacity-90 transition-opacity flex items-center justify-center"
+                                                                onClick={() => setPreviewImage(kz.afterImageUrl)}
+                                                            >
+                                                                <img src={kz.afterImageUrl} alt="Sonra" className="max-w-full max-h-full object-contain" crossOrigin="anonymous"/>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-full h-64 bg-green-50 rounded-lg flex items-center justify-center text-green-300 mb-3 border border-green-200 shrink-0">
+                                                                <ImageIcon className="w-10 h-10" />
+                                                            </div>
+                                                        )}
+                                                        <p className="text-sm font-medium text-gray-800 flex-1 whitespace-pre-wrap">{kz.solution}</p>
+                                                    </div>
+                                                </div>
+
+                                                {/* KAZANÇ / SONUÇ */}
+                                                <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start">
+                                                    <Award className="w-8 h-8 text-blue-500 mr-4 shrink-0" />
+                                                    <div>
+                                                        <div className="font-black text-blue-800 uppercase mb-1 flex items-center">
+                                                            Sağlanan Fayda: <span className="ml-2 bg-blue-600 text-white px-2 py-0.5 rounded text-xs">{kz.benefitType}</span>
+                                                        </div>
+                                                        <p className="text-sm font-bold text-gray-700">{kz.benefitDescription || 'Belirtilmedi'}</p>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <p className="text-sm font-bold text-gray-700">{kz.benefitDescription || 'Belirtilmedi'}</p>
+
+                                            {/* SADECE EKRANDA GÖRÜNEN BUTONLAR (PDF'TE GİZLENİR) */}
+                                            <div className="bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700 p-4 flex justify-between items-center" data-html2canvas-ignore="true">
+                                                <div>
+                                                    <button 
+                                                        onClick={() => handleDownloadPdf(kz.id)}
+                                                        className="px-4 py-2 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-400 font-bold rounded-lg transition text-xs flex items-center gap-1"
+                                                    >
+                                                        <Download className="w-4 h-4"/> A3 Rapor İndir
+                                                    </button>
+                                                </div>
+                                                
+                                                <div className="flex gap-2">
+                                                    {isOwnerOrAdmin && (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => openEditKaizen(kz)}
+                                                                className="px-3.5 py-2 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-250 dark:border-yellow-900/50 hover:bg-yellow-100 dark:hover:bg-yellow-950/45 text-yellow-700 dark:text-yellow-400 font-bold rounded-lg transition text-xs flex items-center gap-1.5"
+                                                            >
+                                                                <Edit2 className="w-3.5 h-3.5" /> Düzenle
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDeleteKaizen(kz.id)}
+                                                                className="px-3.5 py-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 hover:bg-red-100 dark:hover:bg-red-950/45 text-red-650 dark:text-red-400 font-bold rounded-lg transition text-xs flex items-center gap-1"
+                                                                title="Kaizen Raporunu Sil"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Sil
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
-
-                                {/* SADECE EKRANDA GÖRÜNEN BUTONLAR (PDF'TE GİZLENİR) */}
-                                <div className="bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700 p-3 flex justify-end gap-2" data-html2canvas-ignore="true">
-                                    <button 
-                                        onClick={() => handleDownloadPdf(kz.id)}
-                                        className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold rounded-lg transition text-xs flex items-center"
-                                    >
-                                        <Download className="w-4 h-4 mr-1"/> A3 Rapor İndir
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDeleteKaizen(kz.id)}
-                                        className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold rounded-lg transition text-xs"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>

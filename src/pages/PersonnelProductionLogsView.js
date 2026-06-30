@@ -7,6 +7,9 @@ import {
 import { 
     BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid 
 } from 'recharts';
+import { 
+    db, collection, onSnapshot, query, orderBy 
+} from '../config/firebase.js';
 
 // --- YARDIMCI FONKSİYONLAR ---
 const calcMs = (startStr, endStr) => {
@@ -110,6 +113,223 @@ const isMachineOperation = (opType) => {
     return !upper.includes('CAM') && !upper.includes('TASARIM') && !upper.includes('OFİS') && !upper.includes('PROJE');
 };
 
+const getTodayKey = () => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const getAllOperatorActivities = (projects, operatorName) => {
+    const segments = [];
+    if (!projects) return [];
+
+    projects.forEach(mold => {
+        if (!mold.tasks) return;
+        mold.tasks.forEach(task => {
+            if (!task.operations) return;
+            task.operations.forEach(op => {
+                const opName = op.machineOperatorName || op.assignedOperator;
+                if (!opName || opName !== operatorName) return;
+                if (!isMachineOperation(op.type)) return;
+
+                const moldName = mold.moldName;
+                const taskName = task.name;
+                const opType = op.type;
+                const machineName = op.machineName || 'Bilinmeyen Tezgah';
+
+                // 1. Ayar (Setup) Segment
+                if (op.setupStartTime) {
+                    const startVal = new Date(op.setupStartTime).getTime();
+                    let endVal = op.productionStartTime ? new Date(op.productionStartTime).getTime() : null;
+                    if (!endVal) {
+                        endVal = op.finishDate ? new Date(op.finishDate).getTime() : null;
+                    }
+                    if (!endVal && (op.status === 'COMPLETED' || op.status === 'TAMAMLANDI')) {
+                        endVal = op.updatedAt ? new Date(op.updatedAt).getTime() : new Date(op.startDate).getTime();
+                    }
+                    if (!endVal) {
+                        endVal = Date.now();
+                    }
+
+                    if (!isNaN(startVal) && !isNaN(endVal) && endVal > startVal) {
+                        segments.push({
+                            type: 'setup',
+                            moldName,
+                            taskName,
+                            opType,
+                            machineName,
+                            startMs: startVal,
+                            endMs: endVal
+                        });
+                    }
+                }
+
+                // 2. İmalat (Production) ve Duruş Segmentleri
+                let prodStart = op.productionStartTime ? new Date(op.productionStartTime).getTime() : null;
+                if (!op.setupStartTime && !op.productionStartTime) {
+                    prodStart = new Date(op.startDate).getTime();
+                }
+
+                if (prodStart && !isNaN(prodStart)) {
+                    let prodEnd = op.finishDate ? new Date(op.finishDate).getTime() : null;
+                    if (!prodEnd && (op.status === 'COMPLETED' || op.status === 'TAMAMLANDI')) {
+                        prodEnd = op.updatedAt ? new Date(op.updatedAt).getTime() : new Date(op.startDate).getTime();
+                    }
+                    if (!prodEnd) {
+                        prodEnd = Date.now();
+                    }
+
+                    if (!isNaN(prodEnd) && prodEnd > prodStart) {
+                        const pauseIntervals = [];
+                        if (op.pauseHistory && Array.isArray(op.pauseHistory)) {
+                            op.pauseHistory.forEach(ph => {
+                                if (ph.pausedAt && ph.resumedAt) {
+                                    const pStart = new Date(ph.pausedAt).getTime();
+                                    const pEnd = new Date(ph.resumedAt).getTime();
+                                    if (!isNaN(pStart) && !isNaN(pEnd) && pStart >= prodStart && pEnd <= prodEnd) {
+                                        pauseIntervals.push({ startMs: pStart, endMs: pEnd, reason: ph.reason });
+                                    }
+                                }
+                            });
+                        }
+                        if ((op.status === 'PAUSED' || op.status === 'DURAKLATILDI') && op.lastPausedAt) {
+                            const pStart = new Date(op.lastPausedAt).getTime();
+                            if (!isNaN(pStart) && pStart >= prodStart && pStart <= prodEnd) {
+                                pauseIntervals.push({ startMs: pStart, endMs: prodEnd, reason: op.lastPauseReason || 'Belirtilmedi' });
+                            }
+                        }
+
+                        // Add pauses
+                        pauseIntervals.forEach(p => {
+                            segments.push({
+                                type: 'pause',
+                                moldName,
+                                taskName,
+                                opType,
+                                machineName,
+                                startMs: p.startMs,
+                                endMs: p.endMs,
+                                reason: p.reason
+                            });
+                        });
+
+                        pauseIntervals.sort((a, b) => a.startMs - b.startMs);
+
+                        let currentPointer = prodStart;
+                        pauseIntervals.forEach(p => {
+                            if (p.startMs > currentPointer) {
+                                segments.push({
+                                    type: 'production',
+                                    moldName,
+                                    taskName,
+                                    opType,
+                                    machineName,
+                                    startMs: currentPointer,
+                                    endMs: p.startMs
+                                });
+                            }
+                            currentPointer = p.endMs;
+                        });
+
+                        if (prodEnd > currentPointer) {
+                            segments.push({
+                                type: 'production',
+                                moldName,
+                                taskName,
+                                opType,
+                                machineName,
+                                startMs: currentPointer,
+                                endMs: prodEnd
+                            });
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    return segments;
+};
+
+const getDayBoundaries = (dayKey, shiftLogs, operatorName) => {
+    const dayShifts = shiftLogs.filter(log => 
+        log.operatorName === operatorName && 
+        log.date === dayKey
+    );
+    dayShifts.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const shiftStartLog = dayShifts.find(s => s.action === 'SHIFT_START');
+    const shiftEndLog = dayShifts.find(s => s.action === 'SHIFT_END');
+
+    let startMs, endMs;
+
+    if (shiftStartLog) {
+        startMs = new Date(shiftStartLog.timestamp).getTime();
+    } else {
+        startMs = new Date(`${dayKey}T00:00:00`).getTime();
+    }
+
+    if (shiftEndLog) {
+        endMs = new Date(shiftEndLog.timestamp).getTime();
+    } else if (shiftStartLog) {
+        const todayStr = getTodayKey();
+        if (dayKey === todayStr) {
+            endMs = Date.now();
+        } else {
+            endMs = new Date(`${dayKey}T23:59:59`).getTime();
+        }
+    } else {
+        startMs = new Date(`${dayKey}T00:00:00`).getTime();
+        const todayStr = getTodayKey();
+        if (dayKey === todayStr) {
+            endMs = Date.now();
+        } else {
+            endMs = new Date(`${dayKey}T23:59:59`).getTime();
+        }
+    }
+
+    return { startMs, endMs, hasShift: !!shiftStartLog };
+};
+
+const getCroppedActivitiesForDay = (allSegments, dayKey, shiftLogs, operatorName) => {
+    const { startMs: dayStart, endMs: dayEnd } = getDayBoundaries(dayKey, shiftLogs, operatorName);
+    const cropped = [];
+
+    const isSameDay = (ms, dKey) => {
+        const d = new Date(ms);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}` === dKey;
+    };
+
+    allSegments.forEach(seg => {
+        // Filter out abandoned/inactive long segments for this day
+        const totalDur = seg.endMs - seg.startMs;
+        const isActiveOnDay = totalDur <= 18 * 3600000 || isSameDay(seg.startMs, dayKey) || isSameDay(seg.endMs, dayKey);
+        
+        if (!isActiveOnDay) return;
+
+        const s = Math.max(seg.startMs, dayStart);
+        const e = Math.min(seg.endMs, dayEnd);
+
+        if (e > s) {
+            cropped.push({
+                ...seg,
+                start: new Date(s).toISOString(),
+                end: new Date(e).toISOString(),
+                durationMs: e - s,
+                type: seg.type === 'setup' ? 'Ayar (Kurulum)' : (seg.type === 'production' ? 'İmalat (Çalışma)' : 'Duruş / Müdahale'),
+                typeKey: seg.type
+            });
+        }
+    });
+
+    return cropped.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+};
+
 const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
     // Left sidebar state
     const [personnelSearchTerm, setPersonnelSearchTerm] = useState('');
@@ -117,8 +337,71 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
 
     // Filter and Tab states
     const [viewMode, setViewMode] = useState('daily'); // 'daily' or 'weekly'
-    const [shiftHours, setShiftHours] = useState(8); // Default 8 hours shift
-    const [selectedDayKey, setSelectedDayKey] = useState(null);
+    const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey());
+
+    const [shiftLogs, setShiftLogs] = useState([]);
+
+    // 1. Shift loglarını veritabanından dinle
+    useEffect(() => {
+        if (!db) return;
+        const q = query(
+            collection(db, 'artifacts/default-app-id/public/data/operatorShiftLogs'),
+            orderBy('timestamp', 'desc')
+        );
+        const unsub = onSnapshot(q, (snapshot) => {
+            setShiftLogs(snapshot.docs.map(doc => doc.data()));
+        });
+        return () => unsub();
+    }, []);
+
+    // 2. Zamanı saat/dakika formatına dönüştürme yardımcısı
+    const formatTimeOnly = (dateStr) => {
+        if (!dateStr) return 'Devam Ediyor';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    // 2.5 Tarih alanından takvim formatına dönüştürme ve takvim seçimini işleme
+    const getRepresentativeDate = (key, mode) => {
+        if (mode === 'daily') return key || '';
+        if (!key || !key.includes(' - ')) return '';
+        try {
+            const parts = key.split(' - ');
+            const startParts = parts[0].split('.'); // [dd, mm]
+            const year = selectedOpLogs.length > 0 
+                ? new Date(selectedOpLogs[0].startDate).getFullYear() 
+                : new Date().getFullYear();
+            return `${year}-${startParts[1].padStart(2, '0')}-${startParts[0].padStart(2, '0')}`;
+        } catch (e) {
+            return '';
+        }
+    };
+
+    const handleDateChange = (val) => {
+        if (!val) return;
+        if (viewMode === 'daily') {
+            setSelectedDayKey(val);
+        } else {
+            const dateObj = new Date(val);
+            if (isNaN(dateObj.getTime())) return;
+            
+            const temp = new Date(dateObj);
+            const day = temp.getDay();
+            const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(temp.setDate(diff));
+            const sunday = new Date(monday);
+            sunday.setDate(sunday.getDate() + 6);
+            
+            const mm = String(monday.getMonth() + 1).padStart(2, '0');
+            const md = String(monday.getDate()).padStart(2, '0');
+            const sm = String(sunday.getMonth() + 1).padStart(2, '0');
+            const sd = String(sunday.getDate()).padStart(2, '0');
+            
+            const weekKey = `${md}.${mm} - ${sd}.${sm}`;
+            setSelectedDayKey(weekKey);
+        }
+    };
 
     // --- TÜM LOGLARIN FİLTRELENMESİ VE DERLENMESİ ---
     const allLogs = useMemo(() => {
@@ -197,6 +480,12 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         return sortedPersonnel.filter(p => p.name.toLowerCase().includes(lower));
     }, [sortedPersonnel, personnelSearchTerm]);
 
+    // Seçili operatörün logları
+    const selectedOpLogs = useMemo(() => {
+        if (!selectedOperator) return [];
+        return allLogs.filter(log => log.operatorName === selectedOperator.name);
+    }, [allLogs, selectedOperator]);
+
     // İlk açılışta kaydı olan ilk operatörü seç
     useEffect(() => {
         if (!selectedOperator && sortedPersonnel.length > 0) {
@@ -206,31 +495,65 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         }
     }, [sortedPersonnel, selectedOperator]);
 
-    // Seçili operatörün logları
-    const selectedOpLogs = useMemo(() => {
-        if (!selectedOperator) return [];
-        return allLogs.filter(log => log.operatorName === selectedOperator.name);
-    }, [allLogs, selectedOperator]);
-
     // Tarihe göre gruplama (Daily & Weekly)
     const groupedData = useMemo(() => {
+        if (!selectedOperator) return { daily: [], weekly: [] };
+
+        const allSegments = getAllOperatorActivities(projects, selectedOperator.name);
+
         const dailyMap = {};
         const weeklyMap = {};
 
-        selectedOpLogs.forEach(log => {
-            const dateObj = new Date(log.startDate);
-            if (isNaN(dateObj.getTime())) return;
+        const dayKeys = new Set();
+        
+        allSegments.forEach(seg => {
+            const startDate = new Date(seg.startMs);
+            const endDate = new Date(seg.endMs);
+            
+            const current = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const endLimit = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            
+            while (current <= endLimit) {
+                const yyyy = current.getFullYear();
+                const mm = String(current.getMonth() + 1).padStart(2, '0');
+                const dd = String(current.getDate()).padStart(2, '0');
+                dayKeys.add(`${yyyy}-${mm}-${dd}`);
+                current.setDate(current.getDate() + 1);
+            }
+        });
 
-            // Daily Key: YYYY-MM-DD
-            const yyyy = dateObj.getFullYear();
-            const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const dd = String(dateObj.getDate()).padStart(2, '0');
-            const dailyKey = `${yyyy}-${mm}-${dd}`;
-            const dailyDisplay = `${dd}.${mm}.${yyyy}`;
+        shiftLogs.forEach(log => {
+            if (log.operatorName === selectedOperator.name && log.date) {
+                dayKeys.add(log.date);
+            }
+        });
 
-            // Weekly Key: Pazartesi - Pazar aralığı
-            const getWeekRange = (date) => {
-                const temp = new Date(date);
+        dayKeys.add(getTodayKey());
+
+        dayKeys.forEach(dayKey => {
+            const cropped = getCroppedActivitiesForDay(allSegments, dayKey, shiftLogs, selectedOperator.name);
+            const { startMs: dayStart, endMs: dayEnd, hasShift } = getDayBoundaries(dayKey, shiftLogs, selectedOperator.name);
+
+            const shiftMs = dayEnd - dayStart;
+
+            let setupMs = 0;
+            let prodMs = 0;
+            let pauseMs = 0;
+            const molds = new Set();
+            const machines = new Set();
+
+            cropped.forEach(act => {
+                if (act.typeKey === 'setup') setupMs += act.durationMs;
+                else if (act.typeKey === 'production') prodMs += act.durationMs;
+                else if (act.typeKey === 'pause') pauseMs += act.durationMs;
+
+                molds.add(act.moldName);
+                machines.add(act.machineName);
+            });
+
+            const getWeekRangeForDate = (dateStr) => {
+                const parts = dateStr.split('-');
+                const temp = new Date(parts[0], parts[1] - 1, parts[2]);
                 const day = temp.getDay();
                 const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
                 const monday = new Date(temp.setDate(diff));
@@ -238,31 +561,25 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                 sunday.setDate(sunday.getDate() + 6);
                 return `${String(monday.getDate()).padStart(2, '0')}.${String(monday.getMonth()+1).padStart(2, '0')} - ${String(sunday.getDate()).padStart(2, '0')}.${String(sunday.getMonth()+1).padStart(2, '0')}`;
             };
-            const weeklyKey = getWeekRange(dateObj);
+            const weeklyKey = getWeekRangeForDate(dayKey);
 
-            // Daily gruplama
-            if (!dailyMap[dailyKey]) {
-                dailyMap[dailyKey] = {
-                    key: dailyKey,
-                    display: dailyDisplay,
-                    setupMs: 0,
-                    prodMs: 0,
-                    pauseMs: 0,
-                    workMs: 0,
-                    molds: new Set(),
-                    machines: new Set(),
-                    logs: []
-                };
-            }
-            dailyMap[dailyKey].setupMs += log.setupMs;
-            dailyMap[dailyKey].prodMs += log.prodMs;
-            dailyMap[dailyKey].pauseMs += log.pauseMs;
-            dailyMap[dailyKey].workMs += log.workMs;
-            dailyMap[dailyKey].molds.add(log.moldName);
-            dailyMap[dailyKey].machines.add(log.machineName);
-            dailyMap[dailyKey].logs.push(log);
+            const parts = dayKey.split('-');
+            const dailyDisplay = `${parts[2]}.${parts[1]}.${parts[0]}`;
 
-            // Weekly gruplama
+            dailyMap[dayKey] = {
+                key: dayKey,
+                display: dailyDisplay,
+                setupMs,
+                prodMs,
+                pauseMs,
+                workMs: setupMs + prodMs,
+                shiftMs,
+                hasShift,
+                molds,
+                machines,
+                logs: cropped
+            };
+
             if (!weeklyMap[weeklyKey]) {
                 weeklyMap[weeklyKey] = {
                     key: weeklyKey,
@@ -271,18 +588,23 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                     prodMs: 0,
                     pauseMs: 0,
                     workMs: 0,
+                    shiftMs: 0,
                     molds: new Set(),
                     machines: new Set(),
                     logs: []
                 };
             }
-            weeklyMap[weeklyKey].setupMs += log.setupMs;
-            weeklyMap[weeklyKey].prodMs += log.prodMs;
-            weeklyMap[weeklyKey].pauseMs += log.pauseMs;
-            weeklyMap[weeklyKey].workMs += log.workMs;
-            weeklyMap[weeklyKey].molds.add(log.moldName);
-            weeklyMap[weeklyKey].machines.add(log.machineName);
-            weeklyMap[weeklyKey].logs.push(log);
+            weeklyMap[weeklyKey].setupMs += setupMs;
+            weeklyMap[weeklyKey].prodMs += prodMs;
+            weeklyMap[weeklyKey].pauseMs += pauseMs;
+            weeklyMap[weeklyKey].workMs += (setupMs + prodMs);
+            weeklyMap[weeklyKey].shiftMs += shiftMs;
+            
+            cropped.forEach(act => {
+                weeklyMap[weeklyKey].molds.add(act.moldName);
+                weeklyMap[weeklyKey].machines.add(act.machineName);
+                weeklyMap[weeklyKey].logs.push(act);
+            });
         });
 
         const dailyList = Object.values(dailyMap).sort((a, b) => b.key.localeCompare(a.key));
@@ -292,24 +614,78 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
             daily: dailyList,
             weekly: weeklyList
         };
-    }, [selectedOpLogs]);
+    }, [selectedOperator, projects, shiftLogs]);
 
     // Seçili periyot (grafik veya detay için)
     const activePeriodData = useMemo(() => {
         const list = viewMode === 'daily' ? groupedData.daily : groupedData.weekly;
-        if (!selectedDayKey) return list[0] || null;
-        return list.find(d => d.key === selectedDayKey) || list[0] || null;
+        return list.find(d => d.key === selectedDayKey) || null;
     }, [groupedData, viewMode, selectedDayKey]);
 
-    // Seçili periyot değiştiğinde anahtarı güncelle
-    useEffect(() => {
-        const list = viewMode === 'daily' ? groupedData.daily : groupedData.weekly;
-        if (list.length > 0) {
-            setSelectedDayKey(list[0].key);
-        } else {
-            setSelectedDayKey(null);
+    // 3. Seçili gün ve operatör için vardiya bilgilerini çek
+    const activeShiftInfo = useMemo(() => {
+        if (!selectedOperator || !selectedDayKey) return null;
+        
+        const dayShifts = shiftLogs.filter(log => 
+            log.operatorName === selectedOperator.name && 
+            log.date === selectedDayKey
+        );
+
+        dayShifts.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        const shiftStart = dayShifts.find(s => s.action === 'SHIFT_START');
+        const shiftEnd = dayShifts.find(s => s.action === 'SHIFT_END');
+
+        let durationStr = null;
+        if (shiftStart && shiftEnd) {
+            const startMs = new Date(shiftStart.timestamp).getTime();
+            const endMs = new Date(shiftEnd.timestamp).getTime();
+            if (!isNaN(startMs) && !isNaN(endMs)) {
+                durationStr = formatDuration(endMs - startMs);
+            }
+        } else if (shiftStart) {
+            const startMs = new Date(shiftStart.timestamp).getTime();
+            if (!isNaN(startMs)) {
+                durationStr = formatDuration(Date.now() - startMs) + " (Devam Ediyor)";
+            }
         }
-    }, [selectedOperator, viewMode, groupedData]);
+
+        return {
+            start: shiftStart ? shiftStart.timestamp : null,
+            end: shiftEnd ? shiftEnd.timestamp : null,
+            machineName: shiftStart ? shiftStart.machineName : (shiftEnd ? shiftEnd.machineName : null),
+            durationStr
+        };
+    }, [shiftLogs, selectedOperator, selectedDayKey]);
+
+    // 4. Operatörün gün içindeki aktif iş segmentlerini (Ayar ve İmalat) kronolojik hesapla
+    const operatorActivities = useMemo(() => {
+        return activePeriodData ? activePeriodData.logs : [];
+    }, [activePeriodData]);
+
+    // Seçili periyot değiştiğinde varsayılan olarak bugünü ayarla
+    useEffect(() => {
+        if (viewMode === 'daily') {
+            setSelectedDayKey(getTodayKey());
+        } else {
+            const weekKey = (() => {
+                const d = new Date();
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(d.setDate(diff));
+                const sunday = new Date(monday);
+                sunday.setDate(sunday.getDate() + 6);
+                
+                const mm = String(monday.getMonth() + 1).padStart(2, '0');
+                const md = String(monday.getDate()).padStart(2, '0');
+                const sm = String(sunday.getMonth() + 1).padStart(2, '0');
+                const sd = String(sunday.getDate()).padStart(2, '0');
+                
+                return `${md}.${mm} - ${sd}.${sm}`;
+            })();
+            setSelectedDayKey(weekKey);
+        }
+    }, [selectedOperator, viewMode]);
 
     // Recharts formatlı grafik verisi
     const chartData = useMemo(() => {
@@ -327,19 +703,60 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
     // Vardiya paralel tezgah ve teknik bekleme analiz değişkenleri
     const simulatorStats = useMemo(() => {
         if (!activePeriodData) return null;
-        
-        const setupHours = activePeriodData.setupMs / 3600000;
-        const pauseHours = activePeriodData.pauseMs / 3600000;
-        const prodHours = activePeriodData.prodMs / 3600000;
 
-        // Operatör vardiyada aktif olarak tezgahlarda ne kadar ayar ve duruş müdahalesi yaptı?
-        const operatorActiveHours = setupHours + pauseHours;
-        
-        // Teknik Bekleme Süresi = Belirlenen Vardiya Süresi - (Ayar + Duruş müdahaleleri)
-        const idleHours = Math.max(0, shiftHours - operatorActiveHours);
-        
-        // Makine Yük Katsayısı = Toplam İmalat (Net Çalışma) / Vardiya Süresi
-        const workloadFactor = shiftHours > 0 ? (prodHours / shiftHours).toFixed(1) : "0.0";
+        const dayLogs = activePeriodData.logs;
+        const actualShiftHours = activePeriodData.shiftMs > 0 ? (activePeriodData.shiftMs / 3600000) : 8;
+
+        // 1. Get shift boundaries in milliseconds
+        const { startMs: dayStartMs, endMs: dayEndMs } = getDayBoundaries(selectedDayKey, shiftLogs, selectedOperator.name);
+
+        // 2. Run simulation in 1-minute steps
+        let setupMinutes = 0;
+        let pauseMinutes = 0;
+        let idleMinutes = 0; // Teknik serbest / boş zaman
+
+        const stepMs = 60000; // 1 minute
+
+        for (let t = dayStartMs; t < dayEndMs; t += stepMs) {
+            // Find all segments active at time t
+            const activeSegs = dayLogs.filter(seg => {
+                const s = new Date(seg.start).getTime();
+                const e = new Date(seg.end).getTime();
+                return t >= s && t < e;
+            });
+
+            if (activeSegs.length === 0) {
+                // No active machines -> operator is free/idle
+                idleMinutes++;
+            } else {
+                const hasSetup = activeSegs.some(seg => seg.typeKey === 'setup');
+                const hasPause = activeSegs.some(seg => seg.typeKey === 'pause');
+
+                if (hasSetup) {
+                    setupMinutes++;
+                } else if (hasPause) {
+                    pauseMinutes++;
+                } else {
+                    // All active machines are in production -> Operator is Teknik Serbest / Gözlem
+                    idleMinutes++;
+                }
+            }
+        }
+
+        const setupHours = setupMinutes / 60;
+        const pauseHours = pauseMinutes / 60;
+        const idleHours = idleMinutes / 60;
+
+        // Machine production hours (net sum of machine runs for efficiency index)
+        let prodHours = 0;
+        dayLogs.forEach(seg => {
+            if (seg.typeKey === 'production') {
+                prodHours += seg.durationMs / 3600000;
+            }
+        });
+
+        // workloadFactor (Tezgah Verimi) = Toplam İmalat / Vardiya Süresi
+        const workloadFactor = actualShiftHours > 0 ? (prodHours / actualShiftHours).toFixed(1) : "0.0";
 
         // Yüzdelikler
         const totalMeasured = setupHours + pauseHours + idleHours;
@@ -350,16 +767,17 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         return {
             setupHours: setupHours.toFixed(1),
             pauseHours: pauseHours.toFixed(1),
-            prodHours: prodHours.toFixed(1),
-            idleHours: idleHours.toFixed(1),
+            prodHours: prodHours.toFixed(1), // This remains the net machine production hours
+            idleHours: idleHours.toFixed(1), // This is the calculated free/idle hours
             workloadFactor,
             setupPercent,
             pausePercent,
             idlePercent,
             machinesCount: activePeriodData.machines.size,
-            moldsCount: activePeriodData.molds.size
+            moldsCount: activePeriodData.molds.size,
+            actualShiftHours: actualShiftHours.toFixed(1)
         };
-    }, [activePeriodData, shiftHours]);
+    }, [activePeriodData, selectedDayKey, shiftLogs, selectedOperator]);
 
     // --- TIMELINE GRID HESAPLAMALARI ---
     const timelineBounds = useMemo(() => {
@@ -368,10 +786,10 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         let maxMs = -Infinity;
 
         activePeriodData.logs.forEach(log => {
-            const start = new Date(log.startDate).getTime();
+            const start = new Date(log.start).getTime();
             if (start < minMs) minMs = start;
 
-            let end = log.finishDate ? new Date(log.finishDate).getTime() : Date.now();
+            let end = new Date(log.end).getTime();
             if (end > maxMs) maxMs = end;
         });
 
@@ -405,65 +823,18 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         const timelineDuration = timelineEnd - timelineStart;
         if (timelineDuration <= 0) return [];
 
-        const intervals = [];
-
         dayLogs.filter(log => log.machineName === machineName).forEach(log => {
-            const logStart = new Date(log.startDate).getTime();
-            let logEnd = log.finishDate ? new Date(log.finishDate).getTime() : Date.now();
-            
-            // 1. Setup Interval
-            if (log.setupStartTime) {
-                const setupStart = new Date(log.setupStartTime).getTime();
-                const setupEnd = log.productionStartTime ? new Date(log.productionStartTime).getTime() : logEnd;
-                intervals.push({ startMs: setupStart, endMs: setupEnd, type: 'setup', label: 'Ayar', opType: log.opType, moldName: log.moldName });
-            }
+            const s = Math.max(timelineStart, new Date(log.start).getTime());
+            const e = Math.min(timelineEnd, new Date(log.end).getTime());
 
-            // 2. Production Interval (gross)
-            let prodStart = log.productionStartTime ? new Date(log.productionStartTime).getTime() : null;
-            if (!log.setupStartTime && !log.productionStartTime) {
-                prodStart = logStart;
-            }
-
-            if (prodStart) {
-                intervals.push({ startMs: prodStart, endMs: logEnd, type: 'run', label: 'İmalat', opType: log.opType, moldName: log.moldName });
-            }
-
-            // 3. Pauses (overlay)
-            if (log.pauseHistory && Array.isArray(log.pauseHistory)) {
-                log.pauseHistory.forEach(ph => {
-                    if (ph.pausedAt && ph.resumedAt) {
-                        intervals.push({
-                            startMs: new Date(ph.pausedAt).getTime(),
-                            endMs: new Date(ph.resumedAt).getTime(),
-                            type: 'pause',
-                            label: `Duruş: ${ph.reason || 'Belirtilmedi'}`,
-                            opType: log.opType,
-                            moldName: log.moldName
-                        });
-                    }
-                });
-            }
-            if ((log.status === 'PAUSED' || log.status === 'DURAKLATILDI') && log.lastPausedAt) {
-                intervals.push({
-                    startMs: new Date(log.lastPausedAt).getTime(),
-                    endMs: Date.now(),
-                    type: 'pause',
-                    label: `Duruş: ${log.lastPauseReason || 'Belirtilmedi'}`,
-                    opType: log.opType,
-                    moldName: log.moldName
-                });
-            }
-        });
-
-        // Mutlak konumlandırma ve oran hesabı
-        intervals.forEach(inv => {
-            const s = Math.max(timelineStart, inv.startMs);
-            const e = Math.min(timelineEnd, inv.endMs);
             if (e > s) {
                 const leftPercent = ((s - timelineStart) / timelineDuration) * 100;
                 const widthPercent = ((e - s) / timelineDuration) * 100;
                 segments.push({
-                    ...inv,
+                    type: log.typeKey,
+                    label: log.typeKey === 'setup' ? 'Ayar' : (log.typeKey === 'production' ? 'İmalat' : `Duruş: ${log.reason || 'Belirtilmedi'}`),
+                    moldName: log.moldName,
+                    opType: log.opType,
                     leftPercent,
                     widthPercent,
                     startStr: new Date(s).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
@@ -614,7 +985,7 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
 
                                 {/* 4. İNTERAKTİF VARDİYA & PARALEL TEZGAH YÜKÜ HESAPLAYICI */}
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                    {/* Sol Taraf: Periyot Seçimi ve Vardiya Sürgüsü */}
+                                    {/* Sol Taraf: Periyot Seçimi */}
                                     <div className="lg:col-span-1 bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4 flex flex-col justify-between">
                                         <div className="space-y-4">
                                             <h3 className="font-extrabold text-sm text-gray-800 dark:text-white flex items-center gap-2">
@@ -624,44 +995,19 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                                             {/* Periyot Seçici */}
                                             <div>
                                                 <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">İncelenecek Tarih / Periyot</label>
-                                                <select
-                                                    value={selectedDayKey || ''}
-                                                    onChange={(e) => setSelectedDayKey(e.target.value)}
-                                                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-orange-500 font-bold"
-                                                >
-                                                    {(viewMode === 'daily' ? groupedData.daily : groupedData.weekly).map(item => (
-                                                        <option key={item.key} value={item.key} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold">{item.display}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            {/* Vardiya Slider */}
-                                            <div className="pt-2">
-                                                <div className="flex justify-between text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                                                    <span>Vardiya Süresi</span>
-                                                    <span className="text-orange-600 dark:text-orange-400 font-black">{shiftHours} Saat</span>
-                                                </div>
-                                                <input 
-                                                    type="range" 
-                                                    min="4" 
-                                                    max="12" 
-                                                    step="0.5"
-                                                    value={shiftHours} 
-                                                    onChange={(e) => setShiftHours(parseFloat(e.target.value))}
-                                                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                                <input
+                                                    type="date"
+                                                    value={getRepresentativeDate(selectedDayKey, viewMode)}
+                                                    onChange={(e) => handleDateChange(e.target.value)}
+                                                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-orange-500 font-bold cursor-pointer"
                                                 />
-                                                <div className="flex justify-between text-[10px] text-gray-400 font-semibold mt-1">
-                                                    <span>4 Saat</span>
-                                                    <span>8 Saat (Standart)</span>
-                                                    <span>12 Saat</span>
-                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded-xl text-blue-800 dark:text-blue-300 text-[11px] font-semibold leading-relaxed flex gap-2 items-start mt-4">
+                                        <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded-xl text-blue-800 dark:text-blue-300 text-[11px] font-semibold leading-relaxed flex gap-2 items-start mt-2">
                                             <Info className="w-4 h-4 shrink-0 text-blue-500 mt-0.5" />
                                             <span>
-                                                Vardiya süresi, operatörün o günkü mesaisidir. Ayar ve duruş müdahalelerinin dışındaki zaman, tezgahlar otomatik çalışırken geçen <strong>"Teknik Serbest/Gözlem"</strong> süresidir.
+                                                Vardiya süresi, operatörün terminalden yaptığı Giriş ve Çıkış kayıtlarına göre otomatik hesaplanır. Giriş/Çıkış kaydı yoksa standart 8 saat kabul edilir.
                                             </span>
                                         </div>
                                     </div>
@@ -683,12 +1029,12 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                                                 <div className="space-y-2">
                                                     <div className="flex justify-between text-xs font-bold text-gray-600 dark:text-gray-400">
                                                         <span>Operatörün Vardiya Zaman Dağılımı</span>
-                                                        <span>Toplam: {shiftHours} Saat</span>
+                                                        <span>Toplam: {simulatorStats.actualShiftHours} Saat</span>
                                                     </div>
                                                     <div className="h-6 w-full rounded-lg overflow-hidden flex shadow-inner">
                                                         {parseFloat(simulatorStats.setupHours) > 0 && (
                                                             <div 
-                                                                style={{ width: `${Math.min(100, (parseFloat(simulatorStats.setupHours) / shiftHours) * 100)}%` }} 
+                                                                style={{ width: `${Math.min(100, (parseFloat(simulatorStats.setupHours) / parseFloat(simulatorStats.actualShiftHours)) * 100)}%` }} 
                                                                 className="bg-blue-500 hover:bg-blue-600 transition-colors flex items-center justify-center text-[10px] text-white font-black truncate px-1"
                                                                 title={`Ayar: ${simulatorStats.setupHours} Saat`}
                                                             >
@@ -697,7 +1043,7 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                                                         )}
                                                         {parseFloat(simulatorStats.pauseHours) > 0 && (
                                                             <div 
-                                                                style={{ width: `${Math.min(100, (parseFloat(simulatorStats.pauseHours) / shiftHours) * 100)}%` }} 
+                                                                style={{ width: `${Math.min(100, (parseFloat(simulatorStats.pauseHours) / parseFloat(simulatorStats.actualShiftHours)) * 100)}%` }} 
                                                                 className="bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center text-[10px] text-white font-black truncate px-1"
                                                                 title={`Duruş: ${simulatorStats.pauseHours} Saat`}
                                                             >
@@ -706,7 +1052,7 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                                                         )}
                                                         {parseFloat(simulatorStats.idleHours) > 0 && (
                                                             <div 
-                                                                style={{ width: `${(parseFloat(simulatorStats.idleHours) / shiftHours) * 100}%` }} 
+                                                                style={{ width: `${Math.min(100, (parseFloat(simulatorStats.idleHours) / parseFloat(simulatorStats.actualShiftHours)) * 100)}%` }} 
                                                                 className="bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center text-[10px] text-gray-600 dark:text-gray-300 font-black truncate px-1"
                                                                 title={`Teknik Bekleme: ${simulatorStats.idleHours} Saat`}
                                                             >
@@ -853,80 +1199,112 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                                     </div>
                                 )}
 
-                                {/* 6. İSTASYON OPERASYON LOGLARI DETAY TABLOSU */}
-                                <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-                                    <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50">
+                                {/* 6. VARDİYA & KRONOLOJİK OPERATÖR İŞ TAKİP TABLOSU */}
+                                <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden space-y-4 p-5">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-gray-200 dark:border-gray-700">
                                         <h3 className="font-extrabold text-sm text-gray-800 dark:text-white flex items-center gap-2">
-                                            <Calendar className="w-4 h-4 text-orange-500" /> Periyoda Ait Detaylı Operasyon Logları
+                                            <Clock className="w-4 h-4 text-orange-500" /> Vardiya & Kronolojik İş Takip Detayları
                                         </h3>
-                                        <span className="text-[11px] font-black text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-2.5 py-1 rounded">
-                                            {activePeriodData?.logs.length || 0} Operasyon Kaydı
-                                        </span>
+                                        <div className="flex gap-2">
+                                            <span className="text-[11px] font-black text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-2.5 py-1 rounded">
+                                                {operatorActivities.length} İşlem Segmenti
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="overflow-x-auto">
+
+                                    {/* Vardiya Başlangıç / Sonu Özet Kartı */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-200 dark:border-gray-800">
+                                        <div className="space-y-1">
+                                            <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-wider">VARDİYA GİRİŞ (SHIFT START)</span>
+                                            <div className="text-sm font-extrabold text-gray-800 dark:text-white">
+                                                {activeShiftInfo?.start ? (
+                                                    <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+                                                        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                                        {formatTimeOnly(activeShiftInfo.start)} {activeShiftInfo.machineName && `(${activeShiftInfo.machineName})`}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-400 font-bold italic">Giriş Yapılmadı</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-wider">VARDİYA ÇIKIŞ (SHIFT END)</span>
+                                            <div className="text-sm font-extrabold text-gray-800 dark:text-white">
+                                                {activeShiftInfo?.end ? (
+                                                    <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                                                        <span className="w-2 h-2 rounded-full bg-blue-505"></span>
+                                                        {formatTimeOnly(activeShiftInfo.end)}
+                                                    </span>
+                                                ) : activeShiftInfo?.start ? (
+                                                    <span className="flex items-center gap-1.5 text-orange-500 animate-pulse font-extrabold">
+                                                        <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                                                        Devam Ediyor / Çıkış Yapılmadı
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-400 font-bold italic">Çıkış Yapılmadı</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-wider">TOPLAM VARDİYA SÜRESİ</span>
+                                            <div className="text-sm font-black text-gray-900 dark:text-white">
+                                                {activeShiftInfo?.durationStr || <span className="text-gray-400 font-bold italic">---</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Kronolojik İş Tablosu */}
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
                                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                                             <thead className="bg-gray-50 dark:bg-gray-900/50">
                                                 <tr>
+                                                    <th className="px-6 py-3 text-left font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Saat Aralığı</th>
                                                     <th className="px-6 py-3 text-left font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Kalıp Adı</th>
-                                                    <th className="px-6 py-3 text-left font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Parça / İş</th>
+                                                    <th className="px-6 py-3 text-left font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">İşlem / Aşama</th>
                                                     <th className="px-6 py-3 text-left font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tezgah</th>
-                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ayar Süresi</th>
-                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Net İmalat</th>
-                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Duruş Süresi</th>
-                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Durum</th>
+                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aktivite Tipi</th>
+                                                    <th className="px-6 py-3 text-center font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">Çalışılan Süre</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                                {!activePeriodData || activePeriodData.logs.length === 0 ? (
+                                                {operatorActivities.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan="7" className="px-6 py-8 text-center text-gray-400 dark:text-gray-500 font-semibold italic">
-                                                            Seçilen periyotta herhangi bir operasyon kaydı bulunamadı.
+                                                        <td colSpan="6" className="px-6 py-8 text-center text-gray-400 dark:text-gray-500 font-semibold italic">
+                                                            Seçilen periyotta operatörün aktif çalışma segmenti bulunamadı.
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    activePeriodData.logs.map((log, idx) => (
-                                                        <tr key={log.opId || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                                    operatorActivities.map((act, idx) => (
+                                                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                                            <td className="px-6 py-4 whitespace-nowrap font-black text-gray-800 dark:text-gray-200">
+                                                                {formatTimeOnly(act.start)} - {formatTimeOnly(act.end)}
+                                                            </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                                <span className="inline-block bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 font-extrabold px-2 py-0.5 rounded border border-orange-100 dark:border-orange-900/30">
-                                                                    {log.moldName}
+                                                                <span className="inline-block bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 font-extrabold px-2.5 py-0.5 rounded border border-orange-100 dark:border-orange-900/30">
+                                                                    {act.moldName}
                                                                 </span>
                                                             </td>
                                                             <td className="px-6 py-4">
-                                                                <div className="font-extrabold text-gray-900 dark:text-white">{log.opType}</div>
-                                                                <div className="text-[10px] text-gray-400 mt-0.5">{log.taskName}</div>
+                                                                <div className="font-extrabold text-gray-900 dark:text-white">{act.opType}</div>
+                                                                <div className="text-[10px] text-gray-400 mt-0.5">{act.taskName}</div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap font-bold text-gray-800 dark:text-gray-200">
                                                                 <div className="flex items-center gap-1">
                                                                     <Monitor className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                                                    {log.machineName}
+                                                                    {act.machineName}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-center font-bold text-blue-600 dark:text-blue-400">
-                                                                {formatDuration(log.setupMs)}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-center font-bold text-green-600 dark:text-green-400">
-                                                                {formatDuration(log.prodMs)}
-                                                            </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                                <span className={`font-bold ${log.pauseMs > 0 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                                                                    {formatDuration(log.pauseMs)}
-                                                                </span>
-                                                                {log.pauseMs > 0 && Object.keys(log.pauseReasons).length > 0 && (
-                                                                    <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-1">
-                                                                        ({Object.keys(log.pauseReasons).join(', ')})
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                                    log.status === 'COMPLETED' || log.status === 'TAMAMLANDI'
-                                                                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                                                                        : log.status === 'IN_PROGRESS' || log.status === 'YÜRÜTÜLÜYOR'
-                                                                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
-                                                                        : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                                                                <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase ${
+                                                                    act.typeKey === 'setup'
+                                                                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                                                                        : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                                                                 }`}>
-                                                                    {log.status}
+                                                                    {act.type}
                                                                 </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-center font-black text-gray-900 dark:text-white">
+                                                                {formatDuration(act.durationMs)}
                                                             </td>
                                                         </tr>
                                                     ))
