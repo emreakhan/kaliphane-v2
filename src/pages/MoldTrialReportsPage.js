@@ -13,7 +13,8 @@ import {
     MessageSquare, ThumbsUp, ThumbsDown, AlertTriangle, Edit2, PlusCircle, Download, Calendar, Monitor
 } from 'lucide-react';
 import { 
-    collection, addDoc, query, where, orderBy, onSnapshot, updateDoc, doc, deleteDoc
+    collection, addDoc, query, where, orderBy, onSnapshot, updateDoc, doc, deleteDoc,
+    storage, ref, uploadBytes, getDownloadURL
 } from '../config/firebase.js'; 
 import { PROJECT_COLLECTION } from '../config/constants.js'; 
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
@@ -21,14 +22,11 @@ import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 const TRIAL_PHASES = ['T0', 'T1', 'T2', 'T3', 'T4', 'SERİ ONAY'];
 const MOLD_TRIAL_REPORTS_COLLECTION = 'mold_trial_reports';
 
-// --- Yardımcı Dosya Sıkıştırma Fonksiyonları ---
-const compressAndConvertToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-        if (file.type.startsWith('video/')) {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = error => reject(error);
+// --- Yardımcı Dosya Sıkıştırma ve Storage Yükleme Fonksiyonları ---
+const compressImageToBlob = (file) => {
+    return new Promise((resolve) => {
+        if (!file.type.startsWith('image/')) {
+            resolve(file);
             return;
         }
 
@@ -61,12 +59,42 @@ const compressAndConvertToBase64 = (file) => {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-                resolve(compressedBase64);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        resolve(file); // canvas blob oluşturamazsa orijinal dosyayı kullan
+                    }
+                }, 'image/jpeg', 0.7);
             };
+            img.onerror = () => resolve(file);
         };
-        reader.onerror = error => reject(error);
+        reader.onerror = () => resolve(file);
     });
+};
+
+const uploadFileToStorage = async (file, moldId) => {
+    if (!file) return null;
+    let fileToUpload = file;
+    
+    // Eğer görsel ise önce sıkıştırıyoruz
+    if (file.type && file.type.startsWith('image/')) {
+        try {
+            fileToUpload = await compressImageToBlob(file);
+        } catch (e) {
+            console.error("Görsel sıkıştırma hatası, orijinal yüklenecek:", e);
+        }
+    }
+    
+    const cleanMoldId = moldId || 'general';
+    const timestamp = Date.now();
+    const cleanFileName = (file.name || 'file').replace(/[^a-zA-Z0-9.]/g, '_');
+    const uniqueFileName = `mold_trial_reports/${cleanMoldId}/${timestamp}_${cleanFileName}`;
+    const storageRef = ref(storage, uniqueFileName);
+    
+    await uploadBytes(storageRef, fileToUpload);
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
 };
 
 const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
@@ -139,6 +167,8 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const [trialData, setTrialData] = useState(getInitialTrialData());
     const [newQuickNoteText, setNewQuickNoteText] = useState('');
     const [newQuickNoteImage, setNewQuickNoteImage] = useState(null); 
+    const [isUploadingNoteImage, setIsUploadingNoteImage] = useState(false);
+    const [isUploadingMedia, setIsUploadingMedia] = useState(false); 
 
     // --- VERİ ÇEKME ---
     useEffect(() => {
@@ -284,12 +314,28 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handleFileChange = async (event) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
-        const newMediaItems = await Promise.all(files.map(async (file) => {
-            const base64 = await compressAndConvertToBase64(file);
-            return { id: Date.now() + Math.random(), url: base64, type: file.type.startsWith('video') ? 'video' : 'image' };
-        }));
-        setTrialData(prev => ({ ...prev, media: [...(prev.media || []), ...newMediaItems] }));
-        event.target.value = ''; 
+        
+        setIsUploadingMedia(true);
+        try {
+            const newMediaItems = await Promise.all(
+                files.map(async (file) => {
+                    const url = await uploadFileToStorage(file, selectedMold?.id);
+                    return { 
+                        id: Date.now() + Math.random(), 
+                        url: url, 
+                        type: file.type.startsWith('video') ? 'video' : 'image' 
+                    };
+                })
+            );
+            const validMediaItems = newMediaItems.filter(item => item.url !== null);
+            setTrialData(prev => ({ ...prev, media: [...(prev.media || []), ...validMediaItems] }));
+        } catch (error) {
+            console.error("Medya dosyaları yükleme hatası:", error);
+            alert("Hata: Dosyalar yüklenirken bir problem oluştu: " + error.message);
+        } finally {
+            setIsUploadingMedia(false);
+            event.target.value = ''; 
+        }
     };
 
     const handleRemoveMedia = (id) => {
@@ -332,7 +378,8 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             if (!silent) alert(`${dataToSave.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
         } catch (error) {
             console.error("Hata:", error);
-            if (!silent) alert("Hata: " + error.message);
+            // Kaydetme hatasını her zaman gösteriyoruz ki sessizce kaybolmasın
+            alert("Kaydetme Hatası: Rapor kaydedilemedi!\nHata Detayı: " + error.message);
         } finally {
             setIsSaving(false);
         }
@@ -589,9 +636,22 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handleQuickNoteImageUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
-        const base64 = await compressAndConvertToBase64(file);
-        setNewQuickNoteImage(base64);
-        event.target.value = '';
+        
+        setIsUploadingNoteImage(true);
+        try {
+            const url = await uploadFileToStorage(file, selectedMold?.id);
+            if (url) {
+                setNewQuickNoteImage(url);
+            } else {
+                alert("Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
+            }
+        } catch (error) {
+            console.error("Hızlı not resim yükleme hatası:", error);
+            alert("Hata: Fotoğraf yüklenirken bir problem oluştu: " + error.message);
+        } finally {
+            setIsUploadingNoteImage(false);
+            event.target.value = '';
+        }
     };
 
     const handleAddQuickNote = async () => {
@@ -629,11 +689,39 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handleAddImageToExistingNote = async (noteId, event) => {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
-        const newImages = await Promise.all(files.map(async (file) => await compressAndConvertToBase64(file)));
-        const updatedData = { ...trialData, quickNotes: (trialData.quickNotes || []).map(note => note.id === noteId ? { ...note, images: [...(note.images || []), ...(note.image ? [note.image] : []), ...newImages].filter((v, i, a) => a.indexOf(v) === i), image: null } : note ) };
-        setTrialData(updatedData);
-        event.target.value = '';
-        await saveTrialDataToDB(updatedData, true);
+        
+        setIsUploadingNoteImage(true);
+        try {
+            const newImages = await Promise.all(
+                files.map(async (file) => await uploadFileToStorage(file, selectedMold?.id))
+            );
+            const validImages = newImages.filter(url => url !== null);
+            if (validImages.length === 0) {
+                alert("Fotoğraflar yüklenemedi.");
+                return;
+            }
+            
+            const updatedData = { 
+                ...trialData, 
+                quickNotes: (trialData.quickNotes || []).map(note => 
+                    note.id === noteId 
+                        ? { 
+                            ...note, 
+                            images: [...(note.images || []), ...(note.image ? [note.image] : []), ...validImages].filter((v, i, a) => a.indexOf(v) === i), 
+                            image: null 
+                          } 
+                        : note 
+                ) 
+            };
+            setTrialData(updatedData);
+            await saveTrialDataToDB(updatedData, true);
+        } catch (error) {
+            console.error("Mevcut nota fotoğraf ekleme hatası:", error);
+            alert("Hata: Fotoğraflar yüklenirken bir problem oluştu: " + error.message);
+        } finally {
+            setIsUploadingNoteImage(false);
+            event.target.value = '';
+        }
     };
 
     const handleDeleteImageFromNote = async (noteId, imgIndex) => {
@@ -776,11 +864,33 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
 
     const handleSaveEdit = () => {
         const canvas = canvasRef.current;
-        const newDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        const newMedia = [...trialData.media];
-        newMedia[lightboxIndex] = { ...newMedia[lightboxIndex], url: newDataUrl };
-        setTrialData({ ...trialData, media: newMedia });
-        setIsEditing(false);
+        setIsSaving(true);
+        canvas.toBlob(async (blob) => {
+            if (!blob) {
+                alert("Düzenlenen görsel kaydedilemedi.");
+                setIsSaving(false);
+                return;
+            }
+            try {
+                const timestamp = Date.now();
+                const uniqueFileName = `mold_trial_reports/${selectedMold?.id || 'edited'}/${timestamp}_edited_drawing.jpg`;
+                const storageRef = ref(storage, uniqueFileName);
+                await uploadBytes(storageRef, blob);
+                const downloadURL = await getDownloadURL(storageRef);
+
+                const newMedia = [...trialData.media];
+                newMedia[lightboxIndex] = { ...newMedia[lightboxIndex], url: downloadURL };
+                const updatedData = { ...trialData, media: newMedia };
+                setTrialData(updatedData);
+                setIsEditing(false);
+                await saveTrialDataToDB(updatedData, true);
+            } catch (error) {
+                console.error("Çizim kaydetme hatası:", error);
+                alert("Hata: Çizim kaydedilirken Storage hatası oluştu: " + error.message);
+            } finally {
+                setIsSaving(false);
+            }
+        }, 'image/jpeg', 0.8);
     };
 
     const handleNextMedia = (e) => { if(e) e.stopPropagation(); if (trialData.media.length > 0) setLightboxIndex((prev) => (prev + 1) % trialData.media.length); };
@@ -855,7 +965,13 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                                 <button key={color} onClick={() => setDrawingColor(color)} className={`w-5 h-5 md:w-6 md:h-6 rounded-full border-2 transition ${drawingColor === color ? 'border-white scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />
                                             ))}
                                         </div>
-                                        <button onClick={handleSaveEdit} className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-green-600 hover:bg-green-700 text-white rounded-full text-xs md:text-sm font-bold ml-1 md:ml-2"><Check className="w-3 h-3 md:w-4 md:h-4 mr-1" /> Kaydet</button>
+                                        <button 
+                                            disabled={isSaving}
+                                            onClick={handleSaveEdit} 
+                                            className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-green-600 hover:bg-green-700 text-white rounded-full text-xs md:text-sm font-bold ml-1 md:ml-2 disabled:opacity-50"
+                                        >
+                                            <Check className="w-3 h-3 md:w-4 md:h-4 mr-1" /> {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                                        </button>
                                         <button onClick={() => setIsEditing(false)} className="flex items-center px-3 py-1.5 md:px-4 md:py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-full text-xs md:text-sm font-bold"><X className="w-3 h-3 md:w-4 md:h-4 mr-1" /> İptal</button>
                                     </div>
                                 )
@@ -999,16 +1115,38 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                         <div className="flex flex-col md:flex-row gap-2">
                                             <div className="flex gap-2">
                                                 <input type="file" ref={quickNoteFileInputRef} className="hidden" accept="image/*" onChange={handleQuickNoteImageUpload} />
-                                                <button onClick={() => quickNoteFileInputRef.current.click()} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300 w-12 h-10 flex items-center justify-center shrink-0">
-                                                    {newQuickNoteImage ? <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" /> : <Camera className="w-5 h-5" />}
+                                                <button 
+                                                    disabled={isUploadingNoteImage}
+                                                    onClick={() => quickNoteFileInputRef.current.click()} 
+                                                    className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 border border-dashed border-gray-300 w-12 h-10 flex items-center justify-center shrink-0 disabled:opacity-50"
+                                                >
+                                                    {isUploadingNoteImage ? (
+                                                        <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                                                    ) : newQuickNoteImage ? (
+                                                        <img src={newQuickNoteImage} className="w-6 h-6 object-cover rounded" alt="secilen" />
+                                                    ) : (
+                                                        <Camera className="w-5 h-5" />
+                                                    )}
                                                 </button>
-                                                <input type="text" className="flex-1 md:hidden p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Notunuz..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} />
+                                                <input type="text" className="flex-1 md:hidden p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Notunuz..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isUploadingNoteImage && handleAddQuickNote()} />
                                             </div>
                                             <div className="flex-1 flex gap-2 hidden md:flex">
-                                                <input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()} />
-                                                <button onClick={handleAddQuickNote} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm shrink-0">Notu Kaydet</button>
+                                                <input type="text" className="flex-1 p-2 text-sm border rounded-lg dark:bg-gray-700 dark:text-white" placeholder="Örn: Sol üst köşede çapak var..." value={newQuickNoteText} onChange={(e) => setNewQuickNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isUploadingNoteImage && handleAddQuickNote()} />
+                                                <button 
+                                                    disabled={isUploadingNoteImage || (!newQuickNoteText && !newQuickNoteImage)}
+                                                    onClick={handleAddQuickNote} 
+                                                    className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm shrink-0 disabled:opacity-50"
+                                                >
+                                                    {isUploadingNoteImage ? 'Yükleniyor...' : 'Notu Kaydet'}
+                                                </button>
                                             </div>
-                                            <button onClick={handleAddQuickNote} className="md:hidden w-full py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm">Notu Kaydet</button>
+                                            <button 
+                                                disabled={isUploadingNoteImage || (!newQuickNoteText && !newQuickNoteImage)}
+                                                onClick={handleAddQuickNote} 
+                                                className="md:hidden w-full py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm disabled:opacity-50"
+                                            >
+                                                {isUploadingNoteImage ? 'Yükleniyor...' : 'Notu Kaydet'}
+                                            </button>
                                         </div>
                                     </div>
                                     
@@ -1157,9 +1295,18 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                 <div className="space-y-6">
                                     <input type="file" multiple accept="image/*,video/*" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
                                     <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 p-6 md:p-10 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-                                        <ImageIcon className="w-12 h-12 md:w-16 md:h-16 mb-2 md:mb-4 opacity-50" />
-                                        <p className="text-sm md:text-lg font-medium text-center">Fotoğraf / Video Yükle</p>
-                                        <button onClick={handleTriggerFileUpload} className="px-4 py-2 md:px-6 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition mt-3 text-xs md:text-sm"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
+                                        {isUploadingMedia ? (
+                                            <div className="flex flex-col items-center justify-center py-4">
+                                                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                                                <p className="text-sm md:text-base font-bold text-blue-600">Medya dosyaları yükleniyor, lütfen bekleyin...</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <ImageIcon className="w-12 h-12 md:w-16 md:h-16 mb-2 md:mb-4 opacity-50" />
+                                                <p className="text-sm md:text-lg font-medium text-center">Fotoğraf / Video Yükle</p>
+                                                <button onClick={handleTriggerFileUpload} className="px-4 py-2 md:px-6 md:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md font-bold flex items-center transition mt-3 text-xs md:text-sm"><Plus className="w-4 h-4 mr-2" /> Dosya Seç</button>
+                                            </>
+                                        )}
                                     </div>
                                     {(trialData.media || []).length > 0 && (
                                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 animate-in fade-in pb-20">
@@ -1207,8 +1354,8 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                                 <button onClick={handleDownloadPresentation} className="w-full md:w-auto justify-center px-4 md:px-5 py-2.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-bold rounded-xl flex items-center transition text-xs md:text-sm shadow-sm border border-blue-200 dark:border-blue-800">
                                     <Download className="w-4 h-4 md:w-5 md:h-5 mr-2" /> PDF İNDİR
                                 </button>
-                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving} className="w-full md:w-auto justify-center px-6 md:px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl shadow-lg flex items-center transition disabled:opacity-50 text-xs md:text-sm">
-                                    <Save className="w-4 h-4 md:w-5 md:h-5 mr-2" /> {isSaving ? 'KAYDEDİLİYOR...' : 'TÜMÜNÜ KAYDET'}
+                                <button onClick={() => saveTrialDataToDB(trialData, false)} disabled={isSaving || isUploadingMedia || isUploadingNoteImage} className="w-full md:w-auto justify-center px-6 md:px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white font-black rounded-xl shadow-lg flex items-center transition disabled:opacity-50 text-xs md:text-sm">
+                                    <Save className="w-4 h-4 md:w-5 md:h-5 mr-2" /> {isSaving ? 'KAYDEDİLİYOR...' : (isUploadingMedia || isUploadingNoteImage) ? 'YÜKLENİYOR...' : 'TÜMÜNÜ KAYDET'}
                                 </button>
                             </div>
                         )}

@@ -3,7 +3,7 @@ import {
     Lightbulb, CheckSquare, HelpCircle, Search, Plus, X, Save, 
     Image as ImageIcon, Download, Trash2, Calendar, Target, Award,
     ChevronDown, ChevronUp, Edit2, Coins, TrendingDown, ArrowRight,
-    Factory, Settings
+    Factory, Settings, MessageSquare
 } from 'lucide-react';
 import { 
     db, storage, collection, addDoc, updateDoc, onSnapshot, 
@@ -237,6 +237,23 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
     const handleDeleteKaizen = async (id) => {
         if (window.confirm("Bu Kaizen raporunu silmek istediğinize emin misiniz?")) {
             await deleteDoc(doc(db, 'ci_kaizens', id));
+        }
+    };
+
+    const handleEvaluateKaizen = async (kz) => {
+        const evaluation = window.prompt("Kaizen Değerlendirmesini Girin:", kz.evaluation || "");
+        if (evaluation === null) return; // Kullanıcı iptal etti
+        
+        try {
+            await updateDoc(doc(db, 'ci_kaizens', kz.id), { 
+                evaluation: evaluation.trim(),
+                evaluatedBy: loggedInUser?.name || 'Yönetici',
+                evaluatedAt: getCurrentDateTimeString()
+            });
+            alert("Değerlendirme başarıyla kaydedildi!");
+        } catch (error) {
+            console.error("Değerlendirme kaydedilemedi:", error);
+            alert("Hata: Değerlendirme kaydedilemedi. " + error.message);
         }
     };
 
@@ -642,14 +659,32 @@ const ContinuousImprovementPage = ({ loggedInUser }) => {
                                     <div className="border-b-2 border-gray-800 pb-3 mb-4 flex justify-between items-end">
                                         <div>
                                             <h3 className="text-2xl font-black uppercase tracking-tight text-gray-900">{kz.title}</h3>
-                                            <div className="flex items-center text-xs font-bold text-gray-500 mt-1 uppercase">
+                                            <div className="flex items-center flex-wrap gap-y-1 text-xs font-bold text-gray-500 mt-1 uppercase">
                                                 <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded mr-3">KAIZEN / ÖNCE-SONRA</span>
                                                 <Calendar className="w-3 h-3 mr-1"/> {formatDateTime(kz.createdAt).split(' ')[0]}
+                                                {kz.evaluation && (
+                                                    <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded ml-0 md:ml-3 mt-1 md:mt-0 flex items-center shadow-sm">
+                                                        <Award className="w-3.5 h-3.5 mr-1" /> Değerlendirme: {kz.evaluation}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="text-right text-xs font-bold text-gray-500">
-                                            <div className="mb-1">Öneren / Yapan:</div>
-                                            <div className="text-sm text-gray-900 bg-gray-100 px-3 py-1 rounded">{kz.reportedBy}</div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            {(loggedInUser?.role === 'Yönetici' || loggedInUser?.role === 'Admin') && (
+                                                <button 
+                                                    onClick={() => handleEvaluateKaizen(kz)}
+                                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-extrabold uppercase transition shadow-sm flex items-center gap-1 shrink-0"
+                                                    data-html2canvas-ignore="true"
+                                                >
+                                                    <MessageSquare className="w-3.5 h-3.5" /> Değerlendir
+                                                </button>
+                                            )}
+                                            <div className="text-right text-xs font-bold text-gray-500 mt-1">
+                                                Öneren / Yapan:
+                                            </div>
+                                            <div className="text-sm text-gray-900 bg-gray-100 px-3 py-1 rounded font-black mt-0.5 inline-block whitespace-nowrap">
+                                                {kz.reportedBy}
+                                            </div>
                                         </div>
                                     </div>
 
