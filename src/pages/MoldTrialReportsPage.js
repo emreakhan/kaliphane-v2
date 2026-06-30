@@ -343,6 +343,38 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         if (lightboxIndex !== null) setLightboxIndex(null);
     };
 
+    // --- Eski Base64 Verilerini Temizleme Yardımcı Fonksiyonları ---
+    const dataURLtoBlob = (dataurl) => {
+        try {
+            let arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+                bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+            while(n--){
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            return new Blob([u8arr], {type:mime});
+        } catch (e) {
+            console.error("Base64 ayrıştırma hatası:", e);
+            return null;
+        }
+    };
+
+    const uploadBase64ToStorage = async (base64String, moldId) => {
+        try {
+            const blob = dataURLtoBlob(base64String);
+            if (!blob) return base64String;
+            const timestamp = Date.now() + Math.floor(Math.random() * 1000);
+            const extension = blob.type.split('/')[1] || 'jpg';
+            const uniqueFileName = `mold_trial_reports/${moldId || 'legacy'}/${timestamp}_legacy_image.${extension}`;
+            const storageRef = ref(storage, uniqueFileName);
+            await uploadBytes(storageRef, blob);
+            const downloadURL = await getDownloadURL(storageRef);
+            return downloadURL;
+        } catch (e) {
+            console.error("Eski base64 Storage yükleme hatası:", e);
+            return base64String; // Hata durumunda orijinali dön
+        }
+    };
+
     // --- KAYDETME MANTIĞI ---
     const saveTrialDataToDB = async (dataToSave, silent = false) => {
         if (!selectedMold) return;
@@ -358,14 +390,50 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 savedAt: getCurrentDateTimeString()
             };
 
+            // ESKİ BASE64 RESİMLERİ STORAGE'A YÜKLEYİP URL'LERLE DEĞİŞTİR (SELF-HEALING)
+            if (reportData.media && reportData.media.length > 0) {
+                reportData.media = await Promise.all(reportData.media.map(async (item) => {
+                    if (item.url && item.url.startsWith('data:')) {
+                        const storageUrl = await uploadBase64ToStorage(item.url, selectedMold.id);
+                        return { ...item, url: storageUrl };
+                    }
+                    return item;
+                }));
+            }
+
+            if (reportData.quickNotes && reportData.quickNotes.length > 0) {
+                reportData.quickNotes = await Promise.all(reportData.quickNotes.map(async (note) => {
+                    let updatedNote = { ...note };
+                    if (updatedNote.images && updatedNote.images.length > 0) {
+                        updatedNote.images = await Promise.all(updatedNote.images.map(async (imgUrl) => {
+                            if (imgUrl && imgUrl.startsWith('data:')) {
+                                return await uploadBase64ToStorage(imgUrl, selectedMold.id);
+                            }
+                            return imgUrl;
+                        }));
+                    }
+                    if (updatedNote.image && updatedNote.image.startsWith('data:')) {
+                        updatedNote.image = await uploadBase64ToStorage(updatedNote.image, selectedMold.id);
+                    }
+                    return updatedNote;
+                }));
+            }
+
             let docId = dataToSave.id;
             if (docId) {
                 await updateDoc(doc(db, MOLD_TRIAL_REPORTS_COLLECTION, docId), reportData);
             } else {
                 const docRef = await addDoc(collection(db, MOLD_TRIAL_REPORTS_COLLECTION), { ...reportData, createdAt: new Date().toISOString() });
                 docId = docRef.id;
-                setTrialData(prev => ({ ...prev, id: docId }));
             }
+
+            // State'i de temizlenmiş URL'lerle güncelle
+            setTrialData(prev => ({ 
+                ...prev, 
+                id: docId, 
+                media: reportData.media, 
+                quickNotes: reportData.quickNotes 
+            }));
 
             let newStatus = selectedMold.status;
             if (dataToSave.result === 'APPROVED') newStatus = 'ONAY';
