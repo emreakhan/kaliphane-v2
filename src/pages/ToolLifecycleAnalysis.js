@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Search, BarChart2, TrendingUp, TrendingDown, 
-    ArrowRight, Activity, Calendar, Download, Package
+    ArrowRight, Activity, Download, Package
 } from 'lucide-react';
 import { collection, query, onSnapshot, orderBy } from '../config/firebase.js';
 import { 
@@ -12,7 +12,7 @@ import {
 
 // Grafikler
 import { 
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 
 // PDF
@@ -66,10 +66,14 @@ const ToolLifecycleAnalysis = ({ db }) => {
         const tool = inventory.find(t => t.id === selectedToolId);
         if (!tool) return null;
 
-        // Bu takıma ait tüm işlemleri bul (İsme göre eşleştiriyoruz, ID daha güvenli ama eski kayıtlarda ID olmayabilir)
-        const toolTx = transactions.filter(tx => 
-            tx.toolName === tool.name || (tx.toolId && tx.toolId === tool.id)
-        );
+        // Bu takıma ait tüm işlemleri bul (ID'ye göre eşleştiriyoruz, eski kayıtlar için isim temizleyip bakıyoruz)
+        const toolTx = transactions.filter(tx => {
+            if (tx.toolId && tx.toolId === tool.id) return true;
+            const cleanTxName = tx.toolName
+                ? tx.toolName.replace('[SIFIR DEPO] ', '').replace('[KULLANILMIŞ DEPO] ', '').trim()
+                : '';
+            return cleanTxName === tool.name.trim() || tx.toolName === tool.name;
+        });
 
         // Yıllık Veriler
         const currentYear = new Date().getFullYear();
