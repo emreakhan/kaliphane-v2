@@ -1,15 +1,19 @@
 // src/pages/TerminalPage.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText, Clock, Activity } from 'lucide-react';
+import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText, Clock, Activity, Edit2 } from 'lucide-react';
 import { OPERATION_STATUS } from '../config/constants';
 import PauseReasonModal from './PauseReasonModal';
+import Modal from '../components/Modals/Modal';
 
-const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isTerminalRole = false, onLogout, loggedInUser }) => {
+const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, handleUpdatePauseReason, isTerminalRole = false, onLogout, loggedInUser }) => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [activeOperator, setActiveOperator] = useState(null); 
     const [selectedMachine, setSelectedMachine] = useState(null); 
+
+    const [editingPauseItem, setEditingPauseItem] = useState(null);
+    const [editReasonText, setEditReasonText] = useState('');
 
     // --- 🚨 KIOSK MODU: TARAYICI GERİ TUŞUNU ENGELLEME 🚨 ---
     useEffect(() => {
@@ -85,20 +89,45 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
         }, [machines]);
 
         return (
-            <div className="flex flex-col h-screen bg-gray-900 text-white p-6">
-                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+            <div className="flex flex-col min-h-screen bg-gray-900 text-white p-4 sm:p-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-gray-700 pb-4">
                     <div className="flex items-center">
-                        <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-xl font-bold mr-4">
+                        <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-xl font-bold mr-4 shrink-0">
                             {activeOperator.name.charAt(0)}
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold">Merhaba, {activeOperator.name}</h2>
-                            <p className="text-gray-400">Çalışacağınız tezgahı seçiniz.</p>
+                            <h2 className="text-xl sm:text-2xl font-bold">Merhaba, {activeOperator.name}</h2>
+                            <p className="text-xs sm:text-sm text-gray-400">Çalışacağınız tezgahı seçiniz.</p>
                         </div>
                     </div>
-                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center shadow-lg transition">
-                        <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
-                    </button>
+                    
+                    {/* Sağ Üst Köşe Vardiya Kontrolleri ve Çıkış */}
+                    <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                        <button
+                            onClick={() => {
+                                handleTerminalAction(null, null, null, 'SHIFT_START', activeOperator.name, { machineName: 'Vardiya Girişi' });
+                                alert("İş Başı / Vardiya başlangıcı kaydı başarıyla oluşturuldu.");
+                            }}
+                            className="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md flex items-center justify-center gap-1.5"
+                        >
+                            <PlayCircle className="w-4 h-4" /> İş Başı Yap
+                        </button>
+                        <button
+                            onClick={() => {
+                                handleTerminalAction(null, null, null, 'SHIFT_END', activeOperator.name, { machineName: 'Vardiya Çıkışı' });
+                                alert("Vardiya Sonu kaydı başarıyla oluşturuldu.");
+                            }}
+                            className="flex-1 md:flex-initial bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md flex items-center justify-center gap-1.5"
+                        >
+                            <FastForward className="w-4 h-4" /> Vardiya Sonu
+                        </button>
+                        <button 
+                            onClick={handleLogout} 
+                            className="flex-1 md:flex-initial bg-red-600 hover:bg-red-700 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center shadow-lg transition text-xs sm:text-sm"
+                        >
+                            <LogOut className="w-4 h-4 mr-1.5" /> ÇIKIŞ
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -201,65 +230,32 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
         };
 
         return (
-            <div className="flex flex-col h-screen bg-gray-900 text-white p-6">
-                <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4 shrink-0">
+            <div className="flex flex-col min-h-screen bg-gray-900 text-white p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-gray-700 pb-4 shrink-0">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setSelectedMachine(null)} className="bg-gray-800 hover:bg-gray-700 p-3 rounded-lg border border-gray-600 transition">
                             <ArrowLeft className="w-6 h-6 text-gray-300" />
                         </button>
                         <div>
-                            <h2 className="text-3xl font-bold text-white tracking-wide">{selectedMachine.name}</h2>
-                            <p className="text-gray-400 flex items-center gap-2 mt-1">
+                            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">{selectedMachine.name}</h2>
+                            <p className="text-xs sm:text-sm text-gray-400 flex items-center gap-2 mt-1">
                                 <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
                                 Operatör: <span className="text-blue-400 font-semibold">{activeOperator.name}</span>
                             </p>
                         </div>
                     </div>
-                    <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center shadow-lg transition">
+                    <button onClick={handleLogout} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-bold flex items-center justify-center shadow-lg transition">
                         <LogOut className="w-5 h-5 mr-2" /> ÇIKIŞ
                     </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar pb-10 space-y-8">
-                    
-                    {/* VARDİYA İŞLEMLERİ PANELİ */}
-                    <div className="bg-gray-800/80 border border-gray-700 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg shrink-0">
-                        <div>
-                            <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-orange-500 animate-pulse" /> Vardiya Kontrolü
-                            </h4>
-                            <p className="text-xs text-gray-400 mt-1">
-                                Günlük çalışma sürenizin hesaplanması için vardiya başlangıcında ve sonunda bu butonları kullanın.
-                            </p>
-                        </div>
-                        <div className="flex gap-4 w-full md:w-auto">
-                            <button
-                                onClick={() => {
-                                    onAction(null, null, null, 'SHIFT_START', { machineName: selectedMachine.name });
-                                    alert("İş Başı / Vardiya başlangıcı kaydı başarıyla oluşturuldu.");
-                                }}
-                                className="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2"
-                            >
-                                <PlayCircle className="w-4 h-4" /> İş Başı Yap
-                            </button>
-                            <button
-                                onClick={() => {
-                                    onAction(null, null, null, 'SHIFT_END', { machineName: selectedMachine.name });
-                                    alert("Vardiya Sonu kaydı başarıyla oluşturuldu.");
-                                }}
-                                className="flex-1 md:flex-initial bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white px-6 py-3.5 rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2"
-                            >
-                                <FastForward className="w-4 h-4" /> Vardiya Sonu
-                            </button>
-                        </div>
-                    </div>
-                    
                     {/* AKTİF İŞLER */}
                     <div>
                         <h3 className="text-xl font-bold text-gray-300 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2" /> Mevcut İş</h3>
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                             {tasksOnMachine.length === 0 ? (
-                                <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-48 bg-gray-800/50 rounded-2xl border border-gray-700 border-dashed">
+                                <div className="col-span-full flex flex-col items-center justify-center text-gray-500 h-48 bg-gray-800/50 rounded-2xl border border-gray-700 border-dashed p-4 text-center">
                                     <Hash className="w-12 h-12 mb-3 opacity-20" />
                                     <p className="text-lg font-medium">CAM operatörü tarafından aktif edilmiş bir iş yok.</p>
                                 </div>
@@ -321,6 +317,56 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
                     onClose={() => setIsPauseModalOpen(false)}
                     onSubmit={handleSubmitPauseReason}
                 />
+
+                {/* Duraklatma Nedeni Düzenleme Modalı */}
+                {editingPauseItem && (
+                    <Modal 
+                        isOpen={!!editingPauseItem} 
+                        onClose={() => setEditingPauseItem(null)} 
+                        title="Duraklatma Açıklamasını Düzenle"
+                    >
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">
+                                    Yeni Açıklama
+                                </label>
+                                <input 
+                                    type="text" 
+                                    value={editReasonText} 
+                                    onChange={(e) => setEditReasonText(e.target.value)} 
+                                    className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 text-sm" 
+                                    placeholder="Açıklama giriniz..."
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+                                <button 
+                                    onClick={() => setEditingPauseItem(null)} 
+                                    className="px-4 py-2 text-gray-700 bg-gray-200 dark:bg-gray-600 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
+                                >
+                                    İptal
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        if (handleUpdatePauseReason) {
+                                            handleUpdatePauseReason(
+                                                editingPauseItem.moldId, 
+                                                editingPauseItem.taskId, 
+                                                editingPauseItem.opId, 
+                                                editingPauseItem.index, 
+                                                editReasonText.trim() || 'Belirtilmedi'
+                                            );
+                                        }
+                                        setEditingPauseItem(null);
+                                    }} 
+                                    className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-colors"
+                                >
+                                    Kaydet
+                                </button>
+                            </div>
+                        </div>
+                    </Modal>
+                )}
             </div>
         );
     };
@@ -370,13 +416,27 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
         if (task.setupStartTime) timeline.push({ name: 'Ayar Süresi', time: parseDate(task.setupStartTime), type: 'SETUP' });
         if (task.productionStartTime) timeline.push({ name: 'İmalat Süresi', time: parseDate(task.productionStartTime), type: 'PRODUCTION' });
         
-        (task.pauseHistory || []).forEach(p => {
-            timeline.push({ name: `Duraklama (${p.reason})`, time: parseDate(p.pausedAt), type: 'PAUSE' });
+        (task.pauseHistory || []).forEach((p, idx) => {
+            timeline.push({ 
+                name: `Duraklama (${p.reason})`, 
+                time: parseDate(p.pausedAt), 
+                type: 'PAUSE', 
+                index: idx, 
+                reason: p.reason,
+                description: p.description || '' 
+            });
             timeline.push({ name: 'Devam Edildi', time: parseDate(p.resumedAt), type: 'RESUME' });
         });
         
         if (task.lastPausedAt && mode === 'PAUSED') {
-            timeline.push({ name: `Duraklama (${task.lastPauseReason || ''})`, time: parseDate(task.lastPausedAt), type: 'PAUSE' });
+            timeline.push({ 
+                name: `Duraklama (${task.lastPauseReason || ''})`, 
+                time: parseDate(task.lastPausedAt), 
+                type: 'PAUSE', 
+                index: 'current', 
+                reason: task.lastPauseReason,
+                description: task.lastPauseDescription || '' 
+            });
         }
         
         timeline.sort((a, b) => a.time - b.time);
@@ -394,7 +454,16 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
                 label = isProd ? 'İmalat Süresi (Devam)' : 'Ayar Süresi (Devam)';
             }
             
-            displayList.push({ id: i, label, duration: durationSec, isCurrent: i === timeline.length - 1 });
+            displayList.push({ 
+                id: i, 
+                label, 
+                duration: durationSec, 
+                isCurrent: i === timeline.length - 1,
+                type: current.type,
+                index: current.index,
+                reason: current.reason,
+                description: current.description
+            });
         }
 
         const currentAction = displayList.length > 0 ? displayList[displayList.length - 1] : null;
@@ -452,14 +521,71 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
                         </div>
                     )}
 
-                    {displayList.length > 1 && (
-                        <div className="bg-gray-900/50 rounded-xl p-3 space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar border border-gray-700/50 shadow-inner">
-                            {displayList.slice(0, -1).map(item => (
-                                <div key={item.id} className="flex justify-between items-center text-xs border-b border-gray-800/80 pb-1.5 px-1">
-                                    <span className="text-gray-400 font-medium truncate pr-2">{item.label}</span>
-                                    <span className="font-mono text-gray-300 font-bold bg-gray-800 px-2 py-0.5 rounded">{formatDuration(item.duration)}</span>
-                                </div>
-                            ))}
+                    {displayList.length > 0 && (
+                        <div className="space-y-2 mt-4">
+                            <h5 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-blue-500" /> Parça Zaman Dağılımı (Sayaç Listesi)
+                            </h5>
+                            <div className="bg-gray-900/70 border border-gray-700/60 rounded-xl p-3.5 space-y-2.5 max-h-48 overflow-y-auto custom-scrollbar shadow-inner">
+                                {displayList.map(item => {
+                                    const isPause = item.type === 'PAUSE';
+                                    const isCurrent = item.isCurrent;
+                                    return (
+                                        <div 
+                                            key={item.id} 
+                                            className="border-b border-gray-800 last:border-b-0 pb-2.5 last:pb-0"
+                                        >
+                                            <div 
+                                                className={`flex justify-between items-center text-xs ${
+                                                    isCurrent ? 'text-blue-300 font-bold' : 'text-gray-300'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2 truncate pr-2">
+                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                                        isPause ? 'bg-red-500 animate-pulse' : (isCurrent ? 'bg-blue-400 animate-pulse' : 'bg-green-500')
+                                                    }`} />
+                                                    <span className="truncate">{item.label}</span>
+                                                    {isPause && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingPauseItem({
+                                                                    moldId: task.moldId,
+                                                                    taskId: task.taskId,
+                                                                    opId: task.id,
+                                                                    index: item.index,
+                                                                    reason: item.reason,
+                                                                    description: item.description
+                                                                });
+                                                                setEditReasonText(item.description || '');
+                                                            }}
+                                                            className="p-1 hover:bg-gray-800 rounded text-blue-400 hover:text-blue-300 transition shrink-0"
+                                                            title="Açıklama Ekle / Düzenle"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <span className={`font-mono font-black px-2 py-0.5 rounded text-[11px] shrink-0 ${
+                                                    isCurrent ? 'bg-blue-900/40 text-blue-300 border border-blue-800' : 'bg-gray-800 text-gray-300'
+                                                }`}>
+                                                    {formatDuration(item.duration)}
+                                                    {isCurrent && <span className="text-[9px] text-blue-400 ml-1">aktif</span>}
+                                                </span>
+                                            </div>
+                                            {isPause && (
+                                                <div className="text-[11px] text-gray-400 pl-4 mt-1 font-semibold flex items-center gap-1">
+                                                    <span>Açıklama:</span>
+                                                    {item.description ? (
+                                                        <span className="text-gray-200 font-medium italic">"{item.description}"</span>
+                                                    ) : (
+                                                        <span className="text-gray-500 italic">Girilmedi</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -552,11 +678,11 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, isT
                     </div>
                     <div className={`h-6 text-sm font-bold transition-all ${error ? 'text-red-500 opacity-100' : 'opacity-0'}`}>{error}</div>
                 </div>
-                <div className="p-6 grid grid-cols-3 gap-4 bg-gray-800">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => <button key={num} onClick={() => handleNumPadClick(num.toString())} className="h-20 rounded-2xl bg-gray-700 text-white text-3xl font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">{num}</button>)}
-                    <button onClick={handleClear} className="h-20 rounded-2xl bg-red-900/50 text-red-400 text-lg font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">SİL</button>
-                    <button onClick={() => handleNumPadClick('0')} className="h-20 rounded-2xl bg-gray-700 text-white text-3xl font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">0</button>
-                    <button onClick={handleLogin} className="h-20 rounded-2xl bg-green-600 text-white text-lg font-bold shadow-lg border-b-4 border-green-800 active:border-b-0 active:translate-y-1 flex items-center justify-center"><LogIn className="w-8 h-8" /></button>
+                <div className="p-4 sm:p-6 grid grid-cols-3 gap-3 sm:gap-4 bg-gray-800">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => <button key={num} onClick={() => handleNumPadClick(num.toString())} className="h-16 sm:h-20 rounded-2xl bg-gray-700 text-white text-2xl sm:text-3xl font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">{num}</button>)}
+                    <button onClick={handleClear} className="h-16 sm:h-20 rounded-2xl bg-red-900/50 text-red-400 text-base sm:text-lg font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">SİL</button>
+                    <button onClick={() => handleNumPadClick('0')} className="h-16 sm:h-20 rounded-2xl bg-gray-700 text-white text-2xl sm:text-3xl font-bold shadow-lg border-b-4 border-gray-900 active:border-b-0 active:translate-y-1">0</button>
+                    <button onClick={handleLogin} className="h-16 sm:h-20 rounded-2xl bg-green-600 text-white text-base sm:text-lg font-bold shadow-lg border-b-4 border-green-800 active:border-b-0 active:translate-y-1 flex items-center justify-center"><LogIn className="w-6 h-6 sm:w-8 sm:h-8" /></button>
                 </div>
                 <div className="bg-gray-900 p-4 text-center">
                     {isTerminalRole ? (

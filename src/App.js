@@ -144,7 +144,7 @@ const App = () => {
     // Tezgah Operatörleri için rota sınırlandırma
     useEffect(() => {
         if (loggedInUser && loggedInUser.role === ROLES.MACHINE_OPERATOR) {
-            const allowedPaths = ['/terminal', '/survey-evaluation'];
+            const allowedPaths = ['/terminal', '/survey-evaluation', '/tool-history', '/tool-assignment'];
             if (!allowedPaths.includes(location.pathname)) {
                 navigate('/terminal', { replace: true });
             }
@@ -323,6 +323,45 @@ const App = () => {
         try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } catch (e) { console.error("Hata:", e); }
     }, [projects]);
     
+    const handleUpdatePauseReason = useCallback(async (moldId, taskId, opId, pauseIndex, newReason) => {
+        if (!db) return;
+        const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+        
+        const currentProject = projects.find(p => p.id === moldId);
+        if (!currentProject) return;
+        const taskIndex = currentProject.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return;
+        const currentTask = currentProject.tasks[taskIndex];
+        const opIndex = currentTask.operations.findIndex(op => op.id === opId);
+        if (opIndex === -1) return;
+
+        const currentOp = currentTask.operations[opIndex];
+        let updatedOp = { ...currentOp };
+
+        if (pauseIndex === 'current') {
+            updatedOp.lastPauseReason = newReason;
+        } else {
+            const pauseHistory = (currentOp.pauseHistory && Array.isArray(currentOp.pauseHistory))
+                ? [...currentOp.pauseHistory]
+                : [];
+            if (pauseHistory[pauseIndex]) {
+                pauseHistory[pauseIndex].reason = newReason;
+            }
+            updatedOp.pauseHistory = pauseHistory;
+        }
+
+        const newOps = [...currentTask.operations];
+        newOps[opIndex] = updatedOp;
+        const newTasks = [...currentProject.tasks];
+        newTasks[taskIndex] = { ...currentTask, operations: newOps };
+
+        try {
+            await updateDoc(moldRef, { tasks: newTasks });
+        } catch (e) {
+            console.error("Duraklatma sebebi güncellenemedi:", e);
+        }
+    }, [projects]);
+
     const handleTerminalAction = useCallback(async (moldId, taskId, opId, actionType, operatorName, pauseReason = null) => {
         if (!db) return;
         
@@ -545,6 +584,8 @@ const App = () => {
         if (isMachineOp) {
             return [
                 { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.MACHINE_OPERATOR] },
+                { path: '/tool-assignment', label: 'Takımhane & Transfer', icon: Wrench, roles: [ROLES.MACHINE_OPERATOR] },
+                { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: [ROLES.MACHINE_OPERATOR] },
                 { path: '/survey-evaluation', label: 'Anket & Değerlendirme', icon: ClipboardCheck, roles: [ROLES.MACHINE_OPERATOR] }
             ];
         }
@@ -592,7 +633,7 @@ const App = () => {
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
             { path: '/mold-material-debits', label: 'Kalıp Malzeme Zimmetleri', icon: Layers, roles: canSeeTools },
-            { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: canSeeTools },
+            { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: [...canSeeTools, ROLES.MACHINE_OPERATOR, ROLES.ADMIN, ROLES.SUPERVISOR] },
             { path: '/tool-analysis', label: 'Takım Analizi', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
@@ -626,6 +667,7 @@ const App = () => {
                 projects={projects} 
                 machines={machines} 
                 handleTerminalAction={handleTerminalAction} 
+                handleUpdatePauseReason={handleUpdatePauseReason}
                 isTerminalRole={true}
                 onLogout={handleLogoutApp}
             />
@@ -633,7 +675,7 @@ const App = () => {
     }
 
     if (location.pathname === '/terminal' && loggedInUser?.role !== ROLES.MACHINE_OPERATOR) {
-        return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} />;
+        return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} handleUpdatePauseReason={handleUpdatePauseReason} />;
     }
 
     if (!loggedInUser) {
@@ -786,7 +828,7 @@ const App = () => {
                             ? <MoldMaterialDebitsPage loggedInUser={loggedInUser} personnel={personnel} />
                             : <Navigate to="/" replace />
                         } />
-                        <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} />} />
+                        <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} tools={tools} />} />
                         <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
                         <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
@@ -812,6 +854,7 @@ const App = () => {
                                 projects={projects} 
                                 machines={machines} 
                                 handleTerminalAction={handleTerminalAction} 
+                                handleUpdatePauseReason={handleUpdatePauseReason}
                                 loggedInUser={loggedInUser}
                                 onLogout={() => {
                                     setLoggedInUser(null);

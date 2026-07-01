@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Monitor, ArrowRight, CheckCircle, Plus, Search, Wrench, X, Trash2, List,
-    ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon, Package, RefreshCw, Layers, CheckSquare
+    ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon, Package, RefreshCw, Layers, CheckSquare, Edit
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
@@ -15,6 +15,8 @@ import {
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, projects = [] }) => {
+    const isOperator = loggedInUser?.role === 'Tezgah Operatörü';
+
     // --- GÖRÜNÜM MODU ---
     const [viewMode, setViewMode] = useState('MACHINES'); 
     const [selectedOwnerId, setSelectedOwnerId] = useState(null); 
@@ -65,8 +67,11 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
 
     const filteredMachines = useMemo(() => {
         if (viewMode !== 'MACHINES') return [];
-        if (!searchTerm) return machines;
-        return machines.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        let list = [...machines];
+        if (searchTerm) {
+            list = list.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+        return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     }, [machines, searchTerm, viewMode]);
 
     const filteredPersonnelList = useMemo(() => {
@@ -399,6 +404,20 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
         setScrapDescription('');
     };
 
+    const handleEditExtraInfo = async () => {
+        if (viewMode !== 'MACHINES' || !selectedOwner) return;
+        const currentVal = selectedOwner.extraInfo || '';
+        const newVal = prompt(`${selectedOwner.name} için ek bilgi (marka/model/bölüm vb.):`, currentVal);
+        if (newVal === null) return;
+        try {
+            const machineRef = doc(db, MACHINES_COLLECTION, selectedOwner.id);
+            await updateDoc(machineRef, { extraInfo: newVal.trim() });
+        } catch (err) {
+            console.error("Hata:", err);
+            alert("Kaydedilemedi.");
+        }
+    };
+
     const formatDateSimple = (dateStr) => {
         if (!dateStr) return '-';
         try { return new Date(dateStr).toLocaleDateString('tr-TR'); } catch { return dateStr; }
@@ -433,7 +452,14 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                             return (
                                 <button key={machine.id} onClick={() => setSelectedOwnerId(machine.id)} className={`w-full text-left p-3 rounded-lg border transition-all flex justify-between items-center ${selectedOwnerId === machine.id ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 shadow-md ring-1 ring-blue-500' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'}`}>
                                     <div>
-                                        <div className="font-bold text-gray-900 dark:text-white">{machine.name}</div>
+                                        <div className="font-bold text-gray-900 dark:text-white">
+                                            {machine.name}
+                                            {machine.extraInfo && (
+                                                <span className="text-[11px] text-gray-500 dark:text-gray-400 font-normal ml-1.5 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+                                                    {machine.extraInfo}
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400">{machine.type || 'Tezgah'}</div>
                                     </div>
                                     {toolCount > 0 && <span className="bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-200 text-xs font-bold px-2 py-1 rounded-full">{toolCount}</span>}
@@ -465,15 +491,31 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                             <div>
                                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
                                     {viewMode === 'MACHINES' ? <Monitor className="w-6 h-6 mr-2"/> : <User className="w-6 h-6 mr-2"/>}
-                                    {selectedOwner.name} 
+                                    {selectedOwner.name}
+                                    {viewMode === 'MACHINES' && selectedOwner.extraInfo && (
+                                        <span className="text-lg text-gray-500 dark:text-gray-400 font-semibold ml-2">
+                                            ({selectedOwner.extraInfo})
+                                        </span>
+                                    )}
+                                    {(!isOperator && viewMode === 'MACHINES') && (
+                                        <button 
+                                            onClick={handleEditExtraInfo} 
+                                            className="ml-2.5 p-1 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition"
+                                            title="Ek Bilgi Düzenle"
+                                        >
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                    )}
                                     <span className={`ml-3 text-sm font-normal text-white px-3 py-1 rounded-full ${viewMode === 'MACHINES' ? 'bg-blue-500' : 'bg-purple-500'}`}>
                                         {viewMode === 'MACHINES' ? 'Tezgah Zimmeti' : 'Şahsi Zimmet'}
                                     </span>
                                 </h1>
                             </div>
-                            <button onClick={() => setIsAssignModalOpen(true)} className={`px-6 py-2 text-white rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5 ${viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
-                                <Plus className="w-5 h-5 mr-2" /> Takım Ekle
-                            </button>
+                            {!isOperator && (
+                                <button onClick={() => setIsAssignModalOpen(true)} className={`px-6 py-2 text-white rounded-lg font-bold flex items-center shadow-lg transition transform hover:-translate-y-0.5 ${viewMode === 'MACHINES' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                                    <Plus className="w-5 h-5 mr-2" /> Takım Ekle
+                                </button>
+                            )}
                         </div>
 
                         <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col">
@@ -481,13 +523,13 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                 <div className="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 opacity-60">
                                     <Wrench className="w-20 h-20 mb-4" />
                                     <p className="text-xl font-medium">Bu {viewMode === 'MACHINES' ? 'tezgahta' : 'personelde'} kayıtlı takım yok.</p>
-                                    <p className="text-sm">"Takım Ekle" butonunu kullanarak ekleme yapabilirsiniz.</p>
+                                    {!isOperator && <p className="text-sm">"Takım Ekle" butonunu kullanarak ekleme yapabilirsiniz.</p>}
                                 </div>
                             ) : (
                                 <div className="flex flex-col space-y-2">
                                     
                                     {/* TOPLU İŞLEM BARI (GÖRÜNÜR/GİZLİ) */}
-                                    {selectedToolInstanceIds.length > 0 && (
+                                    {(selectedToolInstanceIds.length > 0 && !isOperator) && (
                                         <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 p-3 rounded-xl flex items-center justify-between shadow-sm mb-2 sticky top-0 z-20 animate-in slide-in-from-top-2">
                                             <div className="flex items-center text-indigo-800 dark:text-indigo-300 font-black">
                                                 <CheckSquare className="w-5 h-5 mr-2" /> {selectedToolInstanceIds.length} Takım Seçildi
@@ -508,14 +550,18 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
 
                                     {/* TABLO BAŞLIKLARI */}
                                     <div className="flex px-2 py-2 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky top-0 bg-gray-50 dark:bg-gray-900 z-10">
-                                        <div className="w-8 flex justify-center items-center shrink-0">
-                                            <input 
-                                                type="checkbox" 
-                                                className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
-                                                checked={selectedToolInstanceIds.length === selectedOwner.currentTools.length && selectedOwner.currentTools.length > 0}
-                                                onChange={toggleSelectAll}
-                                            />
-                                        </div>
+                                        {!isOperator ? (
+                                            <div className="w-8 flex justify-center items-center shrink-0">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                                                    checked={selectedToolInstanceIds.length === selectedOwner.currentTools.length && selectedOwner.currentTools.length > 0}
+                                                    onChange={toggleSelectAll}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="w-4"></div>
+                                        )}
                                         <div className="w-8"></div>
                                         <div className="flex-1 px-2">Takım Adı / Kod</div>
                                         <div className="w-24 text-center">Veriliş</div>
@@ -530,14 +576,18 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                         return (
                                             <div key={toolEntry.instanceId} className={`group flex items-center p-2 rounded-xl border transition-all ${isSelected ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : (isUsed ? 'bg-orange-50/50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700')} hover:shadow-md`}>
                                                 
-                                                <div className="w-8 flex justify-center items-center shrink-0">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
-                                                        checked={isSelected}
-                                                        onChange={() => toggleToolSelection(toolEntry.instanceId)}
-                                                    />
-                                                </div>
+                                                {!isOperator ? (
+                                                    <div className="w-8 flex justify-center items-center shrink-0">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                                                            checked={isSelected}
+                                                            onChange={() => toggleToolSelection(toolEntry.instanceId)}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-4"></div>
+                                                )}
 
                                                 <div className="w-8 flex justify-center shrink-0">
                                                     <div className={`p-1.5 rounded ${isUsed ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400' : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'}`}>
@@ -559,30 +609,38 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                                 </div>
                                                 
                                                 <div className="w-52 flex justify-end gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity shrink-0 px-2">
-                                                    <button onClick={() => openTransferModal(toolEntry)} className="px-2 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-[10px] font-bold transition flex items-center shadow-sm" title="Transfer">
-                                                        <ArrowRightLeft className="w-3 h-3" />
-                                                    </button>
-                                                    
-                                                    {toolEntry.isMoldMaterial ? (
-                                                        <button onClick={() => handleReturnSingle(toolEntry, 'NEW')} className="px-2 py-1.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 dark:bg-green-900/30 dark:border-green-800 dark:text-green-400 rounded text-[10px] font-bold transition shadow-sm">
-                                                            İade
+                                                    {isOperator ? (
+                                                        <button onClick={() => openTransferModal(toolEntry)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition flex items-center gap-1.5 shadow-sm" title="Transfer Et">
+                                                            <ArrowRightLeft className="w-3.5 h-3.5" /> Transfer Et
                                                         </button>
                                                     ) : (
                                                         <>
-                                                            {!isUsed && (
-                                                                <button onClick={() => handleReturnSingle(toolEntry, 'NEW')} className="px-2 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 rounded text-[10px] font-bold transition shadow-sm whitespace-nowrap">
-                                                                    Sıfır İade
+                                                            <button onClick={() => openTransferModal(toolEntry)} className="px-2 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-[10px] font-bold transition flex items-center shadow-sm" title="Transfer">
+                                                                <ArrowRightLeft className="w-3 h-3" />
+                                                            </button>
+                                                            
+                                                            {toolEntry.isMoldMaterial ? (
+                                                                <button onClick={() => handleReturnSingle(toolEntry, 'NEW')} className="px-2 py-1.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 dark:bg-green-900/30 dark:border-green-800 dark:text-green-400 rounded text-[10px] font-bold transition shadow-sm">
+                                                                    İade
                                                                 </button>
+                                                            ) : (
+                                                                <>
+                                                                    {!isUsed && (
+                                                                        <button onClick={() => handleReturnSingle(toolEntry, 'NEW')} className="px-2 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400 rounded text-[10px] font-bold transition shadow-sm whitespace-nowrap">
+                                                                            Sıfır İade
+                                                                        </button>
+                                                                    )}
+                                                                    <button onClick={() => handleReturnSingle(toolEntry, 'USED')} className="px-2 py-1.5 bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 dark:bg-orange-900/30 dark:border-orange-800 dark:text-orange-400 rounded text-[10px] font-bold transition shadow-sm whitespace-nowrap">
+                                                                        Kull. İade
+                                                                    </button>
+                                                                </>
                                                             )}
-                                                            <button onClick={() => handleReturnSingle(toolEntry, 'USED')} className="px-2 py-1.5 bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 dark:bg-orange-900/30 dark:border-orange-800 dark:text-orange-400 rounded text-[10px] font-bold transition shadow-sm whitespace-nowrap">
-                                                                Kull. İade
+
+                                                            <button onClick={() => handleScrapSingle(toolEntry)} className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400 rounded text-[10px] font-bold transition shadow-sm">
+                                                                Hurda
                                                             </button>
                                                         </>
                                                     )}
-
-                                                    <button onClick={() => handleScrapSingle(toolEntry)} className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400 rounded text-[10px] font-bold transition shadow-sm">
-                                                        Hurda
-                                                    </button>
                                                 </div>
                                             </div>
                                         );

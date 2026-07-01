@@ -49,8 +49,10 @@ const PauseReasonModal = ({ isOpen, onClose, onSubmit }) => {
             alert("Lütfen diğer sebebini açıklayın (Zorunlu).");
             return;
         }
-        const reason = selectedReason === 'Diğer' ? `Diğer - ${otherReason.trim()}` : selectedReason;
-        onSubmit(reason);
+        onSubmit({
+            reason: selectedReason,
+            description: otherReason.trim()
+        });
     };
 
     const toggleEditMode = () => {
@@ -161,10 +163,19 @@ const PauseReasonModal = ({ isOpen, onClose, onSubmit }) => {
                     ))}
                 </div>
 
-                {selectedReason === 'Diğer' && (
-                    <div className="animate-in fade-in">
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Açıklama Yazın (Zorunlu)</label>
-                        <input type="text" value={otherReason} onChange={(e) => setOtherReason(e.target.value)} className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-orange-500" placeholder="Lütfen duraklatma sebebini detaylıca yazın..." autoFocus />
+                {selectedReason && (
+                    <div className="animate-in fade-in space-y-1">
+                        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">
+                            {selectedReason === 'Diğer' ? 'Açıklama Yazın (Zorunlu)' : 'Açıklama Yazın (İsteğe Bağlı)'}
+                        </label>
+                        <input 
+                            type="text" 
+                            value={otherReason} 
+                            onChange={(e) => setOtherReason(e.target.value)} 
+                            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 text-sm" 
+                            placeholder={selectedReason === 'Diğer' ? "Lütfen duraklatma sebebini detaylıca yazın..." : "Varsa ekstra açıklama ekleyin..."} 
+                            autoFocus 
+                        />
                     </div>
                 )}
 
