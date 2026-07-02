@@ -331,7 +331,7 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                     {activeTab === 'ACTIVE' && (
                         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                                <table className="w-full min-w-[700px] text-left text-sm text-gray-600 dark:text-gray-300">
                                     <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
                                         <tr>
                                             <th className="p-4">Operatör (Alan Kişi)</th>
@@ -390,7 +390,7 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                                 <div className="p-10 text-center text-gray-500">Yükleniyor...</div>
                             ) : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                                    <table className="w-full min-w-[950px] text-left text-sm text-gray-600 dark:text-gray-300">
                                         <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
                                             <tr>
                                                 <th className="p-4 w-40">Tarih</th>

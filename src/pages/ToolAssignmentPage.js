@@ -3,7 +3,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Monitor, ArrowRight, CheckCircle, Plus, Search, Wrench, X, Trash2, List,
-    ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon, Package, RefreshCw, Layers, CheckSquare, Edit
+    ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon, Package, RefreshCw, Layers, CheckSquare, Edit,
+    ChevronLeft
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
@@ -428,7 +429,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
         <div className="flex h-[calc(100vh-80px)] overflow-hidden bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
             
             {/* 1. SOL PANEL: LİSTE VE ARAMA */}
-            <div className="w-1/3 md:w-1/4 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col shrink-0">
+            <div className={`${selectedOwnerId ? 'hidden md:flex' : 'flex'} w-full md:w-1/3 lg:w-1/4 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-col shrink-0`}>
                 <div className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex">
                         <button onClick={() => { setViewMode('MACHINES'); setSelectedOwnerId(null); }} className={`flex-1 py-3 text-sm font-bold text-center transition ${viewMode === 'MACHINES' ? 'bg-white dark:bg-gray-800 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
@@ -484,12 +485,19 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
             </div>
 
             {/* 2. SAĞ PANEL: DETAY VE İŞLEM */}
-            <div className="flex-1 bg-gray-50 dark:bg-gray-900 flex flex-col min-w-0">
+            <div className={`${!selectedOwnerId ? 'hidden md:flex' : 'flex'} flex-1 bg-gray-50 dark:bg-gray-900 flex-col min-w-0`}>
                 {selectedOwner ? (
                     <>
                         <div className="p-6 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 flex justify-between items-center shrink-0">
                             <div>
                                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                                    <button 
+                                        onClick={() => setSelectedOwnerId(null)} 
+                                        className="md:hidden mr-3 p-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-700 dark:text-gray-300 transition"
+                                        title="Geri Dön"
+                                    >
+                                        <ChevronLeft className="w-5 h-5" />
+                                    </button>
                                     {viewMode === 'MACHINES' ? <Monitor className="w-6 h-6 mr-2"/> : <User className="w-6 h-6 mr-2"/>}
                                     {selectedOwner.name}
                                     {viewMode === 'MACHINES' && selectedOwner.extraInfo && (
@@ -526,7 +534,8 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                     {!isOperator && <p className="text-sm">"Takım Ekle" butonunu kullanarak ekleme yapabilirsiniz.</p>}
                                 </div>
                             ) : (
-                                <div className="flex flex-col space-y-2">
+                                <div className="overflow-x-auto custom-scrollbar pb-2">
+                                    <div className="flex flex-col space-y-2 min-w-[720px]">
                                     
                                     {/* TOPLU İŞLEM BARI (GÖRÜNÜR/GİZLİ) */}
                                     {(selectedToolInstanceIds.length > 0 && !isOperator) && (
@@ -645,6 +654,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                             </div>
                                         );
                                     })}
+                                    </div>
                                 </div>
                             )}
                         </div>
