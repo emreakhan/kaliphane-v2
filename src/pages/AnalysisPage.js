@@ -16,6 +16,10 @@ import {
 
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
+import { 
+    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+} from 'recharts';
+
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
 import ProductionLogsView from './ProductionLogsView.js';
 
@@ -758,8 +762,17 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
 
     const GeneralAnalysisCard = () => {
         const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+        const chartData = useMemo(() => {
+            return yearlyStats.monthlyData.map((data, index) => ({
+                name: months[index],
+                "İşçilik Saati (Saat)": parseFloat(data.hours.toFixed(0)),
+                "Operasyon Sayısı (Adet)": data.ops
+            }));
+        }, [yearlyStats.monthlyData]);
+
         return (
-            <div className="space-y-8 animate-fadeIn">
+            <div className="space-y-8 animate-fadeIn text-gray-900 dark:text-white">
                 <div className="flex flex-col md:flex-row justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
                     <div><h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center"><TrendingUp className="w-6 h-6 mr-2 text-blue-600" />Yıllık Faaliyet Raporu</h3><p className="text-gray-500 dark:text-gray-400 mt-1">Şirketin genel performans verileri</p></div>
                     <div className="mt-4 md:mt-0 flex items-center"><CalendarDays className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-300" /><select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">{availableYears.map(year => (<option key={year} value={year}>{year}</option>))}</select></div>
@@ -769,7 +782,43 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                     <div className="p-6 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-purple-100 text-sm font-medium mb-1">Toplam İşçilik Saati</p><h4 className="text-4xl font-bold">{yearlyStats.totalHours}</h4></div><Clock className="w-8 h-8 text-purple-200 opacity-80" /></div></div>
                     <div className="p-6 rounded-xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-green-100 text-sm font-medium mb-1">Tamamlanan Operasyon</p><h4 className="text-4xl font-bold">{yearlyStats.totalOps}</h4></div><CheckCircle className="w-8 h-8 text-green-200 opacity-80" /></div></div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm"><h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center"><BarChart2 className="w-5 h-5 mr-2" />Aylık Üretim Yoğunluğu ({selectedYear})</h4><div className="h-64 flex items-end space-x-2 md:space-x-4">{yearlyStats.monthlyData.map((data, index) => (<div key={index} className="flex-1 flex flex-col items-center group relative"><div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 text-white text-xs rounded py-1 px-2 z-10 whitespace-nowrap">{data.ops} Operasyon<br/>{data.hours.toFixed(0)} Saat</div><div className="w-full bg-blue-200 dark:bg-blue-900/40 rounded-t-sm relative transition-all duration-500 hover:bg-blue-300 dark:hover:bg-blue-800" style={{ height: `${(data.ops / yearlyStats.maxMonthlyOps) * 100}%`, minHeight: data.ops > 0 ? '4px' : '0' }}><div className="absolute bottom-0 left-0 right-0 bg-blue-500 dark:bg-blue-600 rounded-t-sm transition-all duration-500" style={{ height: `${(data.ops / yearlyStats.maxMonthlyOps) * 100}%` }}></div></div><span className="text-xs text-gray-500 dark:text-gray-400 mt-2 transform -rotate-45 md:rotate-0 origin-top-left md:origin-center">{months[index].substring(0, 3)}</span></div>))}</div></div>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
+                        <BarChart2 className="w-5 h-5 mr-2 text-blue-500" />
+                        Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
+                    </h4>
+                    <div className="h-80 w-full text-xs font-bold">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+                                <XAxis dataKey="name" className="fill-gray-600 dark:fill-gray-400 font-bold" />
+                                <YAxis 
+                                    yAxisId="left" 
+                                    label={{ value: 'İşçilik Saati (Saat)', angle: -90, position: 'insideLeft', offset: -5, className: 'fill-purple-600 dark:fill-purple-400 font-bold' }} 
+                                    className="fill-gray-600 dark:fill-gray-400 font-bold" 
+                                />
+                                <YAxis 
+                                    yAxisId="right" 
+                                    orientation="right" 
+                                    label={{ value: 'Operasyon Sayısı (Adet)', angle: 90, position: 'insideRight', offset: 15, className: 'fill-blue-600 dark:fill-blue-400 font-bold' }} 
+                                    className="fill-gray-600 dark:fill-gray-400 font-bold" 
+                                />
+                                <Tooltip 
+                                    contentStyle={{ 
+                                        backgroundColor: '#1f2937', 
+                                        border: '1px solid #374151', 
+                                        borderRadius: '8px', 
+                                        color: '#ffffff',
+                                        fontWeight: 'bold' 
+                                    }} 
+                                />
+                                <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                                <Line yAxisId="left" type="monotone" dataKey="İşçilik Saati (Saat)" stroke="#a855f7" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
+                                <Line yAxisId="right" type="monotone" dataKey="Operasyon Sayısı (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
             </div>
         );
     };

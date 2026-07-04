@@ -162,7 +162,7 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
 
     const handleSelectPlannedJob = (plannedJob) => {
         setStartFormData({ orderNumber: plannedJob.orderNumber || '', selectedPartId: plannedJob.partId || '', targetQuantity: plannedJob.targetQuantity || '', plannedJobId: plannedJob.id });
-        setPartSearchTerm(plannedJob.partName || '');
+        setPartSearchTerm(plannedJob.orderNumber || plannedJob.partName || '');
         if (!plannedJob.partId) {
             const matchingPart = parts.find(p => p.partName === plannedJob.partName);
             if (matchingPart) setStartFormData(prev => ({ ...prev, selectedPartId: matchingPart.id }));
@@ -170,8 +170,8 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
     };
 
     const handleSelectPart = (part) => {
-        setStartFormData({ ...startFormData, selectedPartId: part.id });
-        setPartSearchTerm(part.partName); setIsPartDropdownOpen(false); 
+        setStartFormData(prev => ({ ...prev, selectedPartId: part.id, orderNumber: prev.orderNumber || part.orderNumber || '' }));
+        setPartSearchTerm(part.orderNumber || part.partName); setIsPartDropdownOpen(false); 
     };
 
     const handleStartJob = async () => {
@@ -815,22 +815,58 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
 
             {/* Diğer Modallar */}
             <SimpleModal isOpen={isStartModalOpen} onClose={() => setIsStartModalOpen(false)} title={`Yeni İş Başlat - ${selectedMachine}`} maxWidth="max-w-2xl">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="border-r border-gray-200 dark:border-gray-700 pr-6">
-                        <h4 className="text-sm font-bold text-gray-500 mb-3 flex items-center"><Calendar className="w-4 h-4 mr-2"/> Planlanan İşler</h4>
-                        <div className="space-y-2 max-h-60 overflow-y-auto">
-                            {getPlannedJobsForMachine(selectedMachine).length === 0 ? <p className="text-xs text-gray-400">İş yok.</p> : getPlannedJobsForMachine(selectedMachine).map(job => (
-                                <div key={job.id} onClick={() => handleSelectPlannedJob(job)} className="p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700"><div className="font-bold">{job.partName}</div></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-gray-900 dark:text-white">
+                    <div className="border-r border-gray-250 dark:border-gray-700 pr-6">
+                        <h4 className="text-sm font-black text-gray-700 dark:text-gray-300 mb-3 flex items-center"><Calendar className="w-4 h-4 mr-2"/> Planlanan İşler</h4>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                            {getPlannedJobsForMachine(selectedMachine).length === 0 ? (
+                                <p className="text-xs text-gray-400 font-bold">İş bulunmuyor.</p>
+                            ) : getPlannedJobsForMachine(selectedMachine).map(job => (
+                                <div key={job.id} onClick={() => handleSelectPlannedJob(job)} className="p-3 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-150 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition shadow-sm">
+                                    <div className="font-extrabold text-sm">{job.orderNumber || 'Resim No Belirtilmemiş'}</div>
+                                    <div className="text-[10px] text-gray-500 dark:text-gray-400 font-bold mt-1">{job.partName}</div>
+                                </div>
                             ))}
                         </div>
                     </div>
                     <div className="space-y-4">
-                        <div><label className="block text-sm font-bold text-gray-500 mb-1">İş Emri Numarası</label><input type="text" className="w-full p-2 border rounded dark:bg-gray-700" value={startFormData.orderNumber} onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} /></div>
-                        <div><label className="block text-sm font-bold text-gray-500 mb-1">Parça Seçimi</label>
-                            <input type="text" className="w-full p-2 border rounded dark:bg-gray-700" value={partSearchTerm} onChange={e => {setPartSearchTerm(e.target.value); setIsPartDropdownOpen(true);}} onFocus={()=>setIsPartDropdownOpen(true)} />
-                            {isPartDropdownOpen && <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded max-h-40 overflow-y-auto">{parts.filter(p=>p.partName.toLowerCase().includes(partSearchTerm.toLowerCase())).map(p=><div key={p.id} className="p-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700" onClick={()=>handleSelectPart(p)}>{p.partName}</div>)}</div>}
+                        <div>
+                            <label className="block text-xs font-black text-gray-600 dark:text-gray-300 uppercase mb-1">İş Emri / Stok / Resim No</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-green-500 outline-none" 
+                                value={startFormData.orderNumber} 
+                                onChange={e => setStartFormData({...startFormData, orderNumber: e.target.value})} 
+                            />
                         </div>
-                        <button onClick={handleStartJob} className="w-full p-2 bg-green-600 text-white font-bold rounded">BAŞLAT</button>
+                        <div className="relative">
+                            <label className="block text-xs font-black text-gray-600 dark:text-gray-300 uppercase mb-1">Parça Seçimi</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-green-500 outline-none" 
+                                value={partSearchTerm} 
+                                onChange={e => {setPartSearchTerm(e.target.value); setIsPartDropdownOpen(true);}} 
+                                onFocus={()=>setIsPartDropdownOpen(true)} 
+                                onBlur={() => setTimeout(() => setIsPartDropdownOpen(false), 200)}
+                            />
+                            {isPartDropdownOpen && (
+                                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto custom-scrollbar">
+                                    {parts.filter(p => p.partName.toLowerCase().includes(partSearchTerm.toLowerCase()) || (p.orderNumber && p.orderNumber.toLowerCase().includes(partSearchTerm.toLowerCase()))).map(p => (
+                                        <div 
+                                            key={p.id} 
+                                            className="p-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 border-b last:border-0 border-gray-150 dark:border-gray-750 text-gray-900 dark:text-white transition" 
+                                            onMouseDown={()=>handleSelectPart(p)}
+                                        >
+                                            <div className="font-extrabold text-sm">{p.orderNumber || 'Resim No Belirtilmemiş'}</div>
+                                            <div className="text-[10px] text-gray-500 dark:text-gray-400 font-bold">{p.partName}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="pt-2">
+                            <button onClick={handleStartJob} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-extrabold rounded-lg shadow-md transition active:scale-95">BAŞLAT</button>
+                        </div>
                     </div>
                 </div>
             </SimpleModal>

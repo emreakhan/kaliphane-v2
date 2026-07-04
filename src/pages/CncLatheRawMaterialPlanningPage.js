@@ -140,7 +140,7 @@ const CncLatheRawMaterialPlanningPage = ({ db }) => {
                 barsToBuy,
                 kgToBuy: kgToBuy.toFixed(2)
             };
-        }).sort((a, b) => b.barsToBuy - a.barsToBuy); 
+        }).sort((a, b) => a.rawMaterialCode.localeCompare(b.rawMaterialCode)); 
 
     }, [activeJobs, parts, manualStocks]);
 
@@ -222,6 +222,47 @@ const CncLatheRawMaterialPlanningPage = ({ db }) => {
                         <div className="text-sm text-blue-800 dark:text-blue-200">
                             <strong>Nasıl Çalışır?</strong> Sistem, CNC siparişlerindeki aktif işleri (Planlanan ve Tezgahtakiler) tarar ve <strong>aynı hammadde koduna</strong> sahip parçaları gruplar. Listede <strong>Eldeki Stok</strong> miktarını manuel girerek net sipariş vermeniz gereken miktarı görebilirsiniz.
                         </div>
+                    </div>
+
+                    {/* TOPLU SATIN ALMA / SİPARİŞ ÖZETİ LİSTESİ */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-250 dark:border-gray-700 p-6">
+                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 dark:border-gray-700 pb-3">
+                            <h3 className="text-lg font-black text-gray-900 dark:text-white flex items-center">
+                                <PackageOpen className="w-5 h-5 mr-2 text-green-600 dark:text-green-400" />
+                                Satın Alma & Sipariş Özeti Listesi
+                            </h3>
+                            <button 
+                                onClick={() => {
+                                    const text = materialAnalysis
+                                        .filter(item => item.barsToBuy > 0)
+                                        .map(item => `${item.rawMaterialCode}: ${item.barsToBuy} Boy (~${item.kgToBuy} Kg)`)
+                                        .join('\n');
+                                    navigator.clipboard.writeText(text);
+                                    alert("Sipariş listesi panoya kopyalandı!");
+                                }}
+                                className="px-3 py-1.5 bg-gray-105 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-650 text-gray-800 dark:text-gray-200 text-xs font-bold rounded-lg transition"
+                            >
+                                Listeyi Kopyala
+                            </button>
+                        </div>
+                        {materialAnalysis.filter(item => item.barsToBuy > 0).length === 0 ? (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 font-bold">Tüm hammaddeler için eldeki stoklar yeterli, satın alma ihtiyacı bulunmuyor.</p>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                {materialAnalysis.filter(item => item.barsToBuy > 0).map(item => (
+                                    <div key={item.rawMaterialCode} className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-250 dark:border-gray-700 flex flex-col justify-between shadow-sm">
+                                        <div>
+                                            <div className="font-black text-sm text-gray-900 dark:text-white">{item.rawMaterialCode}</div>
+                                            <div className="text-[10px] text-gray-500 dark:text-gray-400 font-bold mt-1 uppercase">{item.materialType} - {item.profileType === 'CAP' ? 'ÇAP' : 'ALTIKÖŞE'} {item.dimension}</div>
+                                        </div>
+                                        <div className="mt-3 flex justify-between items-baseline border-t border-gray-100 dark:border-gray-800 pt-2">
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 font-bold">Gereken:</span>
+                                            <span className="font-extrabold text-sm text-green-600 dark:text-green-400">{item.barsToBuy} Boy <span className="text-xs font-bold text-gray-500 dark:text-gray-400">({item.kgToBuy} Kg)</span></span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
