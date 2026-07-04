@@ -19,6 +19,22 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable'; 
 
+const CustomYAxisTick = ({ x, y, payload }) => {
+    return (
+        <g transform={`translate(${x},${y})`}>
+            <text 
+                x={-5} 
+                y={0} 
+                dy={3.5} 
+                textAnchor="end" 
+                className="fill-gray-800 dark:fill-gray-100 text-[10px] font-bold"
+            >
+                {payload.value}
+            </text>
+        </g>
+    );
+};
+
 const ToolAnalysisPage = ({ db }) => {
     const [activeTab, setActiveTab] = useState('USAGE'); 
     const [inventory, setInventory] = useState([]);
@@ -91,6 +107,9 @@ const ToolAnalysisPage = ({ db }) => {
         const scrapMap = {};
 
         filteredTransactions.forEach(tx => {
+            // Kalıp malzemelerini grafikte gösterme
+            if (tx.isMoldMaterial || (tx.toolName && tx.toolName.toLowerCase().includes('kalıp malzemesi'))) return;
+
             const name = tx.toolName || 'Bilinmiyor';
             
             if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
@@ -334,10 +353,15 @@ const ToolAnalysisPage = ({ db }) => {
                                 <CheckCircle className="w-5 h-5 mr-2 text-blue-500" /> En Çok Tüketilen 10 Takım
                             </h3>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData.usageData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <BarChart data={chartData.usageData} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                    <YAxis 
+                                        dataKey="name" 
+                                        type="category" 
+                                        width={200} 
+                                        tick={<CustomYAxisTick />}
+                                    />
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
                                         itemStyle={{ color: '#fff' }}
@@ -351,17 +375,22 @@ const ToolAnalysisPage = ({ db }) => {
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
-
+ 
                         {/* HURDA GRAFİĞİ */}
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col h-96">
                             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center">
                                 <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> En Çok Hurdaya Çıkan 10 Takım
                             </h3>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData.scrapData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                                <BarChart data={chartData.scrapData} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#374151" opacity={0.2} />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10, fill: '#6B7280'}} />
+                                    <YAxis 
+                                        dataKey="name" 
+                                        type="category" 
+                                        width={200} 
+                                        tick={<CustomYAxisTick />}
+                                    />
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
                                         itemStyle={{ color: '#fff' }}

@@ -22,6 +22,15 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
+    
+    // İşlem geçmişi tarih filtresi (Varsayılan olarak bugünü gösterir)
+    const [historyDate, setHistoryDate] = useState(() => {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    });
 
     // Hızlı Takımlar State (localStorage üzerinde saklanır)
     const [quickTools, setQuickTools] = useState(() => {
@@ -127,16 +136,33 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
 
     // --- 2. LİSTE: GEÇMİŞ İŞLEM KAYITLARI ---
     const filteredHistory = useMemo(() => {
-        if (!searchTerm) return transactions;
-        const lowerTerm = searchTerm.toLowerCase();
-        return transactions.filter(t => 
-            (t.receiver && t.receiver.toLowerCase().includes(lowerTerm)) ||
-            (t.user && t.user.toLowerCase().includes(lowerTerm)) ||
-            (t.toolName && t.toolName.toLowerCase().includes(lowerTerm)) ||
-            (t.productCode && t.productCode.toLowerCase().includes(lowerTerm)) ||
-            (t.machineName && t.machineName.toLowerCase().includes(lowerTerm))
-        );
-    }, [transactions, searchTerm]);
+        let result = transactions;
+
+        // Tarih filtresi uygula
+        if (historyDate) {
+            result = result.filter(t => {
+                if (!t.date) return false;
+                const txDateStr = t.date.split('T')[0].split(' ')[0]; // 'YYYY-MM-DD'
+                return txDateStr === historyDate;
+            });
+        }
+
+        // Arama terimi filtresi uygula
+        if (searchTerm) {
+            const lowerTerm = searchTerm.toLowerCase();
+            result = result.filter(t => 
+                (t.receiver && t.receiver.toLowerCase().includes(lowerTerm)) ||
+                (t.user && t.user.toLowerCase().includes(lowerTerm)) ||
+                (t.toolName && t.toolName.toLowerCase().includes(lowerTerm)) ||
+                (t.productCode && t.productCode.toLowerCase().includes(lowerTerm)) ||
+                (t.machineName && t.machineName.toLowerCase().includes(lowerTerm)) ||
+                (t.fromMachine && t.fromMachine.toLowerCase().includes(lowerTerm)) ||
+                (t.toMachine && t.toMachine.toLowerCase().includes(lowerTerm))
+            );
+        }
+
+        return result;
+    }, [transactions, searchTerm, historyDate]);
 
     // Yardımcı: Tarih Formatla
     const formatDate = (dateString) => {
@@ -386,6 +412,22 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
 
                     {activeTab === 'HISTORY' && (
                         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                            {/* Tarih Seçici Filtre Paneli */}
+                            <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900/30 border-b border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">İşlem Tarihi Filtresi:</label>
+                                    <input
+                                        type="date"
+                                        value={historyDate}
+                                        onChange={(e) => setHistoryDate(e.target.value)}
+                                        className="p-1.5 text-xs font-bold border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="text-xs font-bold text-gray-500 dark:text-gray-400">
+                                    Gösterilen Kayıt Sayısı: <span className="text-purple-600 dark:text-purple-400 font-extrabold">{filteredHistory.length}</span>
+                                </div>
+                            </div>
+
                             {loading ? (
                                 <div className="p-10 text-center text-gray-500">Yükleniyor...</div>
                             ) : (
@@ -407,7 +449,7 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                                             {filteredHistory.length === 0 ? (
                                                 <tr>
                                                     <td colSpan="8" className="p-8 text-center text-gray-400">
-                                                        İşlem geçmişi bulunamadı.
+                                                        Seçili tarihte veya kriterde işlem geçmişi bulunamadı.
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -424,17 +466,24 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                                                         </td>
                                                         <td className="p-4 font-bold">{tx.quantity}</td>
                                                         <td className="p-4">
-                                                            {tx.machineName ? (
-                                                                <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs">
-                                                                    {tx.machineName}
-                                                                </span>
+                                                            {tx.type === TOOL_TRANSACTION_TYPES.TRANSFER || tx.fromMachine ? (
+                                                                <div className="flex flex-row items-center gap-1.5 whitespace-nowrap">
+                                                                    <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                                                        {tx.fromMachine || 'Depo'}
+                                                                    </span>
+                                                                    <span className="text-xs text-purple-600 font-extrabold">&rarr;</span>
+                                                                    <span className="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded text-[11px] font-bold">
+                                                                        {tx.toMachine || '-'}
+                                                                    </span>
+                                                                </div>
                                                             ) : (
-                                                                <span className="text-gray-400">-</span>
-                                                            )}
-                                                            {tx.toMachine && (
-                                                                <span className="ml-1 text-xs text-orange-600">
-                                                                    → {tx.toMachine}
-                                                                </span>
+                                                                tx.machineName ? (
+                                                                    <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                                                        {tx.machineName}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">-</span>
+                                                                )
                                                             )}
                                                         </td>
                                                         <td className="p-4 font-bold text-gray-800 dark:text-gray-200">

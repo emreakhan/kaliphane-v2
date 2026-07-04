@@ -4,19 +4,39 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Monitor, ArrowRight, CheckCircle, Plus, Search, Wrench, X, Trash2, List,
     ShoppingCart, Minus, User, ArrowRightLeft, Users, AlertTriangle, Recycle, AlertOctagon, Package, RefreshCw, Layers, CheckSquare, Edit,
-    ChevronLeft
+    ChevronLeft, Star
 } from 'lucide-react';
 import { 
     updateDoc, doc, addDoc, collection, arrayUnion, increment 
 } from '../config/firebase.js';
 import { 
     MACHINES_COLLECTION, INVENTORY_COLLECTION, PERSONNEL_COLLECTION,
-    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES, MOLD_MATERIAL_HANDOUTS_COLLECTION
+    TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES, MOLD_MATERIAL_HANDOUTS_COLLECTION,
+    OPERATION_STATUS
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
+const ASSIGN_COLOR_PALETTES = [
+    'from-indigo-600 to-blue-750 hover:from-indigo-700 hover:to-blue-800',
+    'from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800',
+    'from-rose-600 to-pink-700 hover:from-rose-700 hover:to-pink-800',
+    'from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700',
+    'from-purple-600 to-violet-750 hover:from-purple-700 hover:to-violet-850',
+    'from-cyan-600 to-teal-650 hover:from-cyan-700 hover:to-teal-700'
+];
+
 const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, projects = [] }) => {
     const isOperator = loggedInUser?.role === 'Tezgah Operatörü';
+
+    // --- HIZLI TAKIM EKLEME PİNLERİ (localStorage) ---
+    const [pinnedQuickAssignTools, setPinnedQuickAssignTools] = useState(() => {
+        const saved = localStorage.getItem('pinned_quick_assign_tools');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    useEffect(() => {
+        localStorage.setItem('pinned_quick_assign_tools', JSON.stringify(pinnedQuickAssignTools));
+    }, [pinnedQuickAssignTools]);
 
     // --- GÖRÜNÜM MODU ---
     const [viewMode, setViewMode] = useState('MACHINES'); 
@@ -108,13 +128,31 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
         let result = tools.filter(t => t.totalStock > 0); 
         if (sourceType === 'INVENTORY_NEW') result = result.filter(t => !t.condition || t.condition === 'NEW');
         else if (sourceType === 'INVENTORY_USED') result = result.filter(t => t.condition === 'USED');
-        if (selectedCategory !== 'TÜMÜ') result = result.filter(t => t.category === selectedCategory);
+        
+        // Sadece arama yapılmadığında kategori filtresini uygula
+        if (!toolSearchTerm && selectedCategory !== 'TÜMÜ') {
+            result = result.filter(t => t.category === selectedCategory);
+        }
+        
         if (toolSearchTerm) {
             const lower = toolSearchTerm.toLowerCase();
-            result = result.filter(t => t.name.toLowerCase().includes(lower) || (t.productCode && t.productCode.toLowerCase().includes(lower)));
+            result = result.filter(t => 
+                t.name.toLowerCase().includes(lower) || 
+                (t.productCode && t.productCode.toLowerCase().includes(lower)) ||
+                (t.category && t.category.toLowerCase().includes(lower))
+            );
         }
         return result.sort((a, b) => a.name.localeCompare(b.name));
     }, [tools, toolSearchTerm, selectedCategory, sourceType]);
+
+    const filteredPinnedTools = useMemo(() => {
+        if (!toolSearchTerm) return pinnedQuickAssignTools;
+        const lower = toolSearchTerm.toLowerCase();
+        return pinnedQuickAssignTools.filter(t => 
+            t.name.toLowerCase().includes(lower) || 
+            (t.productCode && t.productCode.toLowerCase().includes(lower))
+        );
+    }, [pinnedQuickAssignTools, toolSearchTerm]);
 
 
     // --- TOPLU SEÇİM İŞLEMLERİ ---
@@ -176,6 +214,52 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
         const operator = personnel.find(p => p.id === finalOperatorId);
         const operatorName = operator ? operator.name : 'Bilinmiyor';
 
+        // OTM: Seçili tezgaha ait aktif işi/kalıbı bul
+        let assignedMoldId = '';
+        let assignedMoldName = '';
+        let assignedMoldPart = '';
+
+        if (viewMode === 'MACHINES' && selectedOwner) {
+            const tasksForThisMachine = [];
+            projects.forEach(mold => {
+                if (mold.tasks) {
+                    mold.tasks.forEach(task => {
+                        if (task.operations) {
+                            task.operations.forEach(op => {
+                                if ((op.status === OPERATION_STATUS.IN_PROGRESS || op.status === OPERATION_STATUS.PAUSED || op.status === OPERATION_STATUS.AYAR_YAPILIYOR) && op.machineName === selectedOwner.name) {
+                                    tasksForThisMachine.push({
+                                        ...op,
+                                        moldId: mold.id,
+                                        moldName: mold.moldName,
+                                        moldCustomer: mold.customer || '',
+                                        taskName: task.taskName
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            let activeTask = null;
+            if (tasksForThisMachine.length > 0) {
+                activeTask = tasksForThisMachine.find(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === OPERATION_STATUS.AYAR_YAPILIYOR);
+                if (!activeTask) {
+                    activeTask = tasksForThisMachine.sort((a, b) => {
+                        const timeA = new Date(a.lastPausedAt || a.startDate).getTime();
+                        const timeB = new Date(b.lastPausedAt || b.startDate).getTime();
+                        return timeB - timeA;
+                    }).find(op => op.status === OPERATION_STATUS.PAUSED);
+                }
+            }
+
+            if (activeTask) {
+                assignedMoldId = activeTask.moldId || '';
+                assignedMoldName = activeTask.moldName ? `${activeTask.moldName} (${activeTask.moldCustomer})` : '';
+                assignedMoldPart = activeTask.taskName || '';
+            }
+        }
+
         try {
             const targetCollectionRef = viewMode === 'MACHINES' ? doc(db, MACHINES_COLLECTION, selectedOwnerId) : doc(db, PERSONNEL_COLLECTION, selectedOwnerId);
             const now = getCurrentDateTimeString();
@@ -197,7 +281,10 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                             givenDate: now,
                             givenBy: loggedInUser.name,
                             receivedBy: operatorName,
-                            isMoldMaterial: false
+                            isMoldMaterial: false,
+                            projectId: assignedMoldId,
+                            moldName: assignedMoldName,
+                            moldPart: assignedMoldPart
                         });
                     }
                 } else {
@@ -226,13 +313,19 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                     receiver: operatorName, 
                     targetType: viewMode,
                     isMoldMaterial: item.isMoldMaterial || false,
-                    date: now
+                    date: now,
+                    projectId: assignedMoldId,
+                    moldName: assignedMoldName,
+                    moldPart: assignedMoldPart
                 });
             }
 
             if (toolsToAdd.length > 0) await updateDoc(targetCollectionRef, { currentTools: arrayUnion(...toolsToAdd) });
 
-            setPendingItems([]); setSelectedOperatorId(''); setOpSearchTerm(''); setIsAssignModalOpen(false);
+            setPendingItems([]); 
+            setSelectedOperatorId(''); 
+            setOpSearchTerm(''); 
+            setIsAssignModalOpen(false);
         } catch (error) { console.error("Hata:", error); }
     };
 
@@ -342,7 +435,10 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                     user: loggedInUser.name,
                     receiver: responsiblePerson, 
                     date: getCurrentDateTimeString(),
-                    notes: note
+                    notes: note,
+                    projectId: toolEntry.projectId || '',
+                    moldName: toolEntry.moldName || '',
+                    moldPart: toolEntry.moldPart || ''
                 });
             }
             
@@ -670,7 +766,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
             {/* --- MODAL: TAKIM SEÇİMİ VE SEPET --- */}
             {isAssignModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
+                    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-[95vw] h-[94vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
                         
                         <div className={`px-6 py-4 flex justify-between items-center text-white shrink-0 shadow-sm z-10 ${viewMode === 'MACHINES' ? 'bg-blue-600' : 'bg-purple-600'}`}>
                             <h3 className="text-xl font-bold flex items-center">
@@ -694,10 +790,59 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                 <Layers className="w-4 h-4 mr-2"/> Kalıp Malzemeleri
                             </button>
                         </div>
-
+ 
                         <div className="flex flex-1 min-h-0">
+                            {/* HIZLI PİNLENENLER PANELİ */}
+                            <div className="w-[20%] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-100 dark:bg-gray-900/60 p-3 min-h-0 overflow-y-auto custom-scrollbar shrink-0">
+                                <h4 className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                    <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" /> PİNLİ TAKIMLAR
+                                </h4>
+                                {filteredPinnedTools.length === 0 ? (
+                                    <div className="text-center py-8 px-2 text-[10px] text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl font-semibold leading-relaxed">
+                                        Henüz hızlı takım pinlenmedi. Yan taraftaki pin (Yıldız) simgelerine basarak ekleyebilirsiniz.
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-2.5">
+                                        {filteredPinnedTools.map((qt, idx) => {
+                                            const palette = ASSIGN_COLOR_PALETTES[idx % ASSIGN_COLOR_PALETTES.length];
+                                            const liveStock = tools.find(t => t.id === qt.id)?.totalStock ?? qt.totalStock ?? 0;
+                                            return (
+                                                <div 
+                                                    key={qt.id}
+                                                    onClick={() => {
+                                                        const liveTool = tools.find(t => t.id === qt.id) || qt;
+                                                        handleAddItem(liveTool);
+                                                    }}
+                                                    className={`relative rounded-xl p-3 shadow-md flex flex-col justify-between cursor-pointer transition-all hover:scale-[1.03] active:scale-95 bg-gradient-to-br ${palette} text-white min-h-[85px] group`}
+                                                >
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setPinnedQuickAssignTools(prev => prev.filter(t => t.id !== qt.id));
+                                                        }}
+                                                        className="absolute top-1.5 right-1.5 p-1 bg-black/20 hover:bg-black/40 rounded-full text-white transition-opacity duration-200 opacity-80 group-hover:opacity-100"
+                                                        title="Hızlı ekleme listesinden kaldır"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                    <div className="text-[9px] uppercase font-bold tracking-widest opacity-80 truncate pr-5">
+                                                        {qt.productCode || 'KODSUZ'}
+                                                    </div>
+                                                    <div className="text-xs font-black mt-2 leading-tight break-words pr-2">
+                                                        {qt.name}
+                                                    </div>
+                                                    <div className="text-[9px] font-bold opacity-80 mt-1">
+                                                        Stok: {liveStock}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             {/* SOL TARAF: DEPO GÖRÜNÜMÜ */}
-                            <div className="w-2/3 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-800/50 min-h-0">
+                            <div className="w-[47%] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-800/50 min-h-0">
                                 <div className="p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 space-y-3 shrink-0">
                                     {sourceType === 'INVENTORY_NEW' || sourceType === 'INVENTORY_USED' ? (
                                         <>
@@ -771,10 +916,41 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                                                         <div className="w-16 text-center text-sm font-black text-gray-700 dark:text-gray-300">
                                                             {tool.totalStock}
                                                         </div>
-                                                        <div className="w-24 flex justify-end">
-                                                            <button onClick={() => handleAddItem(tool)} className={`px-4 py-1.5 text-white rounded-md text-xs font-bold transition flex items-center shadow-sm hover:shadow-md active:scale-95 ${sourceType === 'INVENTORY_USED' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                                        <div className="w-32 flex justify-end items-center gap-1.5 shrink-0">
+                                                             <button 
+                                                                 type="button"
+                                                                 onClick={(e) => {
+                                                                     e.preventDefault();
+                                                                     e.stopPropagation();
+                                                                     setPinnedQuickAssignTools(prev => {
+                                                                         const isPinned = prev.some(t => t.id === tool.id);
+                                                                         if (isPinned) {
+                                                                             return prev.filter(t => t.id !== tool.id);
+                                                                         } else {
+                                                                             return [...prev, {
+                                                                                 id: tool.id,
+                                                                                 name: tool.name,
+                                                                                 productCode: tool.productCode || '',
+                                                                                 category: tool.category,
+                                                                                 condition: tool.condition || 'NEW',
+                                                                                 totalStock: tool.totalStock
+                                                                             }];
+                                                                         }
+                                                                     });
+                                                                 }}
+                                                                 className={`p-1.5 rounded-md border transition ${
+                                                                     pinnedQuickAssignTools.some(t => t.id === tool.id)
+                                                                     ? 'bg-yellow-100 border-yellow-400 text-yellow-600 dark:bg-yellow-900/30'
+                                                                     : 'bg-white border-gray-300 text-gray-400 hover:text-yellow-500 dark:bg-gray-700 dark:border-gray-600'
+                                                                 }`}
+                                                                 title={pinnedQuickAssignTools.some(t => t.id === tool.id) ? "Hızlı Ekleme Listesinden Kaldır" : "Hızlı Ekleme Listesine Pinle"}
+                                                             >
+                                                                 <Star className={`w-3.5 h-3.5 pointer-events-none ${pinnedQuickAssignTools.some(t => t.id === tool.id) ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                                                             </button>
+
+                                                             <button onClick={() => handleAddItem(tool)} className={`px-3 py-1.5 text-white rounded-md text-xs font-bold transition flex items-center shadow-sm hover:shadow-md active:scale-95 ${sourceType === 'INVENTORY_USED' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
                                                                 <Plus className="w-3 h-3 mr-1" /> Ekle
-                                                            </button>
+                                                             </button>
                                                         </div>
                                                     </div>
                                                 ))
@@ -822,7 +998,7 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                             </div>
 
                             {/* SAĞ TARAF: SEPET */}
-                            <div className="w-1/3 flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 min-h-0">
+                            <div className="w-[33%] flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 min-h-0">
                                 <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shrink-0">
                                     <h3 className="font-bold text-gray-800 dark:text-white flex items-center mb-4">
                                         <ShoppingCart className="w-5 h-5 mr-2" /> Eklenecekler Sepeti

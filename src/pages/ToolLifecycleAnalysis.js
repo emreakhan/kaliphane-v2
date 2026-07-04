@@ -109,7 +109,9 @@ const ToolLifecycleAnalysis = ({ db }) => {
             }
 
             // 2. Hurda (Çıkış)
-            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
+            if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
+                tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE || 
+                tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
                 totalScrap += 1; // Hurdalar genelde tek tek
                 if (year === currentYear) {
                     thisYearScrap += 1;

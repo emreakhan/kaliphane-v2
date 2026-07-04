@@ -15,12 +15,20 @@ import {
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 
-const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
+const ToolInventoryPage = ({ tools, loggedInUser, db, machines = [], personnel = [] }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('TÜMÜ');
     
     // --- YENİ: DEPO SEKME STATE'İ (NEW = Sıfır, USED = Kullanılmış) ---
     const [stockTab, setStockTab] = useState('NEW'); 
+
+    // --- PAGİNATİON STATES ---
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 50;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [selectedCategory, searchTerm, stockTab]); 
 
     // Kategorileri Veritabanından Çekmek İçin State
     const [categories, setCategories] = useState([]);
@@ -96,6 +104,13 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
 
         return result.sort((a, b) => (a.productCode || '').localeCompare(b.productCode || '') || a.name.localeCompare(b.name));
     }, [tools, searchTerm, selectedCategory, stockTab]);
+
+    const paginatedTools = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return filteredTools.slice(startIndex, startIndex + itemsPerPage);
+    }, [filteredTools, currentPage]);
+
+    const totalPages = Math.ceil(filteredTools.length / itemsPerPage);
 
     // --- 3. İSTATİSTİKLER ---
     const getCategoryCount = (catName) => {
@@ -319,7 +334,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
     };
 
     return (
-        <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="p-6 w-full mx-auto min-h-screen bg-gray-50 dark:bg-gray-900">
             
             {/* 1. ÜST PANEL: BAŞLIK, SEKMELER & İŞLEMLER */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
@@ -436,11 +451,12 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Kod</th>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Parça Adı</th>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Kategori</th>
+                                <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Dışarıda</th>
                                 <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-48">Mevcut Stok</th>
                                 <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider w-64">İşlemler</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+<tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {filteredTools.length === 0 ? (
                                 <tr>
                                     <td colSpan="6" className="px-6 py-12 text-center text-gray-500 dark:text-gray-400 flex flex-col items-center justify-center">
@@ -449,9 +465,33 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredTools.map((tool) => {
+                                paginatedTools.map((tool) => {
                                     const isCritical = tool.totalStock <= tool.criticalStock;
                                     const isUsed = tool.condition === 'USED';
+                                    
+                                    // Dışarıda (tezgahlarda/personelde zimmetli) olan adedi hesapla
+                                    const assignedCount = (() => {
+                                        let count = 0;
+                                        machines.forEach(m => {
+                                            if (m.currentTools) {
+                                                m.currentTools.forEach(ct => {
+                                                    if (ct.toolId === tool.id || ct.toolName === tool.name) {
+                                                        count++;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                        personnel.forEach(p => {
+                                            if (p.currentTools) {
+                                                p.currentTools.forEach(ct => {
+                                                    if (ct.toolId === tool.id || ct.toolName === tool.name) {
+                                                        count++;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                        return count;
+                                    })();
                                     
                                     return (
                                         <tr key={tool.id} className={`transition group ${isUsed ? 'hover:bg-orange-50 dark:hover:bg-orange-900/20' : 'hover:bg-blue-50 dark:hover:bg-gray-700/50'}`}>
@@ -488,6 +528,17 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                                 </span>
                                             </td>
                                             
+                                            {/* DIŞARIDA HÜCRESİ */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                {assignedCount > 0 ? (
+                                                    <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                                        {assignedCount} Zimmetli
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400 dark:text-gray-500 font-bold">-</span>
+                                                )}
+                                            </td>
+                                            
                                             {/* STOK YÖNETİM HÜCRESİ */}
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-900/50 p-1 rounded-lg border border-gray-200 dark:border-gray-700 relative">
@@ -501,27 +552,27 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                                                                     onChange={(e) => setTempStockValue(e.target.value)}
                                                                     onKeyDown={(e) => { if(e.key === 'Enter') handleManualStockSave(tool.id) }}
                                                                     autoFocus
-                                                                />
-                                                                <button onClick={() => handleManualStockSave(tool.id)} className="ml-1 text-green-600 hover:bg-green-100 p-1 rounded" title="Kaydet"><Save className="w-4 h-4"/></button>
-                                                                <button onClick={() => setStockUpdateId(null)} className="ml-1 text-red-600 hover:bg-red-100 p-1 rounded" title="İptal"><X className="w-4 h-4"/></button>
-                                                            </div>
-                                                            <span className="text-[10px] text-gray-400 mt-1 font-semibold">Devir / Sayım Düzeltmesi</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <button 
-                                                                onClick={() => handleQuickStockUpdate(tool, -1)}
-                                                                className="w-8 h-8 flex items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition"
-                                                            >
-                                                                <MinusCircle className="w-5 h-5" />
-                                                            </button>
-                                                            
-                                                            <span className={`text-lg font-bold w-12 text-center cursor-pointer hover:underline ${isCritical ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}
-                                                                  onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); }}
-                                                                  title="Tıkla ve elle düzenle (Sayım)"
-                                                            >
-                                                                {tool.totalStock}
-                                                            </span>
+                                                                 />
+                                                                 <button onClick={() => handleManualStockSave(tool.id)} className="ml-1 text-green-600 hover:bg-green-100 p-1 rounded" title="Kaydet"><Save className="w-4 h-4"/></button>
+                                                                 <button onClick={() => setStockUpdateId(null)} className="ml-1 text-red-600 hover:bg-red-100 p-1 rounded" title="İptal"><X className="w-4 h-4"/></button>
+                                                             </div>
+                                                             <span className="text-[10px] text-gray-400 mt-1 font-semibold">Devir / Sayım Düzeltmesi</span>
+                                                         </div>
+                                                     ) : (
+                                                         <>
+                                                             <button 
+                                                                 onClick={() => handleQuickStockUpdate(tool, -1)}
+                                                                 className="w-8 h-8 flex items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition"
+                                                             >
+                                                                 <MinusCircle className="w-5 h-5" />
+                                                             </button>
+                                                             
+                                                             <span className={`text-lg font-bold w-12 text-center cursor-pointer hover:underline ${isCritical ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}
+                                                                   onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); }}
+                                                                   title="Tıkla ve elle düzenle (Sayım)"
+                                                             >
+                                                                 {tool.totalStock}
+                                                             </span>
  
                                                             <button 
                                                                 onClick={() => handleQuickStockUpdate(tool, 1)}
@@ -575,6 +626,72 @@ const ToolInventoryPage = ({ tools, loggedInUser, db }) => {
                         </tbody>
                     </table>
                 </div>
+                
+                {/* YENİ: PAGİNATİON KONTROLLERİ */}
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 sm:px-6">
+                        <div className="flex flex-1 justify-between sm:hidden">
+                            <button
+                                disabled={currentPage === 1}
+                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                className="relative inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-750 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                            >
+                                Önceki
+                            </button>
+                            <button
+                                disabled={currentPage === totalPages}
+                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-750 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                            >
+                                Sonraki
+                            </button>
+                        </div>
+                        <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                            <div>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 font-semibold">
+                                    Toplam <span className="font-extrabold text-blue-600 dark:text-blue-400">{filteredTools.length}</span> kayıttan{' '}
+                                    <span className="font-extrabold">{(currentPage - 1) * itemsPerPage + 1}</span> ile{' '}
+                                    <span className="font-extrabold">{Math.min(currentPage * itemsPerPage, filteredTools.length)}</span> arası gösteriliyor.
+                                </p>
+                            </div>
+                            <div>
+                                <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                                    <button
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(1)}
+                                        className="relative inline-flex items-center rounded-l-md px-3 py-2 text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 text-xs font-bold"
+                                    >
+                                        İlk
+                                    </button>
+                                    <button
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                        className="relative inline-flex items-center px-3 py-2 text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 text-xs font-bold"
+                                    >
+                                        Geri
+                                    </button>
+                                    <span className="relative inline-flex items-center px-4 py-2 text-sm font-bold text-gray-900 dark:text-white bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800">
+                                        {currentPage} / {totalPages}
+                                    </span>
+                                    <button
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                        className="relative inline-flex items-center px-3 py-2 text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 text-xs font-bold"
+                                    >
+                                        İleri
+                                    </button>
+                                    <button
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(totalPages)}
+                                        className="relative inline-flex items-center rounded-r-md px-3 py-2 text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 text-xs font-bold"
+                                    >
+                                        Son
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* --- MODAL: PARÇA EKLE / DÜZENLE --- */}

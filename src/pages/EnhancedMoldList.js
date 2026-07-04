@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
     RefreshCw, Settings, List, CheckCircle, 
     PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search,
-    LayoutGrid, ArrowRight 
+    LayoutGrid, ArrowRight, Layers
 } from 'lucide-react';
 
 // Sabitler
@@ -25,9 +25,7 @@ const EnhancedMoldList = ({ projects }) => {
         return localStorage.getItem('moldListActiveFilter') || 'ACTIVE_OVERVIEW';
     });
 
-    const [searchTerm, setSearchTerm] = useState(() => {
-        return localStorage.getItem('moldListSearchTerm') || '';
-    });
+    const [searchTerm, setSearchTerm] = useState('');
     
     // Görünüm Modu
     const [viewMode, setViewMode] = useState(() => {
@@ -39,7 +37,17 @@ const EnhancedMoldList = ({ projects }) => {
     }, [activeFilter]);
 
     useEffect(() => {
-        localStorage.setItem('moldListSearchTerm', searchTerm);
+        // Sayfa ilk yüklendiğinde eski aramayı temizle (Arama kutusu boş başlar)
+        localStorage.removeItem('moldListSearchTerm');
+    }, []);
+
+    useEffect(() => {
+        // Aktif arama yapıldığında, detay sayfasındaki chevron ileri/geri butonlarının süzülmüş listeye uyması için geçici olarak kaydet
+        if (searchTerm.trim() !== '') {
+            localStorage.setItem('moldListSearchTerm', searchTerm);
+        } else {
+            localStorage.removeItem('moldListSearchTerm');
+        }
     }, [searchTerm]);
 
     useEffect(() => {
@@ -170,18 +178,41 @@ const EnhancedMoldList = ({ projects }) => {
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl">
             <div className="flex flex-wrap gap-4 mb-6">
+                {/* Her zaman gösterilecek olanlar */}
                 <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
                 <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
-                <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
-                <FilterCard filterKey={MOLD_STATUS.TASARIM} title="Tasarım" count={stats[MOLD_STATUS.TASARIM]} icon={Edit2} colorClass="border-purple-500 bg-purple-50 text-purple-500"/>
                 
-                <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.EREZYON} title="Erezyon" count={stats[MOLD_STATUS.EREZYON]} icon={Zap} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.POLISAJ} title="Polisaj" count={stats[MOLD_STATUS.POLISAJ]} icon={Sparkles} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
+                {/* Yalnızca sayısı 0'dan büyükse gösterilecek olanlar */}
+                {stats.waiting > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
+                )}
+                {stats[MOLD_STATUS.TASARIM] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.TASARIM} title="Tasarım" count={stats[MOLD_STATUS.TASARIM]} icon={Edit2} colorClass="border-purple-500 bg-purple-50 text-purple-500"/>
+                )}
+                {stats[MOLD_STATUS.CNC] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.EREZYON] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.EREZYON} title="Erezyon" count={stats[MOLD_STATUS.EREZYON]} icon={Zap} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.POLISAJ] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.POLISAJ} title="Polisaj" count={stats[MOLD_STATUS.POLISAJ]} icon={Sparkles} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.DESEN] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.MOLD_ASSEMBLY] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.TRIAL] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
+                )}
+                {stats[MOLD_STATUS.PENDING_PRODUCTION] > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.PENDING_PRODUCTION} title="İmalat Bekleyen Kalıplar" count={stats[MOLD_STATUS.PENDING_PRODUCTION]} icon={Layers} colorClass="border-orange-500 bg-orange-50 text-orange-500"/>
+                )}
+                {stats.completed > 0 && (
+                    <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
+                )}
             </div>
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">

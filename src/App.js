@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Moon, Target
+    Menu, X, Radio, Clock, Moon, Target, FolderOpen
 } from 'lucide-react';
 
 // Sayfalar
@@ -78,6 +78,7 @@ import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
 import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
 import SurveyEvaluationPage from './pages/SurveyEvaluationPage.js';
 import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
+import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -638,6 +639,7 @@ const App = () => {
             { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: [...canSeeTools, ROLES.MACHINE_OPERATOR, ROLES.ADMIN, ROLES.SUPERVISOR] },
             { path: '/tool-analysis', label: 'Takım Analizi', icon: TrendingUp, roles: canSeeTools },
             { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
+            { path: '/mold-tool-tracking', label: 'Kalıp Takım Takibi', icon: FolderOpen, roles: [...canSeeTools, ROLES.ADMIN, ROLES.SUPERVISOR] },
             { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { path: '/cam-job-entry', label: 'İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
             { path: '/cam-operator-dashboard', label: 'CAM Süre Takip', icon: Clock, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI] },
@@ -824,7 +826,7 @@ const App = () => {
                         <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
                         <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
                         <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
-                        <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} />} />
+                        <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} machines={machines} personnel={personnel} />} />
                         <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} projects={projects} />} />
                         <Route path="/mold-material-debits" element={
                             (loggedInUser?.role === ROLES.TAKIMHANE_SORUMLUSU || loggedInUser?.role === ROLES.ADMIN)
@@ -834,6 +836,7 @@ const App = () => {
                         <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} tools={tools} />} />
                         <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
+                        <Route path="/mold-tool-tracking" element={<MoldBasedToolTracking db={db} />} />
                         <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
                         <Route path="/machine-maintenance" element={<MachineMaintenancePage db={db} machines={machines} loggedInUser={loggedInUser} />} />
                         

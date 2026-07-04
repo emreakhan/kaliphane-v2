@@ -557,114 +557,130 @@ const MoldDetailPage = ({
     
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl relative min-h-screen">
-            <button 
-                onClick={() => navigate('/')} 
-                className="mb-4 text-blue-600 dark:text-blue-400 hover:underline flex items-center"
-            >
-                &larr; Kalıp Listesine Geri Dön
-            </button>
-            
-            <div className="absolute top-4 right-4 flex gap-2">
+            {/* Sabitlenen (Sticky) Başlık ve Bilgi Alanı */}
+            <div className="sticky top-0 bg-white dark:bg-gray-800 z-30 pb-3 border-b border-gray-200 dark:border-gray-700 pt-1 relative shadow-sm mb-6 min-h-[148px]">
                 <button 
-                    onClick={() => setIs3DModalOpen(true)}
-                    className="flex items-center px-3 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-cyan-500 rounded-lg hover:from-blue-700 hover:to-cyan-600 transition z-10 shadow-md transform hover:scale-105" 
-                    title="3D Model Görüntüle"
+                    onClick={() => navigate('/')} 
+                    className="mb-2 text-blue-600 dark:text-blue-400 hover:underline flex items-center text-xs font-bold"
                 >
-                    <Box className="w-4 h-4 mr-2" /> 3D
+                    &larr; Kalıp Listesine Geri Dön
                 </button>
-
-                {mold.productImageUrl && (
+                
+                {/* Sağ Üst Hızlı İşlem Butonları ve Resim Kutusu */}
+                <div className="absolute top-0 right-0 flex items-center gap-2">
                     <button 
-                        onClick={() => setPreviewImage(mold.productImageUrl)}
-                        className="flex items-center px-3 py-2 text-sm font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 transition z-10"
+                        onClick={() => setIs3DModalOpen(true)}
+                        className="flex items-center px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 rounded-lg hover:from-blue-700 hover:to-cyan-600 transition shadow-md transform hover:scale-105" 
+                        title="3D Model Görüntüle"
                     >
-                        <ImageIcon className="w-4 h-4 mr-2" /> ÜRÜN GÖRSELİ
+                        <Box className="w-4 h-4 mr-1.5" /> 3D
                     </button>
-                )}
 
-                {mold.trialReportUrl && (
-                    <a href={mold.trialReportUrl} target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-sm font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/40 rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition z-10">
-                        <FileText className="w-4 h-4 mr-2" /> DENEME RAPORU
-                    </a>
-                )}
-                <button onClick={openNoteModal} className="flex items-center px-3 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition z-10" title="Kalıp Notları">
-                    <StickyNote className="w-4 h-4 mr-2" /> Notlar
-                </button>
-            </div>
+                    {mold.trialReportUrl && (
+                        <a href={mold.trialReportUrl} target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-1.5 text-xs font-bold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/40 rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition">
+                            <FileText className="w-4 h-4 mr-1.5" /> Rapor
+                        </a>
+                    )}
+                    
+                    <button onClick={openNoteModal} className="flex items-center px-3 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition" title="Kalıp Notları">
+                        <StickyNote className="w-4 h-4 mr-1.5" /> Notlar
+                    </button>
 
-            <div className="flex items-center mb-4 pr-0 md:pr-[300px]">
-                {prevMoldId && (
-                    <button 
-                        onClick={() => navigate(`/mold/${prevMoldId}`)} 
-                        className="mr-3 p-1.5 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
-                        title="Önceki Kalıp"
-                    >
-                        <ChevronLeft className="w-6 h-6" />
-                    </button>
-                )}
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white truncate">{mold.moldName} Kalıp Detayları</h2>
-                {nextMoldId && (
-                    <button 
-                        onClick={() => navigate(`/mold/${nextMoldId}`)} 
-                        className="ml-3 p-1.5 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
-                        title="Sonraki Kalıp"
-                    >
-                        <ChevronRight className="w-6 h-6" />
-                    </button>
-                )}
-            </div>
-            
-            <div className="text-gray-600 dark:text-gray-400 mb-6 flex flex-wrap items-center gap-4">
-                <div className="flex items-center">
-                    <span className="mr-2">Tür:</span>
-                    {isAdmin ? (
-                        <select 
-                            value={mold.projectType || PROJECT_TYPES.NEW_MOLD} 
-                            onChange={handleProjectTypeChange}
-                            className="px-2 py-1 rounded-lg text-xs font-bold border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                    {/* Ürün Resim Kutucuğu */}
+                    {mold.productImageUrl && (
+                        <div 
+                            onClick={() => setPreviewImage(mold.productImageUrl)}
+                            className="w-32 h-32 rounded-lg border-2 border-purple-500 overflow-hidden cursor-pointer hover:scale-105 transition-all shadow-md bg-gray-100 dark:bg-gray-700 relative group shrink-0 ml-1"
+                            title="Resmi Büyütmek İçin Tıklayın"
                         >
-                            <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
-                            <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
-                            <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
-                            <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
-                            <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
-                        </select>
-                    ) : (
-                        <span className="font-bold text-gray-800 dark:text-gray-200">
-                            {mold.projectType || PROJECT_TYPES.NEW_MOLD}
-                        </span>
+                            <img src={mold.productImageUrl} alt="Kalıp Ürün Görseli" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Eye className="w-6 h-6 text-white" />
+                            </div>
+                        </div>
                     )}
                 </div>
 
-                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
-
-                <div>
-                    <span>Müşteri: {mold.customer} | Durum:</span>
-                    {isAdmin ? (
-                        <select value={mold.status || MOLD_STATUS.WAITING} onChange={onStatusChange} className={`ml-2 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
-                           {Object.values(MOLD_STATUS).map(status => <option key={status} value={status}>{status}</option>)}
-                        </select>
-                    ) : (
-                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
-                            {mold.status || MOLD_STATUS.WAITING}
-                        </span>
+                <div className="flex items-center mb-3 pr-0 md:pr-[360px]">
+                    {prevMoldId && (
+                        <button 
+                            onClick={() => navigate(`/mold/${prevMoldId}`)} 
+                            className="mr-3 p-1 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
+                            title="Önceki Kalıp"
+                        >
+                            <ChevronLeft className="w-5 h-5" />
+                        </button>
+                    )}
+                    <h2 className="text-xl font-black text-gray-900 dark:text-white truncate">{mold.moldName} Kalıp Detayları</h2>
+                    {nextMoldId && (
+                        <button 
+                            onClick={() => navigate(`/mold/${nextMoldId}`)} 
+                            className="ml-3 p-1 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition text-gray-600 dark:text-gray-300 shrink-0"
+                            title="Sonraki Kalıp"
+                        >
+                            <ChevronRight className="w-5 h-5" />
+                        </button>
                     )}
                 </div>
-                {isManager ? (
-                    <div className="flex items-center gap-2">
-                        <label htmlFor="moldDeadline" className="text-sm font-medium">Termin:</label>
-                        <input type="date" id="moldDeadline" value={localDeadline} onChange={onDeadlineChange} className="px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
+                
+                <div className="text-gray-600 dark:text-gray-400 flex flex-wrap items-center gap-3 text-xs font-semibold">
+                    <div className="flex items-center">
+                        <span className="mr-1.5 font-bold">Tür:</span>
+                        {isAdmin ? (
+                            <select 
+                                value={mold.projectType || PROJECT_TYPES.NEW_MOLD} 
+                                onChange={handleProjectTypeChange}
+                                className="px-2 py-0.5 rounded text-xs font-bold border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white"
+                            >
+                                <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
+                                <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
+                                <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
+                                <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
+                                <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
+                            </select>
+                        ) : (
+                            <span className="font-bold text-gray-800 dark:text-gray-200">
+                                {mold.projectType || PROJECT_TYPES.NEW_MOLD}
+                            </span>
+                        )}
                     </div>
-                ) : (
-                    mold.moldDeadline && <span className="text-sm">Termin: <span className="font-semibold">{formatDate(mold.moldDeadline)}</span></span>
-                )}
-                {isManager && (
-                     <div className="flex items-center gap-2">
-                        <label htmlFor="moldPriority" className="text-sm font-medium">Aciliyet:</label>
-                        <input type="number" id="moldPriority" value={localPriority === null ? '' : localPriority} onChange={onPriorityChange} min="1" placeholder="Sıra No" className="w-16 px-3 py-1 rounded-lg text-xs font-semibold appearance-none border-2 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200" />
+
+                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+                    <div>
+                        <span>Müşteri: <span className="font-bold text-gray-800 dark:text-gray-200">{mold.customer}</span> | Durum:</span>
+                        {isAdmin ? (
+                            <select value={mold.status || MOLD_STATUS.WAITING} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
+                               {Object.values(MOLD_STATUS).map(status => <option key={status} value={status}>{status}</option>)}
+                            </select>
+                        ) : (
+                            <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
+                                {mold.status || MOLD_STATUS.WAITING}
+                            </span>
+                        )}
                     </div>
-                )}
-             </div>
+
+                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+                    {isManager ? (
+                        <div className="flex items-center gap-1.5">
+                            <span className="font-bold">Termin:</span>
+                            <input type="date" id="moldDeadline" value={localDeadline} onChange={onDeadlineChange} className="px-2 py-0.5 rounded text-xs font-bold border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none" />
+                        </div>
+                    ) : (
+                        mold.moldDeadline && <span className="text-xs">Termin: <span className="font-bold text-gray-800 dark:text-gray-200">{formatDate(mold.moldDeadline)}</span></span>
+                    )}
+
+                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+                    {isManager && (
+                         <div className="flex items-center gap-1.5">
+                            <span className="font-bold">Aciliyet:</span>
+                            <input type="number" id="moldPriority" value={localPriority === null ? '' : localPriority} onChange={onPriorityChange} min="1" placeholder="Sıra" className="w-12 px-2 py-0.5 rounded text-xs font-bold border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none" />
+                        </div>
+                    )}
+                </div>
+            </div>
              
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 border-t dark:border-gray-700 pt-4">
                 {isAdmin ? (
