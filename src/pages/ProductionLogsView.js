@@ -29,6 +29,17 @@ const formatDuration = (ms) => {
     return parts.join(' ');
 };
 
+const getPauseReasonText = (reason) => {
+    if (!reason) return 'Belirtilmedi';
+    if (typeof reason === 'object') {
+        const parts = [];
+        if (reason.reason) parts.push(reason.reason);
+        if (reason.description) parts.push(reason.description);
+        return parts.join(' - ');
+    }
+    return reason;
+};
+
 const ProductionLogsView = ({ projects, personnel }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState(null);
@@ -76,7 +87,7 @@ const ProductionLogsView = ({ projects, personnel }) => {
                                     if (ph.pausedAt && ph.resumedAt) {
                                         const dur = calcMs(ph.pausedAt, ph.resumedAt);
                                         opPauseMs += dur;
-                                        const reason = ph.reason || 'Belirtilmedi';
+                                        const reason = getPauseReasonText(ph.reason);
                                         opPauseReasons[reason] = (opPauseReasons[reason] || 0) + dur;
                                     }
                                 });
@@ -86,7 +97,7 @@ const ProductionLogsView = ({ projects, personnel }) => {
                             if ((op.status === 'PAUSED' || op.status === 'DURAKLATILDI') && op.lastPausedAt) {
                                 const dur = calcMs(op.lastPausedAt, null); // null => now
                                 opPauseMs += dur;
-                                const reason = op.lastPauseReason || 'Belirtilmedi';
+                                const reason = getPauseReasonText(op.lastPauseReason);
                                 opPauseReasons[reason] = (opPauseReasons[reason] || 0) + dur;
                             }
 
@@ -499,7 +510,7 @@ const ProductionLogsView = ({ projects, personnel }) => {
                                                                                     {pauses.map((p, pIdx) => (
                                                                                         <div key={pIdx} className="p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700/50 shadow-sm flex justify-between items-start gap-2">
                                                                                             <div className="min-w-0">
-                                                                                                <div className="font-extrabold text-[11px] text-gray-800 dark:text-gray-200">Neden: {p.reason}</div>
+                                                                                                <div className="font-extrabold text-[11px] text-gray-800 dark:text-gray-200">Neden: {getPauseReasonText(p.reason)}</div>
                                                                                                 <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
                                                                                                     {new Date(p.start).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} - {p.end ? new Date(p.end).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Devam Ediyor'}
                                                                                                 </div>

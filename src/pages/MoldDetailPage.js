@@ -53,6 +53,17 @@ const calculateDurationText = (startStr, endStr) => {
     return res.join(', ');
 };
 
+const getPauseReasonText = (reason) => {
+    if (!reason) return 'Belirtilmedi';
+    if (typeof reason === 'object') {
+        const parts = [];
+        if (reason.reason) parts.push(reason.reason);
+        if (reason.description) parts.push(reason.description);
+        return parts.join(' - ');
+    }
+    return reason;
+};
+
 const calculateTotalPauseDuration = (pauseHistory, lastPausedAt) => {
     let totalMs = 0;
     if (pauseHistory && pauseHistory.length > 0) {
@@ -1033,7 +1044,7 @@ const MoldDetailPage = ({
                                                                                     </div>
                                                                                     <div className="mt-1 text-orange-600 dark:text-orange-300 flex items-start">
                                                                                         <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
-                                                                                        <span className="italic">Neden: {ph.reason || 'Belirtilmedi'}</span>
+                                                                                        <span className="italic">Neden: {getPauseReasonText(ph.reason)}</span>
                                                                                     </div>
                                                                                 </div>
                                                                             ))}
@@ -1045,7 +1056,7 @@ const MoldDetailPage = ({
                                                                                     </div>
                                                                                     <div className="mt-1 text-orange-700 dark:text-orange-400 flex items-start font-medium">
                                                                                         <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
-                                                                                        <span className="italic">Neden: {operation.lastPauseReason || 'Belirtilmedi'}</span>
+                                                                                        <span className="italic">Neden: {getPauseReasonText(operation.lastPauseReason)}</span>
                                                                                     </div>
                                                                                 </div>
                                                                             )}

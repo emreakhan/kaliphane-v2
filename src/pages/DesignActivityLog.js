@@ -23,6 +23,17 @@ const formatDuration = (hours) => {
     return `${m} Dk`;
 };
 
+const getPauseReasonText = (reason) => {
+    if (!reason) return 'Bilinmeyen Neden';
+    if (typeof reason === 'object') {
+        const parts = [];
+        if (reason.reason) parts.push(reason.reason);
+        if (reason.description) parts.push(reason.description);
+        return parts.join(' - ');
+    }
+    return reason;
+};
+
 const formatTime = (dateObj) => {
     return dateObj.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 };
@@ -130,7 +141,7 @@ const DesignActivityLog = ({ loggedInUser, personnel, designJobs = [] }) => {
                                 end: eTime > endOfDay ? endOfDay : eTime,
                                 isOngoing,
                                 projectName: job.projectName,
-                                taskType: ph.reason || 'Bilinmeyen Neden',
+                                taskType: getPauseReasonText(ph.reason),
                                 pauseProject: ph.projectName || '',
                                 duration: durationHours,
                                 note: ph.note || ''

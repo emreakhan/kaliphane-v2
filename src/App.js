@@ -77,6 +77,7 @@ import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
 import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
 import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
 import SurveyEvaluationPage from './pages/SurveyEvaluationPage.js';
+import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -629,6 +630,7 @@ const App = () => {
             { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-trial-reports', label: 'Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
             { path: '/mold-maintenance', label: 'Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
+            { path: '/machine-maintenance', label: 'Tezgah Bakımı', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
             { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
             { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
             { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
@@ -663,6 +665,7 @@ const App = () => {
         };
         return (
             <TerminalPage 
+                db={db}
                 personnel={personnel} 
                 projects={projects} 
                 machines={machines} 
@@ -675,7 +678,7 @@ const App = () => {
     }
 
     if (location.pathname === '/terminal' && loggedInUser?.role !== ROLES.MACHINE_OPERATOR) {
-        return <TerminalPage personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} handleUpdatePauseReason={handleUpdatePauseReason} />;
+        return <TerminalPage db={db} personnel={personnel} projects={projects} machines={machines} handleTerminalAction={handleTerminalAction} handleUpdatePauseReason={handleUpdatePauseReason} />;
     }
 
     if (!loggedInUser) {
@@ -832,6 +835,7 @@ const App = () => {
                         <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
                         <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
                         <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/machine-maintenance" element={<MachineMaintenancePage db={db} machines={machines} loggedInUser={loggedInUser} />} />
                         
                         <Route path="/cam-operator-dashboard" element={<CamOperatorDashboard db={db} loggedInUser={loggedInUser} />} />
 
@@ -850,6 +854,7 @@ const App = () => {
                         <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
                         <Route path="/terminal" element={
                             <TerminalPage 
+                                db={db}
                                 personnel={personnel} 
                                 projects={projects} 
                                 machines={machines} 

@@ -30,6 +30,8 @@ export const ACTIVITY_LOGS_COLLECTION = `artifacts/${appId}/public/data/activity
 
 export const LOGISTICS_COLLECTION = `artifacts/${appId}/public/data/logisticsTasks`;
 export const MOLD_MATERIAL_HANDOUTS_COLLECTION = `artifacts/${appId}/public/data/moldMaterialHandouts`;
+export const MACHINE_MAINTENANCE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineMaintenanceTasks`;
+export const MACHINE_MAINTENANCE_LOGS_COLLECTION = `artifacts/${appId}/public/data/machineMaintenanceLogs`;
 
 // ============================================================
 // 2. ROLLER VE YETKİLER

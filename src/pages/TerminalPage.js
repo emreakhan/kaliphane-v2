@@ -2,9 +2,140 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { LogIn, LogOut, PlayCircle, Hash, Settings, CheckCircle, ArrowLeft, PauseCircle, FastForward, Wrench, FileText, Clock, Activity, Edit2 } from 'lucide-react';
-import { OPERATION_STATUS } from '../config/constants';
+import { OPERATION_STATUS, MACHINE_MAINTENANCE_TASKS_COLLECTION, MACHINE_MAINTENANCE_LOGS_COLLECTION } from '../config/constants';
 import PauseReasonModal from './PauseReasonModal';
 import Modal from '../components/Modals/Modal';
+import { db, collection, query, orderBy, onSnapshot, doc, setDoc } from '../config/firebase.js';
+
+const getPauseReasonText = (reason) => {
+    if (!reason) return '';
+    if (typeof reason === 'object') {
+        const parts = [];
+        if (reason.reason) parts.push(reason.reason);
+        if (reason.description) parts.push(reason.description);
+        return parts.join(' - ');
+    }
+    return reason;
+};
+
+const getDueMaintenanceTasks = (machineId, tasks, logs) => {
+    if (!machineId || !tasks || tasks.length === 0) return [];
+    
+    const now = new Date();
+    const todayStr = now.toISOString().substring(0, 10);
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+    const dayOfMonth = now.getDate();
+    
+    // Get ISO week number
+    const getWeekNumber = (date) => {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    };
+    
+    const currentWeek = getWeekNumber(now);
+    const currentMonth = now.getMonth(); // 0-11
+    const currentYear = now.getFullYear();
+
+    const machineTasks = tasks.filter(t => t.machineIds?.includes('all') || t.machineIds?.includes(machineId));
+    if (machineTasks.length === 0) return [];
+
+    const dueTasks = [];
+
+    // Helper functions to check if completed in current calendar period
+    const isCompletedThisWeek = (taskId) => {
+        return logs.some(l => {
+            if (l.machineId !== machineId) return false;
+            const logDate = new Date(l.timestamp);
+            const logWeek = getWeekNumber(logDate);
+            const logYear = logDate.getFullYear();
+            const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+            return hasTask && logWeek === currentWeek && logYear === currentYear;
+        });
+    };
+
+    const isCompletedThisBiweek = (taskId) => {
+        return logs.some(l => {
+            if (l.machineId !== machineId) return false;
+            const logDate = new Date(l.timestamp);
+            const logWeek = getWeekNumber(logDate);
+            const logYear = logDate.getFullYear();
+            
+            const currentBiweekBlock = Math.floor(currentWeek / 2);
+            const logBiweekBlock = Math.floor(logWeek / 2);
+            
+            const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+            return hasTask && logBiweekBlock === currentBiweekBlock && logYear === currentYear;
+        });
+    };
+
+    const isCompletedThisMonth = (taskId) => {
+        return logs.some(l => {
+            if (l.machineId !== machineId) return false;
+            const logDate = new Date(l.timestamp);
+            const logMonth = logDate.getMonth();
+            const logYear = logDate.getFullYear();
+            const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+            return hasTask && logMonth === currentMonth && logYear === currentYear;
+        });
+    };
+
+    const isCompletedThisYear = (taskId) => {
+        return logs.some(l => {
+            if (l.machineId !== machineId) return false;
+            const logDate = new Date(l.timestamp);
+            const logYear = logDate.getFullYear();
+            const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+            return hasTask && logYear === currentYear;
+        });
+    };
+
+    const isCompletedToday = (taskId) => {
+        return logs.some(l => 
+            l.machineId === machineId && 
+            l.date === todayStr && 
+            (l.completedTasks || []).some(t => t.taskId === taskId)
+        );
+    };
+
+    machineTasks.forEach(task => {
+        if (task.frequency === 'DAILY') {
+            // Daily tasks are due every day until completed today
+            if (!isCompletedToday(task.id)) {
+                dueTasks.push(task);
+            }
+        } else if (task.frequency === 'WEEKLY') {
+            // Weekly tasks become active on Friday, Saturday, Sunday
+            const isWeeklyTime = (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0);
+            if (isWeeklyTime && !isCompletedThisWeek(task.id)) {
+                dueTasks.push(task);
+            }
+        } else if (task.frequency === 'BIWEEKLY') {
+            // Bi-weekly tasks become active starting on Friday of even calendar weeks
+            const isWeeklyTime = (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0);
+            const isEvenWeek = (currentWeek % 2 === 0);
+            if (isWeeklyTime && isEvenWeek && !isCompletedThisBiweek(task.id)) {
+                dueTasks.push(task);
+            }
+        } else if (task.frequency === 'MONTHLY') {
+            // Monthly tasks become active starting on the 15th of the month
+            const isMonthlyTime = (dayOfMonth >= 15);
+            if (isMonthlyTime && !isCompletedThisMonth(task.id)) {
+                dueTasks.push(task);
+            }
+        } else if (task.frequency === 'YEARLY') {
+            // Yearly tasks become active starting on December 1st (month index 11)
+            const isYearlyTime = (currentMonth === 11);
+            if (isYearlyTime && !isCompletedThisYear(task.id)) {
+                dueTasks.push(task);
+            }
+        }
+    });
+
+    return dueTasks;
+};
 
 const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, handleUpdatePauseReason, isTerminalRole = false, onLogout, loggedInUser }) => {
     const [pin, setPin] = useState('');
@@ -14,6 +145,94 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
 
     const [editingPauseItem, setEditingPauseItem] = useState(null);
     const [editReasonText, setEditReasonText] = useState('');
+
+    const [hasShiftStartedToday, setHasShiftStartedToday] = useState(true);
+
+    useEffect(() => {
+        if (!activeOperator || !db) {
+            setHasShiftStartedToday(true);
+            return;
+        }
+
+        const nowIso = new Date().toISOString();
+        const todayStr = nowIso.substring(0, 10); // YYYY-MM-DD
+
+        const q = query(
+            collection(db, 'artifacts/default-app-id/public/data/operatorShiftLogs'),
+            orderBy('timestamp', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const logs = [];
+            snapshot.forEach(docSnapshot => {
+                logs.push(docSnapshot.data());
+            });
+
+            // Filter for activeOperator name and today date with 'SHIFT_START'
+            const hasStarted = logs.some(log => 
+                log.operatorName === activeOperator.name && 
+                log.date === todayStr && 
+                log.action === 'SHIFT_START'
+            );
+            
+            setHasShiftStartedToday(hasStarted);
+        }, (error) => {
+            console.error("Shift log subscription error:", error);
+        });
+
+        return () => unsubscribe();
+    }, [activeOperator]);
+
+    const [maintenanceTasks, setMaintenanceTasks] = useState([]);
+    const [maintenanceLogs, setMaintenanceLogs] = useState([]);
+
+    useEffect(() => {
+        if (!activeOperator || !db) return;
+
+        const unsubscribeTasks = onSnapshot(collection(db, MACHINE_MAINTENANCE_TASKS_COLLECTION), (snapshot) => {
+            const list = [];
+            snapshot.forEach(docSnapshot => {
+                list.push({ id: docSnapshot.id, ...docSnapshot.data() });
+            });
+            setMaintenanceTasks(list);
+        });
+
+        const unsubscribeLogs = onSnapshot(collection(db, MACHINE_MAINTENANCE_LOGS_COLLECTION), (snapshot) => {
+            const list = [];
+            snapshot.forEach(docSnapshot => {
+                list.push({ id: docSnapshot.id, ...docSnapshot.data() });
+            });
+            list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            setMaintenanceLogs(list);
+        });
+
+        return () => {
+            unsubscribeTasks();
+            unsubscribeLogs();
+        };
+    }, [activeOperator]);
+
+    const [checkedTasks, setCheckedTasks] = useState({});
+
+    useEffect(() => {
+        setCheckedTasks({});
+    }, [selectedMachine]);
+
+    const dueTasks = useMemo(() => {
+        if (!selectedMachine) return [];
+        return getDueMaintenanceTasks(selectedMachine.id, maintenanceTasks, maintenanceLogs);
+    }, [selectedMachine, maintenanceTasks, maintenanceLogs]);
+
+    const handleToggleTaskCheck = (taskId) => {
+        setCheckedTasks(prev => ({
+            ...prev,
+            [taskId]: !prev[taskId]
+        }));
+    };
+
+    const allChecked = useMemo(() => {
+        return dueTasks.every(t => checkedTasks[t.id]);
+    }, [dueTasks, checkedTasks]);
 
     // --- 🚨 KIOSK MODU: TARAYICI GERİ TUŞUNU ENGELLEME 🚨 ---
     useEffect(() => {
@@ -402,6 +621,15 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         };
 
+        const formatEventTime = (d) => {
+            if (!d || isNaN(d.getTime())) return '';
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            return `${day}.${month} ${hours}:${minutes}`;
+        };
+
         let mode = 'WAITING'; 
         if (task.status === OPERATION_STATUS.PAUSED) {
             mode = 'PAUSED';
@@ -418,7 +646,7 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
         
         (task.pauseHistory || []).forEach((p, idx) => {
             timeline.push({ 
-                name: `Duraklama (${p.reason})`, 
+                name: `Duraklama (${getPauseReasonText(p.reason)})`, 
                 time: parseDate(p.pausedAt), 
                 type: 'PAUSE', 
                 index: idx, 
@@ -430,7 +658,7 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
         
         if (task.lastPausedAt && mode === 'PAUSED') {
             timeline.push({ 
-                name: `Duraklama (${task.lastPauseReason || ''})`, 
+                name: `Duraklama (${getPauseReasonText(task.lastPauseReason)})`, 
                 time: parseDate(task.lastPausedAt), 
                 type: 'PAUSE', 
                 index: 'current', 
@@ -462,7 +690,8 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
                 type: current.type,
                 index: current.index,
                 reason: current.reason,
-                description: current.description
+                description: current.description,
+                startTime: current.time
             });
         }
 
@@ -526,14 +755,14 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
                             <h5 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                                 <Clock className="w-3.5 h-3.5 text-blue-500" /> Parça Zaman Dağılımı (Sayaç Listesi)
                             </h5>
-                            <div className="bg-gray-900/70 border border-gray-700/60 rounded-xl p-3.5 space-y-2.5 max-h-48 overflow-y-auto custom-scrollbar shadow-inner">
+                            <div className="bg-gray-900/70 border border-gray-700/60 rounded-xl p-3.5 space-y-2.5 max-h-80 overflow-y-auto custom-scrollbar shadow-inner">
                                 {displayList.map(item => {
                                     const isPause = item.type === 'PAUSE';
                                     const isCurrent = item.isCurrent;
                                     return (
                                         <div 
                                             key={item.id} 
-                                            className="border-b border-gray-800 last:border-b-0 pb-2.5 last:pb-0"
+                                            className="border-b border-gray-800 last:border-b-0 py-3 first:pt-0 last:pb-0"
                                         >
                                             <div 
                                                 className={`flex justify-between items-center text-xs ${
@@ -544,7 +773,10 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
                                                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                                                         isPause ? 'bg-red-500 animate-pulse' : (isCurrent ? 'bg-blue-400 animate-pulse' : 'bg-green-500')
                                                     }`} />
-                                                    <span className="truncate">{item.label}</span>
+                                                    <span className="text-[10px] text-gray-400 font-bold bg-gray-950/50 px-1.5 py-0.5 rounded shrink-0 font-mono">
+                                                        {formatEventTime(item.startTime)}
+                                                    </span>
+                                                    <span className="truncate font-semibold">{item.label}</span>
                                                     {isPause && (
                                                         <button
                                                             onClick={() => {
@@ -565,11 +797,11 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
                                                         </button>
                                                     )}
                                                 </div>
-                                                <span className={`font-mono font-black px-2 py-0.5 rounded text-[11px] shrink-0 ${
-                                                    isCurrent ? 'bg-blue-900/40 text-blue-300 border border-blue-800' : 'bg-gray-800 text-gray-300'
+                                                <span className={`font-mono font-black px-2.5 py-1 rounded text-xs sm:text-sm shrink-0 shadow-sm ${
+                                                    isCurrent ? 'bg-blue-900/40 text-blue-300 border border-blue-800' : 'bg-gray-800 text-gray-200'
                                                 }`}>
                                                     {formatDuration(item.duration)}
-                                                    {isCurrent && <span className="text-[9px] text-blue-400 ml-1">aktif</span>}
+                                                    {isCurrent && <span className="text-[10px] text-blue-400 ml-1 font-bold">aktif</span>}
                                                 </span>
                                             </div>
                                             {isPause && (
@@ -663,6 +895,150 @@ const TerminalPage = ({ personnel, projects, machines, handleTerminalAction, han
             </div>
         );
     };
+
+    if (activeOperator && !hasShiftStartedToday) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+                <div className="w-full max-w-md bg-gray-800 rounded-3xl shadow-2xl overflow-hidden border border-gray-700 p-8 text-center space-y-6">
+                    <div className="w-20 h-20 bg-emerald-600/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20">
+                        <PlayCircle className="w-12 h-12" />
+                    </div>
+                    <div className="space-y-2">
+                        <h2 className="text-2xl font-bold text-white tracking-wide">BUGÜN İŞ BAŞI YAPMADINIZ</h2>
+                        <p className="text-gray-400 text-sm">
+                            Merhaba <strong className="text-gray-200">{activeOperator.name}</strong>, sisteme erişip tezgahlarda işlem yapabilmek için öncelikle bugünkü Vardiya Başlangıcı (İş Başı Yap) kaydını oluşturmalısınız.
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={async () => {
+                            try {
+                                await handleTerminalAction(null, null, null, 'SHIFT_START', activeOperator.name, { machineName: 'Vardiya Girişi' });
+                                alert("İş Başı / Vardiya başlangıcı kaydı başarıyla oluşturuldu.");
+                            } catch (e) {
+                                console.error(e);
+                                alert("Kayıt oluşturulurken bir hata oluştu.");
+                            }
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2 transform active:scale-95"
+                    >
+                        <PlayCircle className="w-6 h-6" /> İŞ BAŞI YAP
+                    </button>
+
+                    <button 
+                        onClick={handleLogout} 
+                        className="text-red-500 text-sm hover:text-red-400 font-bold transition flex items-center justify-center gap-1 mx-auto underline mt-4"
+                    >
+                        <LogOut className="w-4 h-4" /> Oturumu Kapat / İptal
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (activeOperator && selectedMachine && dueTasks.length > 0) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+                <div className="w-full max-w-xl bg-gray-800 rounded-3xl shadow-2xl overflow-hidden border border-gray-700 p-6 sm:p-8 flex flex-col justify-between space-y-6">
+                    <div className="flex justify-between items-start border-b border-gray-700 pb-4 shrink-0">
+                        <div>
+                            <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide uppercase flex items-center gap-2">
+                                <Wrench className="w-6 h-6 text-blue-500 animate-pulse" />
+                                {selectedMachine.name} Periyodik Bakımı
+                            </h2>
+                            <p className="text-xs sm:text-sm text-gray-400 mt-1">
+                                Tezgahı çalıştırmadan önce lütfen aşağıdaki bakım rutinlerini yerine getirin ve işaretleyin.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => setSelectedMachine(null)}
+                            className="bg-gray-700 hover:bg-gray-600 p-2.5 rounded-lg border border-gray-600 transition text-gray-300 shrink-0"
+                        >
+                            <ArrowLeft className="w-4 h-4" /> Geri
+                        </button>
+                    </div>
+
+                    <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-1 flex-1">
+                        {dueTasks.map(task => {
+                            const isChecked = !!checkedTasks[task.id];
+                            const freqLabel = task.frequency === 'DAILY' ? 'Günlük' :
+                                              task.frequency === 'WEEKLY' ? 'Haftalık' :
+                                              task.frequency === 'BIWEEKLY' ? '2 Haftalık' :
+                                              task.frequency === 'MONTHLY' ? 'Aylık' : 'Yıllık';
+                            const freqColor = task.frequency === 'DAILY' ? 'bg-emerald-950/40 text-emerald-450 border-emerald-900' :
+                                              task.frequency === 'WEEKLY' ? 'bg-blue-950/40 text-blue-400 border-blue-900' : 'bg-purple-950/40 text-purple-400 border-purple-900';
+
+                            return (
+                                <button
+                                    type="button"
+                                    key={task.id}
+                                    onClick={() => handleToggleTaskCheck(task.id)}
+                                    className={`w-full p-4 rounded-2xl border text-left flex items-start gap-4 transition-all duration-155 ${
+                                        isChecked
+                                            ? 'bg-blue-950/20 border-blue-800 text-blue-300'
+                                            : 'bg-gray-900/40 border-gray-700 hover:bg-gray-900/60 text-gray-350'
+                                    }`}
+                                >
+                                    <div className="pt-0.5">
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            readOnly
+                                            className="rounded border-gray-600 text-blue-600 focus:ring-blue-500 w-5 h-5 cursor-pointer"
+                                        />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-wider mb-1.5 ${freqColor}`}>
+                                            {freqLabel}
+                                        </span>
+                                        <p className={`text-sm font-bold ${isChecked ? 'line-through text-gray-500' : 'text-gray-200'}`}>
+                                            {task.name}
+                                        </p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <button
+                        onClick={async () => {
+                            if (!allChecked) return;
+                            const logId = `mlog-${Date.now()}`;
+                            const logData = {
+                                id: logId,
+                                machineId: selectedMachine.id,
+                                machineName: selectedMachine.ekBilgi ? `${selectedMachine.name} (${selectedMachine.ekBilgi})` : selectedMachine.name,
+                                operatorName: activeOperator.name,
+                                date: new Date().toISOString().substring(0, 10),
+                                timestamp: new Date().toISOString(),
+                                completedTasks: dueTasks.map(t => ({
+                                    taskId: t.id,
+                                    taskName: t.name,
+                                    frequency: t.frequency
+                                }))
+                            };
+
+                            try {
+                                await setDoc(doc(db, MACHINE_MAINTENANCE_LOGS_COLLECTION, logId), logData);
+                                alert("Tezgah bakımı başarıyla onaylandı ve kaydedildi. İyi çalışmalar!");
+                            } catch (e) {
+                                console.error(e);
+                                alert("Bakım kaydı yüklenirken bir hata oluştu.");
+                            }
+                        }}
+                        disabled={!allChecked}
+                        className={`w-full py-4 rounded-2xl font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2 transform shrink-0 ${
+                            allChecked
+                                ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white active:scale-95 cursor-pointer'
+                                : 'bg-gray-700 text-gray-500 cursor-not-allowed border border-gray-600'
+                        }`}
+                    >
+                        <CheckCircle className="w-6 h-6" /> BAKIMI TAMAMLA VE İŞE BAŞLA
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (activeOperator && selectedMachine) return <OperatorDashboard />;
     if (activeOperator) return <MachineSelectionScreen />;

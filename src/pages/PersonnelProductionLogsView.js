@@ -42,6 +42,17 @@ const formatHours = (ms) => {
     return (ms / 3600000).toFixed(1);
 };
 
+const getPauseReasonText = (reason) => {
+    if (!reason) return 'Belirtilmedi';
+    if (typeof reason === 'object') {
+        const parts = [];
+        if (reason.reason) parts.push(reason.reason);
+        if (reason.description) parts.push(reason.description);
+        return parts.join(' - ');
+    }
+    return reason;
+};
+
 const getOperationStats = (op) => {
     let opPauseMs = 0;
     let opPauseReasons = {};
@@ -52,7 +63,7 @@ const getOperationStats = (op) => {
             if (ph.pausedAt && ph.resumedAt) {
                 const dur = calcMs(ph.pausedAt, ph.resumedAt);
                 opPauseMs += dur;
-                const reason = ph.reason || 'Belirtilmedi';
+                const reason = getPauseReasonText(ph.reason);
                 opPauseReasons[reason] = (opPauseReasons[reason] || 0) + dur;
             }
         });
@@ -62,7 +73,7 @@ const getOperationStats = (op) => {
     if ((op.status === 'PAUSED' || op.status === 'DURAKLATILDI') && op.lastPausedAt) {
         const dur = calcMs(op.lastPausedAt, null);
         opPauseMs += dur;
-        const reason = op.lastPauseReason || 'Belirtilmedi';
+        const reason = getPauseReasonText(op.lastPauseReason);
         opPauseReasons[reason] = (opPauseReasons[reason] || 0) + dur;
     }
 
