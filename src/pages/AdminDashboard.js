@@ -1,11 +1,12 @@
 // src/pages/AdminDashboard.js
 
 import React, { useState, useMemo } from 'react';
-import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool } from 'lucide-react';
+import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings } from 'lucide-react';
 // ROLES eklendi
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES } from '../config/constants.js';
-import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
+import { db, setDoc, doc, updateDoc, collection, query, onSnapshot } from '../config/firebase.js'; 
 import { PROJECT_COLLECTION } from '../config/constants.js'; 
+import { ALL_SYSTEM_PAGES, getDefaultPermissions } from '../config/permissionsConfig.js'; 
 
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
@@ -127,6 +128,174 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
                     <div className="mt-6 flex justify-end gap-3"><button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">İptal</button><button onClick={handleDeleteConfirm} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center"><Trash2 className="w-4 h-4 mr-2" /> Evet, Sil</button></div>
                 </Modal>
             )}
+        </div>
+    );
+};
+
+const RolePermissionsManagement = ({ db }) => {
+    const [dbPermissions, setDbPermissions] = useState({});
+    const [selectedRole, setSelectedRole] = useState(Object.values(ROLES)[0] || 'Tezgah Operatörü');
+    const [localPermissions, setLocalPermissions] = useState(null);
+    const [saving, setSaving] = useState(false);
+
+    // Listen to firestore permissions
+    React.useEffect(() => {
+        if (!db) return;
+        const q = query(collection(db, 'role_permissions'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = {};
+            snapshot.docs.forEach(doc => {
+                data[doc.id] = doc.data().permissions;
+            });
+            setDbPermissions(data);
+        });
+        return () => unsubscribe();
+    }, [db]);
+
+    // Update local state when selectedRole or dbPermissions changes
+    React.useEffect(() => {
+        const defaultPerms = getDefaultPermissions(selectedRole);
+        const savedPerms = dbPermissions[selectedRole] || {};
+        
+        // Merge saved permissions with defaults to make sure all pages are present
+        const merged = {};
+        ALL_SYSTEM_PAGES.forEach(p => {
+            merged[p.path] = {
+                view: savedPerms[p.path]?.view !== undefined ? savedPerms[p.path].view : defaultPerms[p.path].view,
+                edit: savedPerms[p.path]?.edit !== undefined ? savedPerms[p.path].edit : defaultPerms[p.path].edit,
+            };
+        });
+        setLocalPermissions(merged);
+    }, [selectedRole, dbPermissions]);
+
+    const handleCheckboxChange = (path, type) => {
+        if (!localPermissions) return;
+        const updated = {
+            ...localPermissions,
+            [path]: {
+                ...localPermissions[path],
+                [type]: !localPermissions[path][type]
+            }
+        };
+        // If view is disabled, edit should be disabled as well
+        if (type === 'view' && !updated[path].view) {
+            updated[path].edit = false;
+        }
+        // If edit is enabled, view should be enabled as well
+        if (type === 'edit' && updated[path].edit) {
+            updated[path].view = true;
+        }
+        setLocalPermissions(updated);
+    };
+
+    const handleSave = async () => {
+        if (!db || !localPermissions) return;
+        setSaving(true);
+        try {
+            await setDoc(doc(db, 'role_permissions', selectedRole), {
+                permissions: localPermissions,
+                updatedAt: new Date().toISOString()
+            });
+            alert(`${selectedRole} yetkileri başarıyla kaydedildi.`);
+        } catch (error) {
+            console.error("Yetki kaydetme hatası:", error);
+            alert("İzinler kaydedilirken hata oluştu.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleResetToDefault = () => {
+        if (window.confirm(`${selectedRole} rolü yetkilerini varsayılana döndürmek istediğinize emin misiniz?`)) {
+            setLocalPermissions(getDefaultPermissions(selectedRole));
+        }
+    };
+
+    if (!localPermissions) return <div className="text-center p-8 text-gray-500 font-bold">Yükleniyor...</div>;
+
+    return (
+        <div className="p-6 bg-gray-50 dark:bg-gray-900/10 border border-gray-250 dark:border-gray-700 rounded-xl space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b dark:border-gray-800 pb-4">
+                <div>
+                    <h3 className="text-xl font-bold dark:text-white flex items-center">
+                        <Users className="w-5 h-5 mr-2 text-blue-500" />
+                        Rol Bazlı Sayfa Yetkileri
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-semibold">
+                        Kullanıcı rollerinin hangi sayfaları görebileceğini ve düzenleyebileceğini buradan yönetebilirsiniz.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                    <label className="text-sm font-bold text-gray-705 dark:text-gray-300 whitespace-nowrap">Rol Seçin:</label>
+                    <select 
+                        value={selectedRole} 
+                        onChange={(e) => setSelectedRole(e.target.value)} 
+                        className="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-bold"
+                    >
+                        {Object.values(ROLES).map(roleVal => (
+                            <option key={roleVal} value={roleVal}>{roleVal}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg border border-gray-250 dark:border-gray-700 shadow-sm custom-scrollbar">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 uppercase text-xs font-bold border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+                        <tr>
+                            <th className="px-6 py-3">Sayfa / Bölüm Adı</th>
+                            <th className="px-6 py-3">Sayfa Yolu (Path)</th>
+                            <th className="px-6 py-3 text-center">Görüntüleyebilir (View)</th>
+                            <th className="px-6 py-3 text-center">Düzenleyebilir (Edit)</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-250 dark:divide-gray-700">
+                        {ALL_SYSTEM_PAGES.map(page => {
+                            const perms = localPermissions[page.path] || { view: false, edit: false };
+                            return (
+                                <tr key={page.path} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                    <td className="px-6 py-4 font-bold text-gray-950 dark:text-white">{page.label}</td>
+                                    <td className="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{page.path}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={perms.view} 
+                                            onChange={() => handleCheckboxChange(page.path, 'view')}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 bg-white dark:bg-gray-700 cursor-pointer"
+                                        />
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={perms.edit} 
+                                            disabled={!perms.view}
+                                            onChange={() => handleCheckboxChange(page.path, 'edit')}
+                                            className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 dark:focus:ring-green-600 dark:ring-offset-gray-800 bg-white dark:bg-gray-700 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                        />
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+                <button 
+                    onClick={handleResetToDefault}
+                    className="px-4 py-2 text-sm bg-gray-150 hover:bg-gray-200 text-gray-700 dark:bg-gray-700 dark:hover:bg-gray-650 dark:text-gray-200 font-bold rounded-lg transition"
+                >
+                    Varsayılana Sıfırla
+                </button>
+                <button 
+                    onClick={handleSave} 
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-lg shadow-md transition disabled:opacity-50 flex items-center"
+                >
+                    {saving && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                    AYARLARI KAYDET
+                </button>
+            </div>
         </div>
     );
 };
@@ -421,6 +590,10 @@ const AdminDashboard = ({
                         handleUpdateMold={handleUpdateMold}
                     />
                 );
+            case 'permissions':
+                return (
+                    <RolePermissionsManagement db={db} />
+                );
             default:
                 return null;
         }
@@ -439,6 +612,8 @@ const AdminDashboard = ({
                     )}
 
                     <button onClick={() => setActiveTab('mold_management')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_management' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Database className="w-4 h-4 inline mr-2" /> Kalıp Yönetimi</button>
+                    
+                    <button onClick={() => setActiveTab('permissions')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'permissions' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Settings className="w-4 h-4 inline mr-2" /> Sayfa Yetkileri</button>
                 </nav>
             </div>
             {renderActiveTab()}

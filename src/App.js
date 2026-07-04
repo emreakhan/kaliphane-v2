@@ -68,6 +68,7 @@ import CncOperatorPerformance from './pages/CncOperatorPerformance.js';
 import CncLathePlanningPage from './pages/CncLathePlanningPage.js';
 import CncLatheCalendarPage from './pages/CncLatheCalendarPage.js';
 import CncLatheRawMaterialPlanningPage from './pages/CncLatheRawMaterialPlanningPage.js';
+import { ALL_SYSTEM_PAGES, getDefaultPermissions } from './config/permissionsConfig.js';
 
 // YENİ EKLENEN SAYFALAR
 import CanliDurum from './pages/CanliDurum.jsx';
@@ -115,7 +116,8 @@ const App = () => {
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
     const [tools, setTools] = useState([]);
-    
+    const [rolePermissions, setRolePermissions] = useState({});
+
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
             const savedUser = localStorage.getItem('kaliphane_user');
@@ -125,6 +127,21 @@ const App = () => {
             return null;
         }
     });
+
+    const activeUserPermissions = useMemo(() => {
+        if (!loggedInUser || !loggedInUser.role) return {};
+        const savedPerms = rolePermissions[loggedInUser.role] || {};
+        const defaultPerms = getDefaultPermissions(loggedInUser.role);
+        
+        const resolved = {};
+        ALL_SYSTEM_PAGES.forEach(p => {
+            resolved[p.path] = {
+                view: savedPerms[p.path]?.view !== undefined ? savedPerms[p.path].view : defaultPerms[p.path].view,
+                edit: savedPerms[p.path]?.edit !== undefined ? savedPerms[p.path].edit : defaultPerms[p.path].edit,
+            };
+        });
+        return resolved;
+    }, [loggedInUser, rolePermissions]);
 
     const navigate = useNavigate(); 
     const location = useLocation();
@@ -238,11 +255,19 @@ const App = () => {
         const unsubscribeInventory = onSnapshot(query(collection(db, INVENTORY_COLLECTION)), (snapshot) => {
             setTools(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
+        const unsubscribePermissions = onSnapshot(query(collection(db, 'role_permissions')), (snapshot) => {
+            const data = {};
+            snapshot.docs.forEach(doc => {
+                data[doc.id] = doc.data().permissions;
+            });
+            setRolePermissions(data);
+        });
 
         return () => { 
             unsubscribePersonnel(); 
             unsubscribeMachines(); 
             unsubscribeInventory(); 
+            unsubscribePermissions();
         };
     }, [userId, seedInitialData]); 
     
@@ -573,88 +598,52 @@ const App = () => {
         if (!loggedInUser || !loggedInUser.role) return [];
         
         if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU || loggedInUser.role === ROLES.MONTAJ_SORUMLUSU) return [];
-        
-        const allLoginRoles = Array.from(new Set([...Object.values(ROLES), 'CAM Sorumlusu']));
-        const canSeeAdmin = [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU];
-        const canSeeAnalysis = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI];
-        const canSeeTools = [ROLES.TAKIMHANE_SORUMLUSU];
-        
-        const isCncLatheOp = loggedInUser.role === ROLES.CNC_TORNA_OPERATORU;
-        const isCncLatheSup = loggedInUser.role === ROLES.CNC_TORNA_SORUMLUSU;
-        const isMachineOp = loggedInUser.role === ROLES.MACHINE_OPERATOR;
 
-        if (isMachineOp) {
-            return [
-                { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.MACHINE_OPERATOR] },
-                { path: '/tool-assignment', label: 'Takımhane & Transfer', icon: Wrench, roles: [ROLES.MACHINE_OPERATOR] },
-                { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: [ROLES.MACHINE_OPERATOR] },
-                { path: '/survey-evaluation', label: 'Anket & Değerlendirme', icon: ClipboardCheck, roles: [ROLES.MACHINE_OPERATOR] }
-            ];
-        }
+        const iconMap = {
+            List: List,
+            Radio: Radio,
+            Moon: Moon,
+            Truck: Truck,
+            Briefcase: Briefcase,
+            PenTool: PenTool,
+            ListOrdered: ListOrdered,
+            ClipboardCheck: ClipboardCheck,
+            Wrench: Wrench,
+            PlayCircle: PlayCircle,
+            Package: Package,
+            Layers: Layers,
+            FileText: FileText,
+            TrendingUp: TrendingUp,
+            Activity: Activity,
+            FolderOpen: FolderOpen,
+            Settings: Settings,
+            Clock: Clock,
+            LayoutDashboard: LayoutDashboard,
+            MapIcon: MapIcon,
+            History: History,
+            BarChart2: BarChart2,
+            Monitor: Monitor,
+            Target: Target,
+            Database: Database,
+            Calendar: Calendar,
+            Box: Box,
+            FileOutput: FileOutput,
+            Users: Users,
+            Archive: Archive
+        };
 
-        if (isCncLatheOp) {
-            return [
-                { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_OPERATORU] },
-                { path: '/cnc-torna-history', label: 'Geçmiş İşler', icon: Archive, roles: [ROLES.CNC_TORNA_OPERATORU] }
-            ];
-        }
+        const dynamicItems = ALL_SYSTEM_PAGES.map(page => {
+            const permission = activeUserPermissions[page.path] || { view: false, edit: false };
+            if (!permission.view) return null;
+            return {
+                path: page.path,
+                label: page.label,
+                icon: iconMap[page.iconName] || Settings
+            };
+        }).filter(item => item !== null);
 
-        if (isCncLatheSup) {
-            return [
-                { path: '/cnc-lathe-planning', label: 'İş Planlama', icon: List, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-raw-material', label: 'Hammadde Planlama', icon: Database, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-lathe-calendar', label: 'Takvim', icon: Calendar, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
-                { path: '/cnc-torna', label: 'CNC Torna İşleri', icon: Layers, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-part-manager', label: 'Parça & Kalite Yönetimi', icon: Box, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-spc-analysis', label: 'SPC Analiz', icon: Activity, roles: [ROLES.CNC_TORNA_SORUMLUSU] },
-                { path: '/cnc-inspection-report', label: 'Raporlar (Form)', icon: FileOutput, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
-                { path: '/operator-performance', label: 'Personel Takip', icon: Users, roles: [ROLES.CNC_TORNA_SORUMLUSU] }, 
-                { path: '/cnc-torna-history', label: 'Geçmiş İşler', icon: Archive, roles: [ROLES.CNC_TORNA_SORUMLUSU] }
-            ];
-        }
-
-        const rolesExceptToolRoomAndCnc = allLoginRoles.filter(r => 
-            r !== ROLES.TAKIMHANE_SORUMLUSU && r !== ROLES.CNC_TORNA_OPERATORU && r !== ROLES.CNC_TORNA_SORUMLUSU
-        );
-        
-        const rolesExceptCnc = allLoginRoles.filter(r => 
-            r !== ROLES.CNC_TORNA_OPERATORU && r !== ROLES.CNC_TORNA_SORUMLUSU
-        );
-        
-        const finalBaseItems = [
-            { path: '/', label: 'Kalıp İmalat', icon: List, roles: rolesExceptCnc },
-            { path: '/canli-durum', label: 'Canlı Tezgah İzleme', icon: Radio, roles: rolesExceptToolRoomAndCnc }, 
-            { path: '/vardiya-plani', label: 'Gece Vardiyası Planı', icon: Moon, roles: allLoginRoles }, // <-- YENİ EKLENDİ
-            { path: '/vardiya-takip', label: 'Vardiya & Servis Planı', icon: Truck, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.ADMIN] },
-            { path: '/project-management', label: 'Proje', icon: Briefcase, roles: [ROLES.ADMIN, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
-            { path: '/design-office', label: 'Tasarım Ofisi', icon: PenTool, roles: [ROLES.ADMIN, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI] },
-            { path: '/machine-queue', label: 'İş Akış Planı', icon: ListOrdered, roles: rolesExceptToolRoomAndCnc },
-            { path: '/mold-trial-reports', label: 'Deneme Raporları', icon: ClipboardCheck, roles: rolesExceptToolRoomAndCnc },
-            { path: '/mold-maintenance', label: 'Bakım & Sicil', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU] },
-            { path: '/machine-maintenance', label: 'Tezgah Bakımı', icon: Wrench, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { path: '/active', label: 'Çalışan Parçalar', icon: PlayCircle, roles: allLoginRoles },
-            { path: '/tool-inventory', label: 'Depo & Stok', icon: Package, roles: canSeeTools },
-            { path: '/tool-assignment', label: 'Takımhane', icon: Wrench, roles: canSeeTools },
-            { path: '/mold-material-debits', label: 'Kalıp Malzeme Zimmetleri', icon: Layers, roles: canSeeTools },
-            { path: '/tool-history', label: 'Takım Geçmişi', icon: FileText, roles: [...canSeeTools, ROLES.MACHINE_OPERATOR, ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { path: '/tool-analysis', label: 'Takım Analizi', icon: TrendingUp, roles: canSeeTools },
-            { path: '/tool-lifecycle', label: 'Ömür Analizi', icon: Activity, roles: canSeeTools },
-            { path: '/mold-tool-tracking', label: 'Kalıp Takım Takibi', icon: FolderOpen, roles: [...canSeeTools, ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { path: '/cam', label: 'Aktif İşlerim', icon: Settings, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
-            { path: '/cam-job-entry', label: 'İş Ekleme', icon: Briefcase, roles: [ROLES.CAM_OPERATOR, 'CAM Sorumlusu'] },
-            { path: '/cam-operator-dashboard', label: 'CAM Süre Takip', icon: Clock, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI] },
-            { path: '/admin', label: 'Admin Paneli', icon: LayoutDashboard, roles: canSeeAdmin },
-            { path: '/admin/layout', label: 'Yerleşim', icon: MapIcon, roles: [ROLES.ADMIN] },
-            { path: '/history', label: 'Geçmiş İşler', icon: History, roles: rolesExceptToolRoomAndCnc },
-            { path: '/analysis', label: 'Veri Analizi', icon: BarChart2, roles: canSeeAnalysis },
-            { path: '/terminal', label: 'Tezgah Terminali', icon: Monitor, roles: [ROLES.ADMIN, ROLES.SUPERVISOR] },
-            { path: '/forklift', label: 'Forklift Paneli', icon: Truck, roles: [ROLES.ADMIN] }, 
-            { path: '/assembly', label: 'Montaj Paneli', icon: Wrench, roles: [ROLES.ADMIN] }, 
-            { path: '/continuous-improvement', label: 'Sürekli İyileştirme', icon: Target, roles: rolesExceptToolRoomAndCnc },
-            { path: '/survey-evaluation', label: 'Anket & Değerlendirme', icon: ClipboardCheck, roles: [ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.MACHINE_OPERATOR, ROLES.CNC_TORNA_OPERATORU, ROLES.CNC_TORNA_SORUMLUSU] },
-        ];
-        return finalBaseItems.filter(item => item.roles.includes(loggedInUser.role));
-    }, [loggedInUser]);
+        return dynamicItems;
+    }, [loggedInUser, activeUserPermissions]);
 
     if (!userId) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Kimlik doğrulanıyor...</p></div>;
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Personel verisi yükleniyor...</p></div>;
@@ -808,55 +797,220 @@ const App = () => {
                         } />
                         <Route path="/continuous-improvement" element={<ContinuousImprovementPage loggedInUser={loggedInUser} />} />
 
+                        {/* ROTALAR VE YETKİLENDİRME KORUMALARI */}
+                        <Route path="/" element={
+                            activeUserPermissions['/']?.view 
+                            ? <EnhancedMoldList projects={projects} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/']?.edit} /> 
+                            : <Navigate to={activeUserPermissions['/terminal']?.view ? '/terminal' : (activeUserPermissions['/cnc-torna']?.view ? '/cnc-torna' : '/')} replace />
+                        } />
+
+                        <Route path="/canli-durum" element={
+                            activeUserPermissions['/canli-durum']?.view
+                            ? <CanliDurum db={db} projects={projects} machines={machines} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/vardiya-plani" element={
+                            activeUserPermissions['/vardiya-plani']?.view
+                            ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/vardiya-takip" element={
+                            activeUserPermissions['/vardiya-takip']?.view
+                            ? <ShiftPlannerPage db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/vardiya-takip']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
                         <Route path="/forklift" element={
-                            (loggedInUser?.role === ROLES.FORKLIFT_OPERATORU || loggedInUser?.role === ROLES.ADMIN)
-                            ? <ForkliftDashboard db={db} loggedInUser={loggedInUser} />
+                            activeUserPermissions['/forklift']?.view
+                            ? <ForkliftDashboard db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/forklift']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 
                         <Route path="/assembly" element={
-                            (loggedInUser?.role === ROLES.MONTAJ_SORUMLUSU || loggedInUser?.role === ROLES.ADMIN)
-                            ? <AssemblyDashboard db={db} loggedInUser={loggedInUser} />
+                            activeUserPermissions['/assembly']?.view
+                            ? <AssemblyDashboard db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/assembly']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 
-                        <Route path="/active" element={<ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} />} />
-                        <Route path="/cam" element={<CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleChangeMachineOperator={handleChangeMachineOperator} personnel={personnel} machines={machines} />} />
-                        <Route path="/project-management" element={<ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
-                        <Route path="/design-office" element={<DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} />} />
-                        <Route path="/machine-queue" element={<MachineQueuePage db={db} loggedInUser={loggedInUser} />} />
-                        <Route path="/mold-trial-reports" element={<MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} />} />
-                        <Route path="/tool-inventory" element={<ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} machines={machines} personnel={personnel} />} />
-                        <Route path="/tool-assignment" element={<ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} projects={projects} />} />
+                        <Route path="/active" element={
+                            activeUserPermissions['/active']?.view
+                            ? <ActiveTasksPage projects={projects} machines={machines} loggedInUser={loggedInUser} personnel={personnel} handleUpdateMachineStatus={handleUpdateMachineStatus} canEdit={activeUserPermissions['/active']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cam" element={
+                            activeUserPermissions['/cam']?.view
+                            ? <CamDashboard loggedInUser={loggedInUser} projects={projects} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleChangeMachineOperator={handleChangeMachineOperator} personnel={personnel} machines={machines} canEdit={activeUserPermissions['/cam']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/project-management" element={
+                            activeUserPermissions['/project-management']?.view
+                            ? <ProjectManagementPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/project-management']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/design-office" element={
+                            activeUserPermissions['/design-office']?.view
+                            ? <DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} canEdit={activeUserPermissions['/design-office']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/machine-queue" element={
+                            activeUserPermissions['/machine-queue']?.view
+                            ? <MachineQueuePage db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/machine-queue']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/mold-trial-reports" element={
+                            activeUserPermissions['/mold-trial-reports']?.view
+                            ? <MoldTrialReportsPage db={db} loggedInUser={loggedInUser} projects={projects} canEdit={activeUserPermissions['/mold-trial-reports']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-inventory" element={
+                            activeUserPermissions['/tool-inventory']?.view
+                            ? <ToolInventoryPage tools={tools} loggedInUser={loggedInUser} db={db} machines={machines} personnel={personnel} canEdit={activeUserPermissions['/tool-inventory']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-assignment" element={
+                            activeUserPermissions['/tool-assignment']?.view
+                            ? <ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} projects={projects} canEdit={activeUserPermissions['/tool-assignment']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
                         <Route path="/mold-material-debits" element={
-                            (loggedInUser?.role === ROLES.TAKIMHANE_SORUMLUSU || loggedInUser?.role === ROLES.ADMIN)
-                            ? <MoldMaterialDebitsPage loggedInUser={loggedInUser} personnel={personnel} />
+                            activeUserPermissions['/mold-material-debits']?.view
+                            ? <MoldMaterialDebitsPage loggedInUser={loggedInUser} personnel={personnel} canEdit={activeUserPermissions['/mold-material-debits']?.edit} />
                             : <Navigate to="/" replace />
                         } />
-                        <Route path="/tool-history" element={<ToolHistoryPage machines={machines} db={db} tools={tools} />} />
-                        <Route path="/tool-analysis" element={<ToolAnalysisPage db={db} />} />
-                        <Route path="/tool-lifecycle" element={<ToolLifecycleAnalysis db={db} />} /> 
-                        <Route path="/mold-tool-tracking" element={<MoldBasedToolTracking db={db} />} />
-                        <Route path="/mold-maintenance" element={<MoldMaintenancePage db={db} loggedInUser={loggedInUser} />} />
-                        <Route path="/machine-maintenance" element={<MachineMaintenancePage db={db} machines={machines} loggedInUser={loggedInUser} />} />
-                        
-                        <Route path="/cam-operator-dashboard" element={<CamOperatorDashboard db={db} loggedInUser={loggedInUser} />} />
 
-                        <Route path="/cnc-torna" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-torna-history" element={(loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-part-manager" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncPartManager db={db} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-spc-analysis" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncSpcAnalysisPage db={db} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-inspection-report" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncInspectionReport db={db} /> : <Navigate to="/" replace />} />
-                        <Route path="/operator-performance" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-lathe-planning" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLathePlanningPage db={db} cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-raw-material" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheRawMaterialPlanningPage db={db} /> : <Navigate to="/" replace />} />
-                        <Route path="/cnc-lathe-calendar" element={(loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU) ? <CncLatheCalendarPage cncJobs={cncJobs} /> : <Navigate to="/" replace />} />
-                        <Route path="/admin" element={<AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} loggedInUser={loggedInUser} />} />
-                        <Route path="/admin/layout" element={<WorkshopEditorPage machines={machines} projects={projects} />} />
-                        <Route path="/history" element={<HistoryPage projects={projects} />} />
-                        <Route path="/analysis" element={<AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+                        <Route path="/tool-history" element={
+                            activeUserPermissions['/tool-history']?.view
+                            ? <ToolHistoryPage machines={machines} db={db} tools={tools} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-analysis" element={
+                            activeUserPermissions['/tool-analysis']?.view
+                            ? <ToolAnalysisPage db={db} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-lifecycle" element={
+                            activeUserPermissions['/tool-lifecycle']?.view
+                            ? <ToolLifecycleAnalysis db={db} />
+                            : <Navigate to="/" replace />
+                        } /> 
+
+                        <Route path="/mold-tool-tracking" element={
+                            activeUserPermissions['/mold-tool-tracking']?.view
+                            ? <MoldBasedToolTracking db={db} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/mold-maintenance" element={
+                            activeUserPermissions['/mold-maintenance']?.view
+                            ? <MoldMaintenancePage db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/mold-maintenance']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/machine-maintenance" element={
+                            activeUserPermissions['/machine-maintenance']?.view
+                            ? <MachineMaintenancePage db={db} machines={machines} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/machine-maintenance']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+                        
+                        <Route path="/cam-operator-dashboard" element={
+                            activeUserPermissions['/cam-operator-dashboard']?.view
+                            ? <CamOperatorDashboard db={db} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-torna" element={
+                            activeUserPermissions['/cnc-torna']?.view
+                            ? <CncLatheDashboard db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} canEdit={activeUserPermissions['/cnc-torna']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-torna-history" element={
+                            activeUserPermissions['/cnc-torna-history']?.view
+                            ? <CncLatheHistoryPage db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-part-manager" element={
+                            activeUserPermissions['/cnc-part-manager']?.view
+                            ? <CncPartManager db={db} canEdit={activeUserPermissions['/cnc-part-manager']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-spc-analysis" element={
+                            activeUserPermissions['/cnc-spc-analysis']?.view
+                            ? <CncSpcAnalysisPage db={db} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-inspection-report" element={
+                            activeUserPermissions['/cnc-inspection-report']?.view
+                            ? <CncInspectionReport db={db} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/operator-performance" element={
+                            activeUserPermissions['/operator-performance']?.view
+                            ? <CncOperatorPerformance db={db} loggedInUser={loggedInUser} cncJobs={cncJobs} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-lathe-planning" element={
+                            activeUserPermissions['/cnc-lathe-planning']?.view
+                            ? <CncLathePlanningPage db={db} cncJobs={cncJobs} canEdit={activeUserPermissions['/cnc-lathe-planning']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-raw-material" element={
+                            activeUserPermissions['/cnc-raw-material']?.view
+                            ? <CncLatheRawMaterialPlanningPage db={db} canEdit={activeUserPermissions['/cnc-raw-material']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/cnc-lathe-calendar" element={
+                            activeUserPermissions['/cnc-lathe-calendar']?.view
+                            ? <CncLatheCalendarPage cncJobs={cncJobs} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/admin" element={
+                            activeUserPermissions['/admin']?.view
+                            ? <AdminDashboard db={db} projects={projects} setProjects={setProjects} personnel={personnel} setPersonnel={setPersonnel} machines={machines} setMachines={setMachines} handleDeleteMold={handleDeleteMold} handleUpdateMold={handleUpdateMold} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/admin']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/admin/layout" element={
+                            activeUserPermissions['/admin/layout']?.view
+                            ? <WorkshopEditorPage machines={machines} projects={projects} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/history" element={
+                            activeUserPermissions['/history']?.view
+                            ? <HistoryPage projects={projects} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/analysis" element={
+                            activeUserPermissions['/analysis']?.view
+                            ? <AnalysisPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
                         <Route path="/terminal" element={
-                            <TerminalPage 
+                            activeUserPermissions['/terminal']?.view
+                            ? <TerminalPage 
                                 db={db}
                                 personnel={personnel} 
                                 projects={projects} 
@@ -869,14 +1023,22 @@ const App = () => {
                                     localStorage.removeItem('kaliphane_user');
                                     navigate('/');
                                 }}
-                            />
+                              />
+                            : <Navigate to="/" replace />
                         } />
-                        <Route path="/cam-job-entry" element={<CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />} />
+
+                        <Route path="/cam-job-entry" element={
+                            activeUserPermissions['/cam-job-entry']?.view
+                            ? <CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
                         <Route path="/survey-evaluation" element={
-                            (loggedInUser?.role === ROLES.ADMIN || loggedInUser?.role === ROLES.CAM_OPERATOR || loggedInUser?.role === 'CAM Sorumlusu' || loggedInUser?.role === ROLES.MACHINE_OPERATOR || loggedInUser?.role === ROLES.CNC_TORNA_OPERATORU || loggedInUser?.role === ROLES.CNC_TORNA_SORUMLUSU)
+                            activeUserPermissions['/survey-evaluation']?.view
                             ? <SurveyEvaluationPage loggedInUser={loggedInUser} personnel={personnel} />
                             : <Navigate to="/" replace />
                         } />
+
                         <Route path="/mold/:moldId" element={<MoldDetailPage loggedInUser={loggedInUser} handleUpdateOperation={handleUpdateOperation} handleAddOperation={handleAddOperation} handleReportOperationIssue={handleReportOperationIssue} handleSetCriticalTask={handleSetCriticalTask} handleUpdateMoldStatus={handleUpdateMoldStatus} handleUpdateMoldDeadline={handleUpdateMoldDeadline} handleUpdateMoldPriority={handleUpdateMoldPriority} handleUpdateTrialReportUrl={handleUpdateTrialReportUrl} handleUpdateProductImageUrl={handleUpdateProductImageUrl} handleUpdateProjectManager={handleUpdateProjectManager} handleUpdateMoldDesigner={handleUpdateMoldDesigner} handleUpdateCamResponsible={handleUpdateCamResponsible} projects={projects} personnel={personnel} machines={machines} db={db} />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
