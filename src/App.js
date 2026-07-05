@@ -80,6 +80,7 @@ import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
 import SurveyEvaluationPage from './pages/SurveyEvaluationPage.js';
 import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
 import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
+import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -1036,6 +1037,12 @@ const App = () => {
                         <Route path="/survey-evaluation" element={
                             activeUserPermissions['/survey-evaluation']?.view
                             ? <SurveyEvaluationPage loggedInUser={loggedInUser} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/workshop-supervisor" element={
+                            activeUserPermissions['/workshop-supervisor']?.view
+                            ? <WorkshopSupervisorPage db={db} projects={projects} personnel={personnel} machines={machines} />
                             : <Navigate to="/" replace />
                         } />
 

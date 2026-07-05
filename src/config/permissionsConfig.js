@@ -33,6 +33,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/assembly', label: 'Montaj Paneli', iconName: 'Wrench' },
     { path: '/continuous-improvement', label: 'Sürekli İyileştirme', iconName: 'Target' },
     { path: '/survey-evaluation', label: 'Anket & Değerlendirme', iconName: 'ClipboardCheck' },
+    { path: '/workshop-supervisor', label: 'Atölye Şefi Paneli', iconName: 'Monitor' },
     
     // CNC Torna Sayfaları
     { path: '/cnc-lathe-planning', label: 'Torna İş Planlama', iconName: 'List' },
@@ -131,6 +132,7 @@ export const getDefaultPermissions = (role) => {
     if (rolesExceptToolRoomAndCnc.includes(role)) permissions['/history'] = { view: true, edit: false };
     if (canSeeAnalysis.includes(role)) permissions['/analysis'] = { view: true, edit: false };
     if ([ROLES.ADMIN, ROLES.SUPERVISOR].includes(role)) permissions['/terminal'] = { view: true, edit: false };
+    if ([ROLES.ADMIN, ROLES.SUPERVISOR].includes(role)) permissions['/workshop-supervisor'] = { view: true, edit: false };
     if ([ROLES.ADMIN].includes(role)) permissions['/forklift'] = { view: true, edit: false };
     if ([ROLES.ADMIN].includes(role)) permissions['/assembly'] = { view: true, edit: false };
     if (rolesExceptToolRoomAndCnc.includes(role)) permissions['/continuous-improvement'] = { view: true, edit: false };
