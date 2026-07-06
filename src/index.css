@@ -1,3 +1,127 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  /* CLASSIC BLUE THEME ACCENTS */
+  --color-blue-50: #f8fafc;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+  --color-blue-955: #172554;
+
+  /* LAYOUT COLOR VARIABLES */
+  --app-bg-light: #f3f4f6; /* gray-100 */
+  --app-bg-dark: #111827;  /* gray-900 */
+  --content-bg-light: #f9fafb; /* gray-50 */
+  --content-bg-dark: #111827;
+  --sidebar-bg-light: #ffffff;
+  --sidebar-bg-dark: #111827;
+  --header-bg-light: rgba(255, 255, 255, 0.5);
+  --header-bg-dark: rgba(17, 24, 39, 0.5);
+  --border-light: #e5e7eb; /* gray-200 */
+  --border-dark: #1f2937;  /* gray-800 */
+}
+
+/* CLASSIC DARK THEME override values when .dark class is set */
+.dark {
+  --color-blue-50: #172554;
+  --color-blue-100: #1e3a8a;
+  --color-blue-200: #1e40af;
+  --color-blue-300: #1d4ed8;
+  --color-blue-400: #2563eb;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #60a5fa;
+  --color-blue-700: #93c5fd;
+  --color-blue-800: #bfdbfe;
+  --color-blue-900: #dbeafe;
+  --color-blue-955: #f8fafc;
+}
+
+/* COBALT STEEL THEME (Modern Industrial Steel Blue) */
+.theme-cobalt {
+  --color-blue-50: #f0f5fa;
+  --color-blue-100: #e0ebf5;
+  --color-blue-200: #c2d7eb;
+  --color-blue-300: #94bde0;
+  --color-blue-400: #5c9cd4;
+  --color-blue-500: #327ec2;
+  --color-blue-600: #2367a6;
+  --color-blue-700: #1d5287;
+  --color-blue-800: #1c476f;
+  --color-blue-900: #1b3d5c;
+  --color-blue-955: #11283d;
+
+  /* Cobalt specific layout adjustments */
+  --app-bg-light: #e2e8f0; /* slate-200 */
+  --app-bg-dark: #0f172a;  /* slate-900 */
+  --content-bg-light: #f1f5f9; /* slate-50 */
+  --content-bg-dark: #0f172a;
+  --sidebar-bg-light: #f8fafc;
+  --sidebar-bg-dark: #0f172a;
+  --header-bg-light: rgba(248, 250, 252, 0.5);
+  --header-bg-dark: rgba(15, 23, 42, 0.5);
+  --border-light: #cbd5e1; /* slate-300 */
+  --border-dark: #1e293b;  /* slate-800 */
+}
+
+.theme-cobalt.dark {
+  --color-blue-50: #11283d;
+  --color-blue-100: #1b3d5c;
+  --color-blue-200: #1c476f;
+  --color-blue-300: #1d5287;
+  --color-blue-400: #2367a6;
+  --color-blue-500: #327ec2;
+  --color-blue-600: #5c9cd4;
+  --color-blue-700: #94bde0;
+  --color-blue-800: #c2d7eb;
+  --color-blue-900: #e0ebf5;
+  --color-blue-955: #f0f5fa;
+}
+
+/* MINT CLEANROOM THEME (Refreshing Sage/Emerald) */
+.theme-mint {
+  --color-blue-50: #f0fdf4;
+  --color-blue-100: #dcfce7;
+  --color-blue-200: #bbf7d0;
+  --color-blue-300: #86efac;
+  --color-blue-400: #4ade80;
+  --color-blue-500: #10b981;
+  --color-blue-600: #059669;
+  --color-blue-700: #047857;
+  --color-blue-800: #065f46;
+  --color-blue-900: #064e3b;
+  --color-blue-955: #022c22;
+
+  /* Mint specific layout adjustments */
+  --app-bg-light: #e2eee6; /* mint-200 */
+  --app-bg-dark: #0a140f;  /* mint-900 */
+  --content-bg-light: #f2f7f4; /* mint-50 */
+  --content-bg-dark: #050a07;
+  --sidebar-bg-light: #fafcfb;
+  --sidebar-bg-dark: #0a140f;
+  --header-bg-light: rgba(250, 252, 251, 0.5);
+  --header-bg-dark: rgba(10, 20, 15, 0.5);
+  --border-light: #cbdad1; /* mint-300 */
+  --border-dark: #1a3026;  /* mint-800 */
+}
+
+.theme-mint.dark {
+  --color-blue-50: #022c22;
+  --color-blue-100: #064e3b;
+  --color-blue-200: #065f46;
+  --color-blue-300: #047857;
+  --color-blue-400: #059669;
+  --color-blue-500: #10b981;
+  --color-blue-600: #4ade80;
+  --color-blue-700: #86efac;
+  --color-blue-800: #bbf7d0;
+  --color-blue-900: #dcfce7;
+  --color-blue-955: #f0fdf4;
+}

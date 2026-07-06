@@ -150,6 +150,26 @@ const App = () => {
         }
     }, [darkMode]);
 
+    const [theme, setTheme] = useState(() => {
+        try {
+            const saved = localStorage.getItem('kaliphane_color_theme');
+            return saved !== null ? saved : 'blue';
+        } catch {
+            return 'blue';
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('kaliphane_color_theme', theme);
+            const themeClasses = ['theme-blue', 'theme-emerald', 'theme-purple', 'theme-amber', 'theme-cobalt', 'theme-mint'];
+            themeClasses.forEach(tc => document.documentElement.classList.remove(tc));
+            document.documentElement.classList.add(`theme-${theme}`);
+        } catch (e) {
+            console.error("Renk teması uygulanamadı:", e);
+        }
+    }, [theme]);
+
 
 
     const [loggedInUser, setLoggedInUser] = useState(() => {
@@ -805,7 +825,7 @@ const App = () => {
     if (isProjectsLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Sistem verileri yükleniyor...</p></div>;
 
     return (
-        <div className="flex h-screen bg-gray-100 dark:bg-gray-900 font-sans overflow-hidden">
+        <div className="flex h-screen bg-[var(--app-bg-light)] dark:bg-[var(--app-bg-dark)] font-sans overflow-hidden">
             
             {/* GÖLGELENDİRME (Açıkken arkayı karartır ve tıklanınca menüyü kapatır) */}
             {isSidebarOpen && !isForkliftOp && !isAssemblyOp && (
@@ -818,12 +838,12 @@ const App = () => {
             {/* SİDEBAR (Sol Menü - ÇEKMECE) */}
             {(!isForkliftOp && !isAssemblyOp) && (
                 <aside 
-                    className={`fixed top-0 left-0 h-full w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 transform transition-transform duration-300 ease-in-out flex flex-col shadow-2xl ${
+                    className={`fixed top-0 left-0 h-full w-64 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)] border-r border-[var(--border-light)] dark:border-[var(--border-dark)] z-50 transform transition-transform duration-300 ease-in-out flex flex-col shadow-2xl ${
                         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
                 >
                     {/* Üst Logo/Başlık Alanı */}
-                    <div className="p-6 flex items-center justify-between border-b dark:border-gray-800 shrink-0">
+                    <div className="p-6 flex items-center justify-between border-b border-[var(--border-light)] dark:border-[var(--border-dark)] shrink-0">
                         <div className="flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/30">
                                 <LayoutDashboard className="w-5 h-5 text-white" />
@@ -893,14 +913,15 @@ const App = () => {
                             <LogOut className="w-4 h-4 mr-2"/> Güvenli Çıkış
                         </button>
                         
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-250 dark:border-gray-700">
+                        <div className="mt-3 pt-3 border-t border-gray-250 dark:border-gray-700 space-y-2.5">
+                            {/* Dark/Light Mode Toggle */}
                             <button
                                 onClick={() => setDarkMode(!darkMode)}
                                 className="w-full flex items-center justify-center gap-2 text-xs py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 rounded-xl font-bold transition-colors"
                             >
                                 {darkMode ? (
                                     <>
-                                        <Sun className="w-4 h-4 text-amber-550" /> Açık Tema
+                                        <Sun className="w-4 h-4 text-amber-555" /> Açık Tema
                                     </>
                                 ) : (
                                     <>
@@ -908,16 +929,38 @@ const App = () => {
                                     </>
                                 )}
                             </button>
+
+                            {/* Theme Presets */}
+                            <div className="flex items-center justify-between px-1.5 pt-1">
+                                <span className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Arayüz Stili:</span>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setTheme('blue')}
+                                        className={`w-5 h-5 rounded-full bg-[#3b82f6] border-2 transition-all ${theme === 'blue' ? 'border-white dark:border-gray-900 ring-2 ring-blue-500 scale-115 shadow-md' : 'border-transparent hover:scale-110'}`}
+                                        title="Klasik Mavi"
+                                    />
+                                    <button
+                                        onClick={() => setTheme('cobalt')}
+                                        className={`w-5 h-5 rounded-full bg-[#327ec2] border-2 transition-all ${theme === 'cobalt' ? 'border-white dark:border-gray-900 ring-2 ring-blue-600 scale-115 shadow-md' : 'border-transparent hover:scale-110'}`}
+                                        title="Endüstriyel Çelik Mavi"
+                                    />
+                                    <button
+                                        onClick={() => setTheme('mint')}
+                                        className={`w-5 h-5 rounded-full bg-[#10b981] border-2 transition-all ${theme === 'mint' ? 'border-white dark:border-gray-900 ring-2 ring-emerald-500 scale-115 shadow-md' : 'border-transparent hover:scale-110'}`}
+                                        title="Nane Temiz Oda"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </aside>
             )}
 
             {/* ANA İÇERİK ALANI (Sağ Taraf) */}
-            <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-gray-50 dark:bg-gray-900 w-full">
+            <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[var(--content-bg-light)] dark:bg-[var(--content-bg-dark)] w-full">
                 
                 {/* ÜST BAR (Header) */}
-                <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md sticky top-0 z-30 shrink-0 w-full">
+                <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-[var(--border-light)] dark:border-[var(--border-dark)] bg-[var(--sidebar-bg-light)]/50 dark:bg-[var(--sidebar-bg-dark)]/50 backdrop-blur-md sticky top-0 z-30 shrink-0 w-full">
                     <div className="flex items-center">
                         {(!isForkliftOp && !isAssemblyOp) && (
                             <button 
