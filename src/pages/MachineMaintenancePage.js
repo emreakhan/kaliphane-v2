@@ -386,7 +386,7 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
     const [editingTask, setEditingTask] = useState(null);
     const [selectedLog, setSelectedLog] = useState(null);
     const [editingMachine, setEditingMachine] = useState(null);
-    const [machineForm, setMachineForm] = useState({ name: '', ekBilgi: '' });
+    const [machineForm, setMachineForm] = useState({ name: '', ekBilgi: '', department: 'KALIPHANE' });
     const [isFullScreenPreviewOpen, setIsFullScreenPreviewOpen] = useState(false);
     const [previewScale, setPreviewScale] = useState(1);
     const containerRef = useRef(null);
@@ -540,7 +540,8 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
         try {
             await setDoc(doc(db, MACHINES_COLLECTION, editingMachine.id), {
                 name: machineForm.name.trim(),
-                ekBilgi: machineForm.ekBilgi.trim()
+                ekBilgi: machineForm.ekBilgi.trim(),
+                department: machineForm.department || 'KALIPHANE'
             }, { merge: true });
             
             setEditingMachine(null);
@@ -824,7 +825,11 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                                                     <button 
                                                         onClick={() => {
                                                             setEditingMachine(item);
-                                                            setMachineForm({ name: item.name, ekBilgi: item.ekBilgi || '' });
+                                                            setMachineForm({ 
+                                                                name: item.name, 
+                                                                ekBilgi: item.ekBilgi || '', 
+                                                                department: item.department || (['K41', 'K60', 'K65'].includes(item.name) ? 'CNC_TORNA' : 'KALIPHANE')
+                                                            });
                                                         }}
                                                         className="p-1 hover:bg-gray-150 dark:hover:bg-gray-700 text-gray-400 hover:text-blue-500 rounded-lg transition shrink-0"
                                                         title="Tezgah Bilgilerini Düzenle"
@@ -1467,6 +1472,7 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                                 placeholder="Örn: DMG MORI-CMX 1100V CNC TEZGAHI"
                             />
                         </div>
+
 
                         {/* Actions */}
                         <div className="flex justify-end gap-3 pt-4 border-t border-gray-150 dark:border-gray-700">

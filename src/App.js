@@ -8,7 +8,7 @@ import {
     db, auth, onAuthStateChanged, 
     signInWithCustomToken, signInAnonymously, 
     collection, query, getDocs, setDoc, 
-    updateDoc, deleteDoc, doc, onSnapshot, where
+    updateDoc, deleteDoc, doc, onSnapshot, where, getDoc
 } from './config/firebase.js';
 
 // Sabitler
@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Moon, Target, FolderOpen
+    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 // Sayfalar
@@ -118,6 +118,39 @@ const App = () => {
     const [machines, setMachines] = useState([]);
     const [tools, setTools] = useState([]);
     const [rolePermissions, setRolePermissions] = useState({});
+    const [menuLayout, setMenuLayout] = useState(null);
+    const [expandedCategories, setExpandedCategories] = useState(() => {
+        try {
+            const saved = localStorage.getItem('kaliphane_expanded_categories');
+            return saved ? JSON.parse(saved) : { "cat-1": true };
+        } catch {
+            return { "cat-1": true };
+        }
+    });
+
+    const [darkMode, setDarkMode] = useState(() => {
+        try {
+            const saved = localStorage.getItem('kaliphane_dark_mode');
+            return saved !== null ? saved === 'true' : true;
+        } catch {
+            return true;
+        }
+    });
+
+    useEffect(() => {
+        try {
+            if (darkMode) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            localStorage.setItem('kaliphane_dark_mode', darkMode.toString());
+        } catch (e) {
+            console.error("Koyu mod ayarlanamadı:", e);
+        }
+    }, [darkMode]);
+
+
 
     const [loggedInUser, setLoggedInUser] = useState(() => {
         try {
@@ -204,14 +237,30 @@ const App = () => {
             for (const person of samplePersonnel) await setDoc(doc(db, PERSONNEL_COLLECTION, person.id), person);
         }
         
-        const HARDCODED_MACHINES = ['K40', 'K68', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
-        const machinesQuery = query(collection(db, MACHINES_COLLECTION));
-        const machinesSnapshot = await getDocs(machinesQuery);
-        if (machinesSnapshot.empty) {
-            for (const machine of HARDCODED_MACHINES) {
-                const machineId = `machine-${machine}`;
-                await setDoc(doc(db, MACHINES_COLLECTION, machineId), { id: machineId, name: machine, createdAt: getCurrentDateTimeString() });
+        const HARDCODED_MACHINES = [
+            { name: 'K41', ekBilgi: 'CNC TORNA TEZGAHI' },
+            { name: 'K60', ekBilgi: 'CNC TORNA TEZGAHI' },
+            { name: 'K65', ekBilgi: 'CNC TORNA TEZGAHI' }
+        ];
+        
+        for (const m of HARDCODED_MACHINES) {
+            const machineId = `machine-${m.name}`;
+            const machineRef = doc(db, MACHINES_COLLECTION, machineId);
+            const machineSnap = await getDoc(machineRef);
+            if (!machineSnap.exists()) {
+                await setDoc(machineRef, { 
+                    id: machineId, 
+                    name: m.name, 
+                    ekBilgi: m.ekBilgi || '',
+                    createdAt: getCurrentDateTimeString() 
+                });
             }
+        }
+
+        // Clean up unwanted sample machines from database
+        const UNWANTED_MACHINES = ['K40', 'K68', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
+        for (const name of UNWANTED_MACHINES) {
+            await deleteDoc(doc(db, MACHINES_COLLECTION, `machine-${name}`));
         }
     }, []);
 
@@ -264,11 +313,20 @@ const App = () => {
             setRolePermissions(data);
         });
 
+        const unsubscribeMenuLayout = onSnapshot(doc(db, 'config', 'menuLayout'), (docSnap) => {
+            if (docSnap.exists()) {
+                setMenuLayout(docSnap.data());
+            } else {
+                setMenuLayout(null);
+            }
+        });
+
         return () => { 
             unsubscribePersonnel(); 
             unsubscribeMachines(); 
             unsubscribeInventory(); 
             unsubscribePermissions();
+            unsubscribeMenuLayout();
         };
     }, [userId, seedInitialData]); 
     
@@ -594,10 +652,33 @@ const App = () => {
     const isForkliftOp = loggedInUser?.role === ROLES.FORKLIFT_OPERATORU;
     const isAssemblyOp = loggedInUser?.role === ROLES.MONTAJ_SORUMLUSU; 
 
-    // --- NAVİGASYON ---
-    const navItems = useMemo(() => {
+    // --- DEFAULT MENU LAYOUT FALLBACK ---
+    const DEFAULT_MENU_CATEGORIES = useMemo(() => [
+        {
+            id: "cat-1",
+            title: "Kalıphane Planlama & İzleme",
+            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/project-management", "/design-office", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
+        },
+        {
+            id: "cat-2",
+            title: "Depo & Stok Yönetimi",
+            pagePaths: ["/tool-inventory", "/tool-assignment", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
+        },
+        {
+            id: "cat-3",
+            title: "CNC Torna Bölümü",
+            pagePaths: ["/cnc-lathe-planning", "/cnc-raw-material", "/cnc-lathe-calendar", "/cnc-torna", "/cnc-part-manager", "/cnc-spc-analysis", "/cnc-inspection-report", "/operator-performance", "/cnc-torna-history"]
+        },
+        {
+            id: "cat-4",
+            title: "Yönetim & Diğer",
+            pagePaths: ["/admin", "/admin/layout", "/history", "/analysis", "/terminal", "/forklift", "/assembly", "/continuous-improvement", "/survey-evaluation"]
+        }
+    ], []);
+
+    const menuCategories = useMemo(() => {
+        const categories = menuLayout?.categories || DEFAULT_MENU_CATEGORIES;
         if (!loggedInUser || !loggedInUser.role) return [];
-        
         if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU || loggedInUser.role === ROLES.MONTAJ_SORUMLUSU) return [];
 
         const iconMap = {
@@ -633,18 +714,62 @@ const App = () => {
             Archive: Archive
         };
 
-        const dynamicItems = ALL_SYSTEM_PAGES.map(page => {
+        // 1. Build a lookup map of all pages that the active user is allowed to view
+        const allowedPagesMap = {};
+        ALL_SYSTEM_PAGES.forEach(page => {
             const permission = activeUserPermissions[page.path] || { view: false, edit: false };
-            if (!permission.view) return null;
-            return {
-                path: page.path,
-                label: page.label,
-                icon: iconMap[page.iconName] || Settings
-            };
-        }).filter(item => item !== null);
+            if (permission.view) {
+                allowedPagesMap[page.path] = {
+                    path: page.path,
+                    label: page.label,
+                    icon: iconMap[page.iconName] || Settings
+                };
+            }
+        });
 
-        return dynamicItems;
-    }, [loggedInUser, activeUserPermissions]);
+        // 2. Map categories and keep track of which paths have been categorized
+        const categorizedPaths = new Set();
+        const result = categories.map(cat => {
+            const items = [];
+            cat.pagePaths.forEach(path => {
+                if (allowedPagesMap[path]) {
+                    items.push(allowedPagesMap[path]);
+                    categorizedPaths.add(path);
+                }
+            });
+            return {
+                id: cat.id,
+                title: cat.title,
+                items
+            };
+        }).filter(cat => cat.items.length > 0);
+
+        // 3. Any allowed page that is NOT categorized goes to a fallback category at the bottom
+        const uncategorizedItems = [];
+        Object.keys(allowedPagesMap).forEach(path => {
+            if (!categorizedPaths.has(path)) {
+                uncategorizedItems.push(allowedPagesMap[path]);
+            }
+        });
+
+        if (uncategorizedItems.length > 0) {
+            result.push({
+                id: "uncategorized",
+                title: "Diğer İşlemler",
+                items: uncategorizedItems
+            });
+        }
+
+        return result;
+    }, [loggedInUser, activeUserPermissions, menuLayout, DEFAULT_MENU_CATEGORIES]);
+
+    const toggleCategory = (catId) => {
+        setExpandedCategories(prev => {
+            const next = { ...prev, [catId]: !prev[catId] };
+            localStorage.setItem('kaliphane_expanded_categories', JSON.stringify(next));
+            return next;
+        });
+    };
 
     if (!userId) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Kimlik doğrulanıyor...</p></div>;
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /><p className="ml-3 text-lg text-gray-600 dark:text-gray-400">Personel verisi yükleniyor...</p></div>;
@@ -711,17 +836,38 @@ const App = () => {
                     </div>
 
                     {/* Menü Elemanları */}
-                    <nav className="flex-1 overflow-y-auto custom-scrollbar p-4">
-                        <div className="space-y-1">
-                            {navItems.map(item => (
-                                <SidebarNavItem
-                                    key={item.path}
-                                    icon={item.icon}
-                                    label={item.label}
-                                    isActive={location.pathname === item.path}
-                                    onClick={() => navigate(item.path)}
-                                />
-                            ))}
+                    <nav className="flex-1 overflow-y-auto custom-scrollbar p-2">
+                        <div className="space-y-3">
+                            {menuCategories.map(cat => {
+                                const isExpanded = !!expandedCategories[cat.id];
+                                return (
+                                    <div key={cat.id} className="space-y-1">
+                                        <button
+                                            onClick={() => toggleCategory(cat.id)}
+                                            className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors pt-2"
+                                        >
+                                            <span>{cat.title}</span>
+                                            {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                        </button>
+                                        {isExpanded && (
+                                            <div className="space-y-0.5 pl-1.5 border-l-2 border-gray-100 dark:border-gray-800 ml-2">
+                                                {cat.items.map(item => (
+                                                    <SidebarNavItem
+                                                        key={item.path}
+                                                        icon={item.icon}
+                                                        label={item.label}
+                                                        isActive={location.pathname === item.path}
+                                                        onClick={() => {
+                                                            navigate(item.path);
+                                                            setIsSidebarOpen(false); // Close sidebar on mobile
+                                                        }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </nav>
 
@@ -746,6 +892,23 @@ const App = () => {
                         >
                             <LogOut className="w-4 h-4 mr-2"/> Güvenli Çıkış
                         </button>
+                        
+                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-250 dark:border-gray-700">
+                            <button
+                                onClick={() => setDarkMode(!darkMode)}
+                                className="w-full flex items-center justify-center gap-2 text-xs py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 rounded-xl font-bold transition-colors"
+                            >
+                                {darkMode ? (
+                                    <>
+                                        <Sun className="w-4 h-4 text-amber-550" /> Açık Tema
+                                    </>
+                                ) : (
+                                    <>
+                                        <Moon className="w-4 h-4 text-indigo-400" /> Koyu Tema
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </aside>
             )}
@@ -765,7 +928,7 @@ const App = () => {
                             </button>
                         )}
                         <h1 className="text-xl font-black text-gray-800 dark:text-white truncate">
-                            {(isForkliftOp || isAssemblyOp) ? 'Kalıphane İş Akışı Takibi' : navItems.find(item => item.path === location.pathname)?.label || 'Gösterge Paneli'}
+                            {(isForkliftOp || isAssemblyOp) ? 'Kalıphane İş Akışı Takibi' : ALL_SYSTEM_PAGES.find(item => item.path === location.pathname)?.label || 'Gösterge Paneli'}
                         </h1>
                     </div>
                     

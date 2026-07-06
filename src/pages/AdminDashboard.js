@@ -1,6 +1,6 @@
 // src/pages/AdminDashboard.js
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings } from 'lucide-react';
 // ROLES eklendi
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES } from '../config/constants.js';
@@ -594,6 +594,10 @@ const AdminDashboard = ({
                 return (
                     <RolePermissionsManagement db={db} />
                 );
+            case 'menu_layout':
+                return (
+                    <MenuLayoutManagement db={db} />
+                );
             default:
                 return null;
         }
@@ -614,9 +618,314 @@ const AdminDashboard = ({
                     <button onClick={() => setActiveTab('mold_management')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_management' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Database className="w-4 h-4 inline mr-2" /> Kalıp Yönetimi</button>
                     
                     <button onClick={() => setActiveTab('permissions')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'permissions' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Settings className="w-4 h-4 inline mr-2" /> Sayfa Yetkileri</button>
+
+                    <button onClick={() => setActiveTab('menu_layout')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'menu_layout' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><List className="w-4 h-4 inline mr-2" /> Menü Düzeni</button>
                 </nav>
             </div>
             {renderActiveTab()}
+        </div>
+    );
+};
+
+// --- BİLEŞEN: Menü Düzeni Kategorizasyon Yönetimi ---
+const MenuLayoutManagement = ({ db }) => {
+    const DEFAULT_MENU_CATEGORIES = useMemo(() => [
+        {
+            id: "cat-1",
+            title: "Kalıphane Planlama & İzleme",
+            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/project-management", "/design-office", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
+        },
+        {
+            id: "cat-2",
+            title: "Depo & Stok Yönetimi",
+            pagePaths: ["/tool-inventory", "/tool-assignment", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
+        },
+        {
+            id: "cat-3",
+            title: "CNC Torna Bölümü",
+            pagePaths: ["/cnc-lathe-planning", "/cnc-raw-material", "/cnc-lathe-calendar", "/cnc-torna", "/cnc-part-manager", "/cnc-spc-analysis", "/cnc-inspection-report", "/operator-performance", "/cnc-torna-history"]
+        },
+        {
+            id: "cat-4",
+            title: "Yönetim & Diğer",
+            pagePaths: ["/admin", "/admin/layout", "/history", "/analysis", "/terminal", "/forklift", "/assembly", "/continuous-improvement", "/survey-evaluation"]
+        }
+    ], []);
+
+    const [categories, setCategories] = useState([]);
+    const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+    const [newCategoryTitle, setNewCategoryTitle] = useState('');
+    const [editingCategoryId, setEditingCategoryId] = useState(null);
+    const [editingCategoryTitle, setEditingCategoryTitle] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (!db) return;
+        const unsub = onSnapshot(doc(db, 'config', 'menuLayout'), (docSnap) => {
+            if (docSnap.exists()) {
+                setCategories(docSnap.data().categories || []);
+            } else {
+                setCategories(DEFAULT_MENU_CATEGORIES);
+            }
+        });
+        return () => unsub();
+    }, [db, DEFAULT_MENU_CATEGORIES]);
+
+    // Select first category by default if none selected
+    useEffect(() => {
+        if (categories.length > 0 && !selectedCategoryId) {
+            setSelectedCategoryId(categories[0].id);
+        }
+    }, [categories, selectedCategoryId]);
+
+    const handleAddCategory = () => {
+        if (!newCategoryTitle.trim()) return;
+        const newCat = {
+            id: `cat-${Date.now()}`,
+            title: newCategoryTitle.trim(),
+            pagePaths: []
+        };
+        setCategories(prev => [...prev, newCat]);
+        setSelectedCategoryId(newCat.id);
+        setNewCategoryTitle('');
+    };
+
+    const handleStartEdit = (cat) => {
+        setEditingCategoryId(cat.id);
+        setEditingCategoryTitle(cat.title);
+    };
+
+    const handleSaveEdit = (catId) => {
+        if (!editingCategoryTitle.trim()) return;
+        setCategories(prev => prev.map(cat => 
+            cat.id === catId ? { ...cat, title: editingCategoryTitle.trim() } : cat
+        ));
+        setEditingCategoryId(null);
+    };
+
+    const handleDeleteCategory = (catId) => {
+        if (window.confirm("Bu kategoriyi silmek istediğinizden emin misiniz? (İçindeki sayfalar kategori dışı kalacaktır)")) {
+            setCategories(prev => prev.filter(cat => cat.id !== catId));
+            if (selectedCategoryId === catId) {
+                setSelectedCategoryId(null);
+            }
+        }
+    };
+
+    const handleTogglePage = (pagePath) => {
+        if (!selectedCategoryId) return;
+        setCategories(prev => {
+            return prev.map(cat => {
+                // Remove from all other categories
+                if (cat.id !== selectedCategoryId) {
+                    return {
+                        ...cat,
+                        pagePaths: cat.pagePaths.filter(path => path !== pagePath)
+                    };
+                }
+                // Toggle in the selected category
+                const exists = cat.pagePaths.includes(pagePath);
+                return {
+                    ...cat,
+                    pagePaths: exists 
+                        ? cat.pagePaths.filter(path => path !== pagePath)
+                        : [...cat.pagePaths, pagePath]
+                };
+            });
+        });
+    };
+
+    const handleSaveLayout = async () => {
+        try {
+            setSaving(true);
+            await setDoc(doc(db, 'config', 'menuLayout'), { categories });
+            alert("Menü yerleşimi başarıyla kaydedildi.");
+        } catch (e) {
+            console.error(e);
+            alert("Menü kaydedilirken hata oluştu.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const selectedCategory = categories.find(cat => cat.id === selectedCategoryId);
+
+    return (
+        <div className="space-y-6 text-gray-900 dark:text-white">
+            <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-250 dark:border-gray-700">
+                <div>
+                    <h3 className="text-lg font-bold flex items-center gap-2">
+                        <List className="w-5 h-5 text-blue-500" /> Sol Menü Kategorizasyonu
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Sol menüdeki sayfaları ana başlıklar altında gruplayın ve aradığınız sayfalara daha kolay erişin.
+                    </p>
+                </div>
+                <button
+                    onClick={handleSaveLayout}
+                    disabled={saving}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center gap-2 text-sm disabled:opacity-50"
+                >
+                    <Save className="w-4 h-4" /> {saving ? "Kaydediliyor..." : "Düzeni Kaydet"}
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* Sol Taraf: Kategoriler */}
+                <div className="lg:col-span-5 space-y-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-250 dark:border-gray-700 space-y-4 shadow-sm">
+                        <h4 className="font-extrabold text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                            Menü Ana Başlıkları
+                        </h4>
+                        
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={newCategoryTitle}
+                                onChange={(e) => setNewCategoryTitle(e.target.value)}
+                                placeholder="Yeni ana başlık adı..."
+                                className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                                onClick={handleAddCategory}
+                                className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg font-bold transition text-sm flex items-center gap-1"
+                            >
+                                <Plus className="w-4 h-4" /> Ekle
+                            </button>
+                        </div>
+
+                        <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+                            {categories.map(cat => {
+                                const isSelected = cat.id === selectedCategoryId;
+                                const isEditing = cat.id === editingCategoryId;
+                                return (
+                                    <div
+                                        key={cat.id}
+                                        onClick={() => !isEditing && setSelectedCategoryId(cat.id)}
+                                        className={`p-3 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                                            isSelected
+                                                ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-900 dark:text-blue-200'
+                                                : 'bg-gray-50 dark:bg-gray-900/20 border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-900/40 text-gray-700 dark:text-gray-300'
+                                        }`}
+                                    >
+                                        <div className="flex-1 min-w-0 pr-2">
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editingCategoryTitle}
+                                                    onChange={(e) => setEditingCategoryTitle(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleSaveEdit(cat.id);
+                                                        if (e.key === 'Escape') setEditingCategoryId(null);
+                                                    }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="w-full p-1 border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                <div>
+                                                    <span className="font-extrabold text-sm block truncate">{cat.title}</span>
+                                                    <span className="text-[10px] text-gray-400 font-bold">
+                                                        {cat.pagePaths.length} Sayfa atandı
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                            {isEditing ? (
+                                                <button
+                                                    onClick={() => handleSaveEdit(cat.id)}
+                                                    className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20 rounded"
+                                                    title="Kaydet"
+                                                >
+                                                    <Save className="w-3.5 h-3.5" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleStartEdit(cat)}
+                                                    className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded"
+                                                    title="Adı Düzenle"
+                                                >
+                                                    <Edit className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleDeleteCategory(cat.id)}
+                                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/45 rounded"
+                                                title="Kategoriyi Sil"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Sağ Taraf: Sayfa Atamaları */}
+                <div className="lg:col-span-7">
+                    {selectedCategory ? (
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-250 dark:border-gray-700 space-y-4 shadow-sm">
+                            <div className="border-b border-gray-150 dark:border-gray-700 pb-3">
+                                <h4 className="font-extrabold text-sm text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    Başlığa Atanan Sayfalar
+                                </h4>
+                                <h3 className="text-lg font-black text-blue-600 dark:text-blue-400 mt-1">
+                                    {selectedCategory.title}
+                                </h3>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                                {ALL_SYSTEM_PAGES.map(page => {
+                                    const isAssignedToThis = selectedCategory.pagePaths.includes(page.path);
+                                    // Find if assigned to any category
+                                    const assignedCat = categories.find(c => c.pagePaths.includes(page.path));
+                                    
+                                    return (
+                                        <button
+                                            key={page.path}
+                                            type="button"
+                                            onClick={() => handleTogglePage(page.path)}
+                                            className={`p-3 rounded-lg border text-left flex items-start gap-3 transition-all duration-150 ${
+                                                isAssignedToThis
+                                                    ? 'bg-blue-50/50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-200'
+                                                    : 'bg-gray-50 dark:bg-gray-900/20 border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-900/40 text-gray-700 dark:text-gray-300'
+                                            }`}
+                                        >
+                                            <div className="pt-0.5">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isAssignedToThis}
+                                                    readOnly
+                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                                                />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-extrabold truncate">{page.label}</p>
+                                                <p className="text-[10px] text-gray-400 font-mono truncate">{page.path}</p>
+                                                {assignedCat && assignedCat.id !== selectedCategoryId && (
+                                                    <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-orange-100 text-orange-850 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200 dark:border-orange-900">
+                                                        {assignedCat.title} Altında
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="h-64 flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/10 text-gray-400">
+                            <List className="w-10 h-10 mb-2 opacity-50" />
+                            <p className="text-sm font-bold">Lütfen işlem yapmak için bir ana başlık seçin.</p>
+                        </div>
+                    )}
+                </div>
+
+            </div>
         </div>
     );
 };

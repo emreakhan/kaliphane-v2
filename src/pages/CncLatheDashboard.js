@@ -3,14 +3,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Monitor, PlayCircle, StopCircle, Clock, 
-    Save, Search, Edit2, Calendar, FileText, Plus, BarChart2, Download, X
+    Save, Search, Edit2, Calendar, FileText, Plus, BarChart2, Download, X, Wrench, CheckCircle
 } from 'lucide-react';
 import { 
-    collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc, getDocs, orderBy 
+    collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDoc, getDocs, orderBy, setDoc 
 } from '../config/firebase.js';
 import { 
     CNC_LATHE_JOBS_COLLECTION, CNC_LATHE_MACHINES, 
-    CNC_PARTS_COLLECTION, CNC_MEASUREMENTS_COLLECTION 
+    CNC_PARTS_COLLECTION, CNC_MEASUREMENTS_COLLECTION,
+    MACHINE_MAINTENANCE_TASKS_COLLECTION, MACHINE_MAINTENANCE_LOGS_COLLECTION
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 import html2pdf from 'html2pdf.js'; 
@@ -115,6 +116,13 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
     const [isMeasureModalOpen, setIsMeasureModalOpen] = useState(false);
     const [isSpcModalOpen, setIsSpcModalOpen] = useState(false);
     const [isEditJobModalOpen, setIsEditJobModalOpen] = useState(false); 
+    
+    // Maintenance States
+    const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+    const [maintenanceMachineName, setMaintenanceMachineName] = useState(null);
+    const [checkedMaintenanceTasks, setCheckedMaintenanceTasks] = useState({});
+    const [mTasks, setMTasks] = useState([]);
+    const [mLogs, setMLogs] = useState([]);
 
     const [selectedMachine, setSelectedMachine] = useState(null);
     const [selectedJob, setSelectedJob] = useState(null);
@@ -149,6 +157,148 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
         return () => { unsubActive(); unsubParts(); };
     }, [db]);
 
+    useEffect(() => {
+        if (!db) return;
+        
+        const unsubMTasks = onSnapshot(collection(db, MACHINE_MAINTENANCE_TASKS_COLLECTION), (snapshot) => {
+            const list = [];
+            snapshot.forEach(docSnapshot => {
+                list.push({ id: docSnapshot.id, ...docSnapshot.data() });
+            });
+            setMTasks(list);
+        });
+
+        const unsubMLogs = onSnapshot(collection(db, MACHINE_MAINTENANCE_LOGS_COLLECTION), (snapshot) => {
+            const list = [];
+            snapshot.forEach(docSnapshot => {
+                list.push({ id: docSnapshot.id, ...docSnapshot.data() });
+            });
+            setMLogs(list);
+        });
+
+        return () => {
+            unsubMTasks();
+            unsubMLogs();
+        };
+    }, [db]);
+
+    // Helper to calculate due tasks for a machine in CNC Lathe Dashboard
+    const getDueTasksForMachine = (machineName) => {
+        const now = new Date();
+        const todayStr = now.toISOString().substring(0, 10);
+        const dayOfWeek = now.getDay();
+        const dayOfMonth = now.getDate();
+        const currentMonth = now.getMonth();
+        
+        const getWeekNumber = (d) => {
+            const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            const dayNum = date.getUTCDay() || 7;
+            date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+            return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+        };
+
+        const currentWeek = getWeekNumber(now);
+        const currentYear = now.getFullYear();
+
+        const machineTasks = mTasks.filter(t => 
+            t.machineIds?.includes('all') || 
+            t.machineIds?.some(id => id === machineName || id.toLowerCase() === machineName.toLowerCase())
+        );
+        if (machineTasks.length === 0) return [];
+
+        const dueTasks = [];
+
+        const isCompletedThisWeek = (taskId) => {
+            return mLogs.some(l => {
+                const logMachineName = l.machineName?.split(' ')[0] || l.machineId;
+                if (logMachineName !== machineName) return false;
+                const logDate = new Date(l.timestamp);
+                const logWeek = getWeekNumber(logDate);
+                const logYear = logDate.getFullYear();
+                const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+                return hasTask && logWeek === currentWeek && logYear === currentYear;
+            });
+        };
+
+        const isCompletedThisBiweek = (taskId) => {
+            return mLogs.some(l => {
+                const logMachineName = l.machineName?.split(' ')[0] || l.machineId;
+                if (logMachineName !== machineName) return false;
+                const logDate = new Date(l.timestamp);
+                const logWeek = getWeekNumber(logDate);
+                const logYear = logDate.getFullYear();
+                const currentBiweekBlock = Math.floor(currentWeek / 2);
+                const logBiweekBlock = Math.floor(logWeek / 2);
+                const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+                return hasTask && logBiweekBlock === currentBiweekBlock && logYear === currentYear;
+            });
+        };
+
+        const isCompletedThisMonth = (taskId) => {
+            return mLogs.some(l => {
+                const logMachineName = l.machineName?.split(' ')[0] || l.machineId;
+                if (logMachineName !== machineName) return false;
+                const logDate = new Date(l.timestamp);
+                const logMonth = logDate.getMonth();
+                const logYear = logDate.getFullYear();
+                const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+                return hasTask && logMonth === currentMonth && logYear === currentYear;
+            });
+        };
+
+        const isCompletedThisYear = (taskId) => {
+            return mLogs.some(l => {
+                const logMachineName = l.machineName?.split(' ')[0] || l.machineId;
+                if (logMachineName !== machineName) return false;
+                const logDate = new Date(l.timestamp);
+                const logYear = logDate.getFullYear();
+                const hasTask = (l.completedTasks || []).some(t => t.taskId === taskId);
+                return hasTask && logYear === currentYear;
+            });
+        };
+
+        const isCompletedToday = (taskId) => {
+            return mLogs.some(l => {
+                const logMachineName = l.machineName?.split(' ')[0] || l.machineId;
+                return logMachineName === machineName && 
+                    l.date === todayStr && 
+                    (l.completedTasks || []).some(t => t.taskId === taskId);
+            });
+        };
+
+        machineTasks.forEach(task => {
+            if (task.frequency === 'DAILY') {
+                if (!isCompletedToday(task.id)) {
+                    dueTasks.push(task);
+                }
+            } else if (task.frequency === 'WEEKLY') {
+                const isWeeklyTime = (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0);
+                if (isWeeklyTime && !isCompletedThisWeek(task.id)) {
+                    dueTasks.push(task);
+                }
+            } else if (task.frequency === 'BIWEEKLY') {
+                const isWeeklyTime = (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0);
+                const isEvenWeek = (currentWeek % 2 === 0);
+                if (isWeeklyTime && isEvenWeek && !isCompletedThisBiweek(task.id)) {
+                    dueTasks.push(task);
+                }
+            } else if (task.frequency === 'MONTHLY') {
+                const isMonthlyTime = (dayOfMonth >= 15);
+                if (isMonthlyTime && !isCompletedThisMonth(task.id)) {
+                    dueTasks.push(task);
+                }
+            } else if (task.frequency === 'YEARLY') {
+                const isYearlyTime = (currentMonth === 11);
+                if (isYearlyTime && !isCompletedThisYear(task.id)) {
+                    dueTasks.push(task);
+                }
+            }
+        });
+
+        return dueTasks;
+    };
+
     const getPlannedJobsForMachine = (machineName) => {
         if (!cncJobs) return [];
         return cncJobs.filter(job => job.machine === machineName && job.status === 'ASSIGNED');
@@ -158,6 +308,17 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
         setSelectedMachine(machine);
         setStartFormData({ orderNumber: '', selectedPartId: '', targetQuantity: '', plannedJobId: null });
         setPartSearchTerm(''); setIsPartDropdownOpen(false); setIsStartModalOpen(true);
+    };
+
+    const handleOpenStartModalIntercept = (machineName) => {
+        const due = getDueTasksForMachine(machineName);
+        if (due.length > 0) {
+            setMaintenanceMachineName(machineName);
+            setCheckedMaintenanceTasks({});
+            setIsMaintenanceModalOpen(true);
+        } else {
+            handleOpenStartModal(machineName);
+        }
     };
 
     const handleSelectPlannedJob = (plannedJob) => {
@@ -502,7 +663,25 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                             <div className="p-6 flex flex-col h-auto min-h-[300px] justify-between">
                                 <div className="text-center border-b border-gray-100 dark:border-gray-700 pb-4 mb-4 relative">
                                     <h2 className="text-4xl font-black text-gray-800 dark:text-white">{machine}</h2>
-                                    <p className="text-xs text-gray-400">CNC TORNA</p>
+                                    <div className="flex items-center justify-center gap-1.5 mt-1.5 flex-wrap">
+                                        <span className="text-xs text-gray-400">CNC TORNA</span>
+                                        {getDueTasksForMachine(machine).length > 0 ? (
+                                            <button 
+                                                onClick={() => {
+                                                    setMaintenanceMachineName(machine);
+                                                    setCheckedMaintenanceTasks({});
+                                                    setIsMaintenanceModalOpen(true);
+                                                }}
+                                                className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900 flex items-center gap-1 transition active:scale-95"
+                                            >
+                                                <Wrench className="w-2.5 h-2.5 animate-pulse" /> Bakım Bekliyor
+                                            </button>
+                                        ) : (
+                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-900 flex items-center gap-1">
+                                                ✓ Bakım OK
+                                            </span>
+                                        )}
+                                    </div>
                                     {activeJob && <button onClick={() => handleOpenEditJobModal(activeJob)} className="absolute top-0 right-0 p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition"><Edit2 className="w-4 h-4" /></button>}
                                 </div>
                                 {activeJob ? (
@@ -522,7 +701,7 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                                         <button onClick={() => handleOpenFinishModal(activeJob)} className="mt-4 w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center transition active:scale-95"><StopCircle className="w-6 h-6 mr-2" /> İŞİ BİTİR</button>
                                     </>
                                 ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-gray-400 py-4"><PlayCircle className="w-20 h-20 mb-4 text-green-200 dark:text-gray-700" /><p className="text-sm mb-6 font-medium">Tezgah şu an boşta.</p><button onClick={() => handleOpenStartModal(machine)} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center transition active:scale-95"><PlayCircle className="w-6 h-6 mr-2" /> YENİ İŞ BAŞLAT</button></div>
+                                    <div className="flex flex-col items-center justify-center h-full text-gray-400 py-4"><PlayCircle className="w-20 h-20 mb-4 text-green-200 dark:text-gray-700" /><p className="text-sm mb-6 font-medium">Tezgah şu an boşta.</p><button onClick={() => handleOpenStartModalIntercept(machine)} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center transition active:scale-95"><PlayCircle className="w-6 h-6 mr-2" /> YENİ İŞ BAŞLAT</button></div>
                                 )}
                             </div>
                         </div>
@@ -887,6 +1066,117 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                     <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-100 text-center"><div className="text-xl font-black text-gray-900">{selectedJob?.orderNumber || '---'}</div></div>
                     <div><label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Üretilen Toplam Adet</label><input type="number" className="w-full p-4 text-center text-2xl font-bold border-2 border-green-500 rounded-lg bg-white dark:bg-gray-700 dark:text-white" value={producedQuantity} onChange={e => setProducedQuantity(e.target.value)} /></div>
                     <button onClick={handleFinishJob} className="w-full py-3 mt-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg">KAYDET VE BİTİR</button>
+                </div>
+            </SimpleModal>
+
+            {/* --- MODAL: TEZGAH PERİYODİK BAKIMI --- */}
+            <SimpleModal 
+                isOpen={isMaintenanceModalOpen} 
+                onClose={() => setIsMaintenanceModalOpen(false)} 
+                title={`Tezgah Periyodik Bakımı - ${maintenanceMachineName}`} 
+                maxWidth="max-w-xl"
+            >
+                <div className="space-y-6 text-gray-900 dark:text-white">
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-start gap-3">
+                        <Wrench className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="font-bold text-sm text-gray-800 dark:text-white">Güvenli Çalışma İçin Bakım Rutinleri</h4>
+                            <p className="text-xs text-gray-400 mt-1">
+                                Tezgahta işlem yapmaya başlamadan önce lütfen aşağıdaki bakım rutinlerini yerine getirin ve işaretleyin.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
+                        {maintenanceMachineName && getDueTasksForMachine(maintenanceMachineName).map(task => {
+                            const isChecked = !!checkedMaintenanceTasks[task.id];
+                            const freqLabel = task.frequency === 'DAILY' ? 'Günlük' :
+                                              task.frequency === 'WEEKLY' ? 'Haftalık' :
+                                              task.frequency === 'BIWEEKLY' ? '2 Haftalık' :
+                                              task.frequency === 'MONTHLY' ? 'Aylık' : 'Yıllık';
+                            const freqColor = task.frequency === 'DAILY' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-250 dark:border-emerald-900' :
+                                              task.frequency === 'WEEKLY' ? 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-250 dark:border-blue-900' : 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-250 dark:border-purple-900';
+
+                            return (
+                                <button
+                                    type="button"
+                                    key={task.id}
+                                    onClick={() => {
+                                        setCheckedMaintenanceTasks(prev => ({
+                                            ...prev,
+                                            [task.id]: !prev[task.id]
+                                        }));
+                                    }}
+                                    className={`w-full p-4 rounded-2xl border text-left flex items-start gap-4 transition-all duration-150 ${
+                                        isChecked
+                                            ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                                            : 'bg-gray-50 dark:bg-gray-900/40 border-gray-250 dark:border-gray-705 hover:bg-gray-100 dark:hover:bg-gray-900/60 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                >
+                                    <div className="pt-0.5">
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            readOnly
+                                            className="rounded border-gray-350 dark:border-gray-600 text-blue-605 focus:ring-blue-500 w-5 h-5 cursor-pointer"
+                                        />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-wider mb-1.5 ${freqColor}`}>
+                                            {freqLabel}
+                                        </span>
+                                        <p className={`text-sm font-bold ${isChecked ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
+                                            {task.name}
+                                        </p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <button
+                        onClick={async () => {
+                            const dueTasks = getDueTasksForMachine(maintenanceMachineName);
+                            const allChecked = dueTasks.every(t => checkedMaintenanceTasks[t.id]);
+                            if (!allChecked) return;
+
+                            const logId = `mlog-${Date.now()}`;
+                            const logData = {
+                                id: logId,
+                                machineId: maintenanceMachineName,
+                                machineName: `${maintenanceMachineName} (CNC TORNA)`,
+                                operatorName: loggedInUser?.name || 'Operatör',
+                                date: new Date().toISOString().substring(0, 10),
+                                timestamp: new Date().toISOString(),
+                                completedTasks: dueTasks.map(t => ({
+                                    taskId: t.id,
+                                    taskName: t.name,
+                                    frequency: t.frequency
+                                }))
+                            };
+
+                            try {
+                                setSavingForm(true);
+                                await setDoc(doc(db, MACHINE_MAINTENANCE_LOGS_COLLECTION, logId), logData);
+                                setSavingForm(false);
+                                setIsMaintenanceModalOpen(false);
+                                alert("Tezgah bakımı başarıyla onaylandı ve kaydedildi. İyi çalışmalar!");
+                                handleOpenStartModal(maintenanceMachineName);
+                            } catch (e) {
+                                console.error(e);
+                                setSavingForm(false);
+                                alert("Bakım kaydı yüklenirken bir hata oluştu.");
+                            }
+                        }}
+                        disabled={!maintenanceMachineName || !getDueTasksForMachine(maintenanceMachineName).every(t => checkedMaintenanceTasks[t.id])}
+                        className={`w-full py-4 rounded-2xl font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2 transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                            maintenanceMachineName && getDueTasksForMachine(maintenanceMachineName).every(t => checkedMaintenanceTasks[t.id])
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-md'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-600'
+                        }`}
+                    >
+                        <CheckCircle className="w-5 h-5" /> BAKIMI ONAYLA VE DEVAM ET
+                    </button>
                 </div>
             </SimpleModal>
 
