@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Plus, Trash2, Edit2, Settings, ClipboardList, Calendar, 
     CheckCircle, AlertTriangle, Monitor, Search, ChevronRight, Printer 
@@ -7,6 +7,7 @@ import {
     db, collection, onSnapshot, doc, setDoc, deleteDoc 
 } from '../config/firebase.js';
 import { 
+    MACHINES_COLLECTION,
     MACHINE_MAINTENANCE_TASKS_COLLECTION, 
     MACHINE_MAINTENANCE_LOGS_COLLECTION 
 } from '../config/constants.js';
@@ -19,6 +20,354 @@ const FREQUENCIES = {
     BIWEEKLY: { label: '2 Haftalık', value: 'BIWEEKLY', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800' },
     MONTHLY: { label: 'Aylık', value: 'MONTHLY', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border-purple-200 dark:border-purple-800' },
     YEARLY: { label: 'Yıllık', value: 'YEARLY', color: 'bg-pink-100 text-pink-800 dark:bg-pink-950/40 dark:text-pink-300 border-pink-200 dark:border-pink-800' }
+};
+
+// Reusable dynamic ETKA periyodik koruyucu bakım raporu bileşeni
+const EtkaReportContent = ({ selectedMachine, selectedMonth, printedLogs, tasks }) => {
+    const mName = selectedMachine ? selectedMachine.name : '';
+    const mType = selectedMachine ? (selectedMachine.ekBilgi || '') : '';
+    
+    const { daysList } = useMemo(() => {
+        if (!selectedMonth) return { daysList: [] };
+        const [yearStr, mStr] = selectedMonth.split('-');
+        const y = parseInt(yearStr, 10);
+        const numDays = new Date(y, parseInt(mStr, 10), 0).getDate();
+        
+        const list = [];
+        for (let i = 1; i <= numDays; i++) {
+            const dayStr = String(i).padStart(2, '0');
+            const dateKey = `${yearStr}-${mStr}-${dayStr}`;
+            list.push({
+                dayNum: i,
+                dateStr: dateKey,
+                displayDate: `${dayStr}.${mStr}.${y}`
+            });
+        }
+        return { daysList: list };
+    }, [selectedMonth]);
+
+    const printMachineId = selectedMachine ? selectedMachine.id : '';
+
+    // Filter tasks for this machine
+    const machineTasksForSelected = useMemo(() => {
+        return tasks.filter(t => 
+            t.machineIds?.includes('all') || 
+            t.machineIds?.includes(printMachineId)
+        );
+    }, [tasks, printMachineId]);
+
+    const dailyTasks = useMemo(() => machineTasksForSelected.filter(t => t.frequency === 'DAILY'), [machineTasksForSelected]);
+    const weeklyTasks = useMemo(() => machineTasksForSelected.filter(t => t.frequency === 'WEEKLY'), [machineTasksForSelected]);
+    const biweeklyTasks = useMemo(() => machineTasksForSelected.filter(t => t.frequency === 'BIWEEKLY' || t.frequency === 'TWO_WEEKS'), [machineTasksForSelected]);
+    const monthlyTasks = useMemo(() => machineTasksForSelected.filter(t => t.frequency === 'MONTHLY'), [machineTasksForSelected]);
+
+    // Filter printedLogs by frequency completed
+    const getLogsOnDate = (dateStr) => printedLogs.filter(l => l.date === dateStr);
+
+    const biweeklyLogs = useMemo(() => {
+        return printedLogs.filter(l => 
+            (l.completedTasks || []).some(t => t.frequency === 'BIWEEKLY' || t.frequency === 'TWO_WEEKS')
+        );
+    }, [printedLogs]);
+
+    const weeklyLogs = useMemo(() => {
+        return printedLogs.filter(l => 
+            (l.completedTasks || []).some(t => t.frequency === 'WEEKLY')
+        );
+    }, [printedLogs]);
+
+    const monthlyLogs = useMemo(() => {
+        return printedLogs.filter(l => 
+            (l.completedTasks || []).some(t => t.frequency === 'MONTHLY')
+        );
+    }, [printedLogs]);
+
+    // Helpers to render headers & cells dynamically
+    const renderTaskHeaders = (freqTasks, defaultName) => {
+        if (freqTasks.length === 0) {
+            return <th colSpan="2" className="text-center font-extrabold italic text-gray-400">{defaultName}</th>;
+        }
+        return freqTasks.map(t => (
+            <th key={t.id} colSpan="2" className="text-center font-black whitespace-normal break-words leading-tight px-1 py-1" style={{ wordBreak: 'break-word', whiteSpace: 'normal', height: 'auto !important' }} title={t.name}>{t.name}</th>
+        ));
+    };
+
+    const renderSubHeaders = (freqTasks) => {
+        if (freqTasks.length === 0) {
+            return (
+                <>
+                    <th className="text-[6.5px] font-bold py-0.5">Uygun</th>
+                    <th className="text-[6.5px] font-bold py-0.5">Değil</th>
+                </>
+            );
+        }
+        return freqTasks.map(t => (
+            <React.Fragment key={t.id}>
+                <th className="text-[6.5px] font-bold py-0.5">Uygun</th>
+                <th className="text-[6.5px] font-bold py-0.5">Değil</th>
+            </React.Fragment>
+        ));
+    };
+
+    const renderTaskCells = (freqTasks, completedTasksArray, hasLog) => {
+        if (freqTasks.length === 0) {
+            return (
+                <>
+                    <td></td>
+                    <td></td>
+                </>
+            );
+        }
+        return freqTasks.map(task => {
+            const isCompleted = hasLog && completedTasksArray.some(ct => ct.taskId === task.id);
+            return (
+                <React.Fragment key={task.id}>
+                    <td>{isCompleted ? '✓' : ''}</td>
+                    <td></td>
+                </React.Fragment>
+            );
+        });
+    };
+
+    // Calculate colSpan for headers
+    const dailyColSpan = 4 + (dailyTasks.length === 0 ? 1 : dailyTasks.length) * 2;
+    const biweeklyColSpan = 4 + (biweeklyTasks.length === 0 ? 1 : biweeklyTasks.length) * 2;
+    const monthlyColSpan = 4 + (monthlyTasks.length === 0 ? 1 : monthlyTasks.length) * 2;
+    const weeklyColSpan = 4 + (weeklyTasks.length === 0 ? 1 : weeklyTasks.length) * 2;
+
+    if (!selectedMonth) return null;
+
+    return (
+        <div className="etka-report flex flex-col text-black">
+            {/* Header Table block */}
+            <table className="w-full border-2 border-black border-collapse mb-4">
+                <tbody>
+                    <tr>
+                        {/* Logo */}
+                        <td className="border border-black p-2 text-center w-1/4 align-middle">
+                            <div className="flex flex-col items-center justify-center">
+                                <span className="text-xl font-black italic tracking-tighter text-blue-900 leading-none">etka-d</span>
+                                <span className="text-[6.5px] text-gray-500 font-bold uppercase tracking-tight leading-none mt-1">otomotiv & plastik & kalıp</span>
+                                <span className="text-[6px] text-gray-500 font-medium leading-none">San. Tic. Ltd. Şti.</span>
+                            </div>
+                        </td>
+                        {/* Document Title */}
+                        <td className="border border-black p-2 text-center w-2/4 align-middle">
+                            <h2 className="text-[13px] font-black tracking-wider uppercase">PERİYODİK KORUYUCU BAKIM LİSTESİ</h2>
+                        </td>
+                        {/* Document Control Metadata */}
+                        <td className="border border-black p-2 text-left w-1/4 text-[8px] font-black space-y-0.5 align-middle leading-tight">
+                            <div>Hazırlama Tarihi: <span className="font-bold">15.05.2018</span></div>
+                            <div>Rev.No: <span className="font-bold">01</span></div>
+                            <div>Rev.Tarihi: <span className="font-bold">31.08.2018</span></div>
+                        </td>
+                    </tr>
+                    <tr className="leading-tight">
+                        {/* Machine Number */}
+                        <td className="border border-black p-2 text-center align-middle">
+                            <div className="text-[7.5px] font-bold uppercase text-gray-500 leading-none">MAKİNA NO</div>
+                            <div className="text-lg font-black text-blue-800 mt-1 leading-none">{mName}</div>
+                        </td>
+                        {/* Machine Type */}
+                        <td colSpan="2" className="border border-black p-2 text-left align-middle">
+                            <span className="text-[7.5px] font-bold uppercase text-gray-500 block leading-none">MAKİNA TİPİ</span>
+                            <span className="text-xs font-black uppercase text-gray-900 mt-1 block">{mType || 'CNC TEZGAHI'}</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            {/* Split Two-Column Body */}
+            <div className="flex gap-4 items-start w-full animate-fadeIn">
+                
+                {/* Left Column: GÜNLÜK KONTROL */}
+                <div className="w-[49%] shrink-0">
+                    <table className="etka-table w-full">
+                        <thead>
+                            <tr>
+                                <th colSpan={dailyColSpan} className="sub-header-title py-1 text-center font-black">
+                                    ( GÜNLÜK KONTROL )
+                                </th>
+                            </tr>
+                            <tr>
+                                <th rowSpan="2" className="w-[12%]">Tarih</th>
+                                <th rowSpan="2" className="w-[7%]">Bakım</th>
+                                <th rowSpan="2" className="w-[7%]">Arıza</th>
+                                <th rowSpan="2" className="w-[22%]">Müdahaleyi Yapan İmza</th>
+                                {renderTaskHeaders(dailyTasks, "Tanımlı Günlük Görev Yok")}
+                            </tr>
+                            <tr>
+                                {renderSubHeaders(dailyTasks)}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {daysList.map(day => {
+                                const dayLogs = getLogsOnDate(day.dateStr);
+                                const hasBakim = dayLogs.length > 0;
+                                const opName = hasBakim ? dayLogs[0].operatorName : '';
+                                const completedTasks = hasBakim ? (dayLogs[0].completedTasks || []) : [];
+                                
+                                return (
+                                    <tr key={day.dayNum}>
+                                        <td className="font-extrabold text-[8px]">{day.displayDate}</td>
+                                        <td>{hasBakim ? '✓' : ''}</td>
+                                        <td></td>
+                                        <td className="font-bold text-[8.5px] truncate max-w-[65px]">{opName}</td>
+                                        {renderTaskCells(dailyTasks, completedTasks, hasBakim)}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Right Column: 15 GÜNLÜK, HAFTALIK, AYLIK, AÇIKLAMALAR */}
+                <div className="w-[51%] flex flex-col gap-4">
+                    
+                    {/* 1. 15 GÜNLÜK KONTROL */}
+                    <div>
+                        <table className="etka-table w-full">
+                            <thead>
+                                <tr>
+                                    <th colSpan={biweeklyColSpan} className="sub-header-title py-1 text-center font-black">
+                                        ( 15 GÜNLÜK KONTROL )
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th rowSpan="2" className="w-[12%]">Tarih</th>
+                                    <th rowSpan="2" className="w-[5%]">Bakım</th>
+                                    <th rowSpan="2" className="w-[5%]">Arıza</th>
+                                    <th rowSpan="2" className="w-[16%]">Müdahaleyi Yapan İmza</th>
+                                    {renderTaskHeaders(biweeklyTasks, "Tanımlı 15 Günlük Görev Yok")}
+                                </tr>
+                                <tr>
+                                    {renderSubHeaders(biweeklyTasks)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Array.from({ length: 4 }).map((_, i) => {
+                                    const log = biweeklyLogs[i];
+                                    const logDate = log ? new Date(log.timestamp).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) : '';
+                                    const opName = log ? log.operatorName : '';
+                                    const completedTasks = log ? (log.completedTasks || []) : [];
+                                    return (
+                                        <tr key={i}>
+                                            <td className="font-extrabold text-[8px]">{logDate || <span className="opacity-0">-</span>}</td>
+                                            <td>{log ? '✓' : ''}</td>
+                                            <td></td>
+                                            <td className="font-bold text-[8.5px] truncate max-w-[65px]">{opName}</td>
+                                            {renderTaskCells(biweeklyTasks, completedTasks, !!log)}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* 2. AYLIK KONTROL */}
+                    <div>
+                        <table className="etka-table w-full">
+                            <thead>
+                                <tr>
+                                    <th colSpan={monthlyColSpan} className="sub-header-title py-1 text-center font-black">
+                                        ( AYLIK KONTROL )
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th rowSpan="2" className="w-[12%]">Tarih</th>
+                                    <th rowSpan="2" className="w-[8%]">Bakım</th>
+                                    <th rowSpan="2" className="w-[8%]">Arıza</th>
+                                    <th rowSpan="2" className="w-[20%]">Müdahaleyi Yapan İmza</th>
+                                    {renderTaskHeaders(monthlyTasks, "Tanımlı Aylık Görev Yok")}
+                                </tr>
+                                <tr>
+                                    {renderSubHeaders(monthlyTasks)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Array.from({ length: 2 }).map((_, i) => {
+                                    const log = monthlyLogs[i];
+                                    const logDate = log ? new Date(log.timestamp).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) : '';
+                                    const opName = log ? log.operatorName : '';
+                                    const completedTasks = log ? (log.completedTasks || []) : [];
+                                    return (
+                                        <tr key={i}>
+                                            <td className="font-extrabold text-[8px]">{logDate || <span className="opacity-0">-</span>}</td>
+                                            <td>{log ? '✓' : ''}</td>
+                                            <td></td>
+                                            <td className="font-bold text-[8.5px] truncate max-w-[75px]">{opName}</td>
+                                            {renderTaskCells(monthlyTasks, completedTasks, !!log)}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* 3. HAFTALIK KONTROL */}
+                    <div>
+                        <table className="etka-table w-full">
+                            <thead>
+                                <tr>
+                                    <th colSpan={weeklyColSpan} className="sub-header-title py-1 text-center font-black">
+                                        ( HAFTALIK KONTROL )
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th rowSpan="2" className="w-[12%]">Tarih</th>
+                                    <th rowSpan="2" className="w-[8%]">Bakım</th>
+                                    <th rowSpan="2" className="w-[8%]">Arıza</th>
+                                    <th rowSpan="2" className="w-[20%]">Müdahaleyi Yapan İmza</th>
+                                    {renderTaskHeaders(weeklyTasks, "Tanımlı Haftalık Görev Yok")}
+                                </tr>
+                                <tr>
+                                    {renderSubHeaders(weeklyTasks)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Array.from({ length: 4 }).map((_, i) => {
+                                    const log = weeklyLogs[i];
+                                    const logDate = log ? new Date(log.timestamp).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) : '';
+                                    const opName = log ? log.operatorName : '';
+                                    const completedTasks = log ? (log.completedTasks || []) : [];
+                                    return (
+                                        <tr key={i}>
+                                            <td className="font-extrabold text-[8px]">{logDate || <span className="opacity-0">-</span>}</td>
+                                            <td>{log ? '✓' : ''}</td>
+                                            <td></td>
+                                            <td className="font-bold text-[8.5px] truncate max-w-[75px]">{opName}</td>
+                                            {renderTaskCells(weeklyTasks, completedTasks, !!log)}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* 4. AÇIKLAMALAR & FOOTNOTE */}
+                    <div className="border border-black p-2 rounded flex flex-col text-[7.5px] leading-tight space-y-1 bg-gray-50/25">
+                        <div className="font-black border-b border-black pb-0.5 mb-1">
+                            AÇIKLAMALAR (ARIZA NEDENİ/ARIZA VE BAKIM HARİCİ YAPILAN MÜDAHALE VB. NEDENLERİNİ BELİRTİNİZ):
+                        </div>
+                        <div className="flex-1 space-y-1.5 py-0.5 font-bold text-gray-800">
+                            <div className="border-b border-gray-300 h-2.5"></div>
+                            <div className="border-b border-gray-300 h-2.5"></div>
+                            <div className="border-b border-gray-300 h-2.5"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            {/* Footnotes only */}
+            <div className="mt-4 border-t-2 border-black pt-2 text-[7.5px] leading-snug">
+                <div className="w-full space-y-0.5 text-left font-bold italic text-gray-700">
+                    <div>NOT: Yağ seviye kontrolü, yağ tankları üzerinde bulunan minimum ve maksimum seviyelere bakılarak yapılır.</div>
+                    <div>NOT: Makine çalıştığı süre içerisinde, TL 058 nolu talimatta belirtildiği şekilde ilgili operatör tarafından belirtimler yapılır.</div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
@@ -36,6 +385,33 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
     const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
     const [selectedLog, setSelectedLog] = useState(null);
+    const [editingMachine, setEditingMachine] = useState(null);
+    const [machineForm, setMachineForm] = useState({ name: '', ekBilgi: '' });
+    const [isFullScreenPreviewOpen, setIsFullScreenPreviewOpen] = useState(false);
+    const [previewScale, setPreviewScale] = useState(1);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        if (!isFullScreenPreviewOpen || !containerRef.current) return;
+        
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                const { width, height } = entry.contentRect;
+                // Target width: 1100px, target height: 750px
+                const targetWidth = 1100;
+                const targetHeight = 750;
+                
+                const scaleX = width / targetWidth;
+                const scaleY = height / targetHeight;
+                const finalScale = Math.min(scaleX, scaleY, 1);
+                
+                setPreviewScale(finalScale);
+            }
+        });
+        
+        resizeObserver.observe(containerRef.current);
+        return () => resizeObserver.disconnect();
+    }, [isFullScreenPreviewOpen]);
 
     // Task Form
     const [taskForm, setTaskForm] = useState({
@@ -56,15 +432,17 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
     const [filterTaskMachineId, setFilterTaskMachineId] = useState(null);
 
     // Print Report Filters
-    const [printStartDate, setPrintStartDate] = useState(() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 7);
-        return d.toISOString().substring(0, 10);
-    });
-    const [printEndDate, setPrintEndDate] = useState(() => {
-        return new Date().toISOString().substring(0, 10);
-    });
+    const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().substring(0, 7));
     const [printMachineId, setPrintMachineId] = useState('');
+
+    const { printStartDate, printEndDate } = useMemo(() => {
+        if (!selectedMonth) return { printStartDate: '', printEndDate: '' };
+        const [year, month] = selectedMonth.split('-');
+        const start = `${year}-${month}-01`;
+        const lastDay = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
+        const end = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+        return { printStartDate: start, printEndDate: end };
+    }, [selectedMonth]);
 
     useEffect(() => {
         if (sortedMachines.length > 0 && !printMachineId) {
@@ -151,6 +529,25 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
         } catch (error) {
             console.error("Bakım görevi silinemedi:", error);
             alert("Görev silinemedi.");
+        }
+    };
+
+    // Save Machine Info (Name and Type)
+    const handleSaveMachineInfo = async (e) => {
+        e.preventDefault();
+        if (!editingMachine || !machineForm.name.trim()) return;
+
+        try {
+            await setDoc(doc(db, MACHINES_COLLECTION, editingMachine.id), {
+                name: machineForm.name.trim(),
+                ekBilgi: machineForm.ekBilgi.trim()
+            }, { merge: true });
+            
+            setEditingMachine(null);
+            alert("Tezgah bilgileri başarıyla güncellendi.");
+        } catch (error) {
+            console.error("Tezgah güncellenemedi:", error);
+            alert("Tezgah güncellenemedi.");
         }
     };
 
@@ -333,7 +730,7 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
             <style dangerouslySetInnerHTML={{__html: `
                 @page {
                     size: A4 landscape;
-                    margin: 12mm 15mm 12mm 15mm;
+                    margin: 8mm 10mm 8mm 10mm;
                 }
                 @media print {
                     aside, header, nav, button, .no-print {
@@ -357,27 +754,53 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                         color: black !important;
                         padding: 0 !important;
                     }
-                    .print-page-break {
-                        page-break-after: always !important;
-                        break-after: page !important;
-                        margin-bottom: 20px;
-                    }
-                    table {
-                        border-collapse: collapse !important;
-                        width: 100% !important;
-                        table-layout: auto !important;
-                    }
-                    th, td {
-                        border: 1px solid #000 !important;
-                        padding: 6px 8px !important;
-                        color: black !important;
-                        font-size: 11px !important;
+                    .etka-report {
+                        padding: 0 !important;
+                        margin: 0 !important;
                     }
                 }
                 @media screen {
                     .print-only {
                         display: none !important;
                     }
+                }
+                .etka-report {
+                    font-family: 'Arial', sans-serif;
+                    background-color: white !important;
+                    color: black !important;
+                    width: 100%;
+                    box-sizing: border-box;
+                }
+                .etka-table {
+                    border: 1.5px solid #000 !important;
+                    border-collapse: collapse !important;
+                    width: 100% !important;
+                }
+                .etka-table th, .etka-table td {
+                    border: 1px solid #000 !important;
+                    padding: 1.5px 2px !important;
+                    text-align: center;
+                    vertical-align: middle;
+                    color: black !important;
+                }
+                .etka-table td {
+                    font-size: 7.5px !important;
+                    height: 15px !important;
+                }
+                .etka-table th {
+                    font-size: 7px !important;
+                    font-weight: 900 !important;
+                    background-color: #f3f4f6 !important;
+                    white-space: normal !important;
+                    word-break: break-word !important;
+                    line-height: 1.15 !important;
+                    padding: 3px 2px !important;
+                }
+                .sub-header-title {
+                    font-size: 8.5px !important;
+                    font-weight: 900 !important;
+                    background-color: #e5e7eb !important;
+                    letter-spacing: 0.02em;
                 }
             `}} />
 
@@ -395,10 +818,24 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                                 >
                                     <div>
                                         <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <h3 className="font-extrabold text-lg text-gray-900 dark:text-white">{item.name}</h3>
-                                                {item.ekBilgi && (
-                                                    <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold">{item.ekBilgi}</span>
+                                            <div className="flex-1">
+                                                <h3 className="font-extrabold text-lg text-gray-900 dark:text-white flex items-center gap-1.5">
+                                                    {item.name}
+                                                    <button 
+                                                        onClick={() => {
+                                                            setEditingMachine(item);
+                                                            setMachineForm({ name: item.name, ekBilgi: item.ekBilgi || '' });
+                                                        }}
+                                                        className="p-1 hover:bg-gray-150 dark:hover:bg-gray-700 text-gray-400 hover:text-blue-500 rounded-lg transition shrink-0"
+                                                        title="Tezgah Bilgilerini Düzenle"
+                                                    >
+                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </h3>
+                                                {item.ekBilgi ? (
+                                                    <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold block mt-0.5 leading-snug">{item.ekBilgi}</span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400 italic block mt-0.5">Tezgah tipi girilmemiş</span>
                                                 )}
                                             </div>
                                             
@@ -779,35 +1216,32 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                             {/* Controls Bar (no-print) */}
                             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm no-print flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
                                 <div className="flex flex-wrap gap-4 items-center flex-1">
-                                    {/* Start Date */}
+                                    {/* Month Selection */}
                                     <div>
-                                        <label className="block text-[10px] font-extrabold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Başlangıç Tarihi</label>
+                                        <label className="block text-[10px] font-extrabold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Rapor Ayı Seçin</label>
                                         <input
-                                            type="date"
-                                            value={printStartDate}
-                                            onChange={(e) => setPrintStartDate(e.target.value)}
-                                            className="p-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 text-xs font-semibold"
-                                        />
-                                    </div>
-
-                                    {/* Bitiş Tarihi */}
-                                    <div>
-                                        <label className="block text-[10px] font-extrabold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Bitiş Tarihi</label>
-                                        <input
-                                            type="date"
-                                            value={printEndDate}
-                                            onChange={(e) => setPrintEndDate(e.target.value)}
+                                            type="month"
+                                            value={selectedMonth}
+                                            onChange={(e) => setSelectedMonth(e.target.value)}
                                             className="p-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 text-xs font-semibold"
                                         />
                                     </div>
                                 </div>
 
-                                <button
-                                    onClick={handleDownloadPDF}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 active:scale-95 shrink-0 self-end h-[42px]"
-                                >
-                                    <Printer className="w-4 h-4" /> PDF Raporu İndir
-                                </button>
+                                <div className="flex gap-3 shrink-0 self-end h-[42px]">
+                                    <button
+                                        onClick={() => setIsFullScreenPreviewOpen(true)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm transition shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5 active:scale-95"
+                                    >
+                                        Tam Ekran Görüntüle
+                                    </button>
+                                    <button
+                                        onClick={handleDownloadPDF}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 active:scale-95"
+                                    >
+                                        <Printer className="w-4 h-4" /> PDF Raporu İndir
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Print Preview Canvas (Forces white background/black text) */}
@@ -815,101 +1249,14 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                                 <div 
                                     id="maintenance-report-pdf-content" 
                                     style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                                    className="bg-white rounded-2xl border border-gray-250 p-8 shadow-sm text-black w-full"
+                                    className="bg-white rounded-2xl border border-gray-250 p-5 shadow-sm text-black w-full"
                                 >
-                                    {printedLogs.length === 0 ? (
-                                        <div className="text-center py-16 text-gray-400 italic">
-                                            Seçilen tarih aralığında bu tezgah için bakım kaydı bulunmuyor.
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col text-black">
-                                            {/* ETKA-D PDF Header */}
-                                            <div className="mb-8 border-b-2 border-black pb-4 text-center">
-                                                <h1 className="text-2xl font-black uppercase tracking-widest text-black">ETKA-D</h1>
-                                                <h2 className="text-sm font-extrabold uppercase tracking-widest text-black mt-1">TEZGAH PERİYODİK BAKIM RAPORU</h2>
-                                                <h3 className="text-md font-black text-blue-800 uppercase mt-2">
-                                                    TEZGAH: {sortedMachines.find(m => m.id === printMachineId)?.name} 
-                                                    {sortedMachines.find(m => m.id === printMachineId)?.ekBilgi && ` (${sortedMachines.find(m => m.id === printMachineId)?.ekBilgi})`}
-                                                </h3>
-                                                <p className="text-xs text-black/60 mt-1 font-bold">
-                                                    Rapor Tarih Aralığı: {new Date(printStartDate).toLocaleDateString('tr-TR')} - {new Date(printEndDate).toLocaleDateString('tr-TR')}
-                                                </p>
-                                            </div>
-
-                                            <div className="overflow-x-auto flex-1">
-                                                <table className="w-full text-left border-collapse border border-black">
-                                                    <thead>
-                                                        <tr className="bg-gray-100 border-b border-black text-xs font-black text-black uppercase tracking-wider">
-                                                            <th className="px-4 py-3 border border-black w-48">Tarih</th>
-                                                            <th className="px-4 py-3 border border-black w-56">Bakımı Yapan Operatör</th>
-                                                            <th className="px-4 py-3 border border-black">Yapılan Kontroller</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-black text-xs font-bold text-black">
-                                                        {printedLogs.map(log => (
-                                                            <tr key={log.id}>
-                                                                <td className="px-4 py-3 border border-black font-extrabold">
-                                                                    {new Date(log.timestamp).toLocaleDateString('tr-TR')}
-                                                                </td>
-                                                                <td className="px-4 py-3 border border-black font-extrabold">
-                                                                    {log.operatorName}
-                                                                </td>
-                                                                <td className="px-4 py-3 border border-black">
-                                                                    <div className="space-y-3 text-black">
-                                                                        {(() => {
-                                                                            const taskGroups = {};
-                                                                            (log.completedTasks || []).forEach(t => {
-                                                                                const freq = t.frequency || 'DAILY';
-                                                                                if (!taskGroups[freq]) taskGroups[freq] = [];
-                                                                                taskGroups[freq].push(t.taskName);
-                                                                            });
-
-                                                                            const frequencyLabels = {
-                                                                                DAILY: 'Günlük Kontroller',
-                                                                                WEEKLY: 'Haftalık Kontroller',
-                                                                                TWO_WEEKS: '2 Haftalık Kontroller',
-                                                                                MONTHLY: 'Aylık Kontroller',
-                                                                                YEARLY: 'Yıllık Kontroller'
-                                                                            };
-
-                                                                            const definedFrequencies = ['DAILY', 'WEEKLY', 'TWO_WEEKS', 'MONTHLY', 'YEARLY'];
-
-                                                                            return definedFrequencies.map(freq => {
-                                                                                const items = taskGroups[freq];
-                                                                                if (!items || items.length === 0) return null;
-                                                                                return (
-                                                                                    <div key={freq} className="text-xs">
-                                                                                        <div className="font-black text-[10.5px] text-blue-900 border-b border-gray-250 pb-0.5 mb-1 uppercase tracking-wider">
-                                                                                            {frequencyLabels[freq]}
-                                                                                        </div>
-                                                                                        <ul className="list-disc list-inside space-y-0.5 font-bold pl-1">
-                                                                                            {items.map((name, i) => (
-                                                                                                <li key={i} className="text-gray-800">{name}</li>
-                                                                                            ))}
-                                                                                        </ul>
-                                                                                    </div>
-                                                                                );
-                                                                            });
-                                                                        })()}
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            {/* Sign-off signatures */}
-                                            <div className="mt-12 grid grid-cols-2 gap-8 text-center text-xs font-black text-black pt-6 border-t-2 border-black">
-                                                <div className="space-y-8">
-                                                    <p className="border-t border-black pt-2 uppercase">Kalıphane Bakım Sorumlusu / İmza</p>
-                                                </div>
-                                                <div className="space-y-8">
-                                                    <p className="border-t border-black pt-2 uppercase">Kalıphane Bölüm Müdürü / İmza</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                                    <EtkaReportContent 
+                                        selectedMachine={sortedMachines.find(m => m.id === printMachineId)}
+                                        selectedMonth={selectedMonth}
+                                        printedLogs={printedLogs}
+                                        tasks={tasks}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -1083,6 +1430,117 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                         </div>
                     </div>
                 </Modal>
+            )}
+            {/* --- MODAL: TEZGAH BİLGİLERİNİ DÜZENLE --- */}
+            {editingMachine && (
+                <Modal 
+                    isOpen={!!editingMachine} 
+                    onClose={() => setEditingMachine(null)} 
+                    title="Tezgah Bilgilerini Düzenle"
+                >
+                    <form onSubmit={handleSaveMachineInfo} className="space-y-5">
+                        {/* Machine No */}
+                        <div>
+                            <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                Makina No
+                            </label>
+                            <input
+                                type="text"
+                                value={machineForm.name}
+                                onChange={(e) => setMachineForm({ ...machineForm, name: e.target.value })}
+                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                placeholder="Örn: K 28"
+                                required
+                            />
+                        </div>
+
+                        {/* Machine Type */}
+                        <div>
+                            <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                Makina Tipi (Model/Detay)
+                            </label>
+                            <input
+                                type="text"
+                                value={machineForm.ekBilgi}
+                                onChange={(e) => setMachineForm({ ...machineForm, ekBilgi: e.target.value })}
+                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                placeholder="Örn: DMG MORI-CMX 1100V CNC TEZGAHI"
+                            />
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-150 dark:border-gray-700">
+                            <button
+                                type="button"
+                                onClick={() => setEditingMachine(null)}
+                                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-650 dark:text-gray-200 rounded-xl font-bold transition text-xs sm:text-sm"
+                            >
+                                İptal
+                            </button>
+                            <button
+                                type="submit"
+                                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-md shadow-blue-500/20 text-xs sm:text-sm"
+                            >
+                                Kaydet
+                            </button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
+
+            {/* --- MODAL: TAM EKRAN RAPOR ÖNİZLEME --- */}
+            {isFullScreenPreviewOpen && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-5xl h-[90vh] shadow-2xl flex flex-col overflow-hidden border border-gray-200">
+                        {/* Header */}
+                        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 shrink-0">
+                            <div>
+                                <h3 className="text-base font-extrabold text-gray-900 flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                    Periyodik Koruyucu Bakım Raporu Önizleme
+                                </h3>
+                                <p className="text-[10px] text-gray-500 mt-0.5">Yazdırılacak A4 Landscape formunun birebir dijital önizlemesi.</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={handleDownloadPDF}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition active:scale-95 shadow-sm"
+                                >
+                                    <Printer className="w-3.5 h-3.5" /> PDF İndir
+                                </button>
+                                <button 
+                                    onClick={() => setIsFullScreenPreviewOpen(false)}
+                                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-xl text-xs transition active:scale-95"
+                                >
+                                    Kapat (✕)
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Printable Area Container */}
+                        <div ref={containerRef} className="flex-1 bg-gray-100/50 flex items-center justify-center overflow-hidden p-4 relative">
+                            <div 
+                                style={{ 
+                                    transform: `scale(${previewScale})`, 
+                                    transformOrigin: 'center center', 
+                                    backgroundColor: '#ffffff', 
+                                    color: '#000000', 
+                                    width: '1080px', 
+                                    minWidth: '1080px', 
+                                    flexShrink: 0 
+                                }}
+                                className="bg-white border border-gray-300 p-8 shadow-md rounded-2xl text-black transition-transform duration-150"
+                            >
+                                <EtkaReportContent 
+                                    selectedMachine={sortedMachines.find(m => m.id === printMachineId)}
+                                    selectedMonth={selectedMonth}
+                                    printedLogs={printedLogs}
+                                    tasks={tasks}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );
