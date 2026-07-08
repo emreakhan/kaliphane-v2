@@ -1,7 +1,7 @@
 // src/pages/AdminDashboard.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings } from 'lucide-react';
+import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings, ChevronUp, ChevronDown, ListOrdered } from 'lucide-react';
 // ROLES eklendi
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc, collection, query, onSnapshot } from '../config/firebase.js'; 
@@ -652,6 +652,11 @@ const MenuLayoutManagement = ({ db }) => {
         }
     ], []);
 
+    const [selectedRole, setSelectedRole] = useState(Object.values(ROLES)[0] || 'Tezgah Operatörü');
+    const [rawLayoutData, setRawLayoutData] = useState(null);
+    const [roleLayouts, setRoleLayouts] = useState({});
+    const [dbPermissions, setDbPermissions] = useState({});
+
     const [categories, setCategories] = useState([]);
     const [selectedCategoryId, setSelectedCategoryId] = useState(null);
     const [newCategoryTitle, setNewCategoryTitle] = useState('');
@@ -659,24 +664,113 @@ const MenuLayoutManagement = ({ db }) => {
     const [editingCategoryTitle, setEditingCategoryTitle] = useState('');
     const [saving, setSaving] = useState(false);
 
+    // 1. Listen to permissions config
+    useEffect(() => {
+        if (!db) return;
+        const q = query(collection(db, 'role_permissions'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = {};
+            snapshot.docs.forEach(doc => {
+                data[doc.id] = doc.data().permissions;
+            });
+            setDbPermissions(data);
+        });
+        return () => unsubscribe();
+    }, [db]);
+
+    // 2. Listen to menuLayout config
     useEffect(() => {
         if (!db) return;
         const unsub = onSnapshot(doc(db, 'config', 'menuLayout'), (docSnap) => {
             if (docSnap.exists()) {
-                setCategories(docSnap.data().categories || []);
+                setRawLayoutData(docSnap.data());
             } else {
-                setCategories(DEFAULT_MENU_CATEGORIES);
+                setRawLayoutData({ categories: DEFAULT_MENU_CATEGORIES, roleLayouts: {} });
             }
         });
         return () => unsub();
     }, [db, DEFAULT_MENU_CATEGORIES]);
 
+    // 3. Initialize roleLayouts when database data loads
+    useEffect(() => {
+        if (!rawLayoutData) return;
+        const initialLayouts = { ...(rawLayoutData.roleLayouts || {}) };
+        
+        // Populate Admin using the global field if not set
+        if (rawLayoutData.categories && !initialLayouts[ROLES.ADMIN]) {
+            initialLayouts[ROLES.ADMIN] = rawLayoutData.categories;
+        }
+
+        // For roles that don't have layouts, generate them
+        Object.values(ROLES).forEach(role => {
+            if (!initialLayouts[role]) {
+                const rolePerms = dbPermissions[role] || getDefaultPermissions(role);
+                initialLayouts[role] = DEFAULT_MENU_CATEGORIES.map(cat => {
+                    const allowedPaths = (cat.pagePaths || []).filter(path => {
+                        const perm = rolePerms[path] || { view: false };
+                        return perm.view;
+                    });
+                    return {
+                        ...cat,
+                        pagePaths: allowedPaths
+                    };
+                }).filter(cat => cat.pagePaths.length > 0);
+            }
+        });
+
+        setRoleLayouts(initialLayouts);
+    }, [rawLayoutData, dbPermissions, DEFAULT_MENU_CATEGORIES]);
+
+    const prevRoleRef = React.useRef(selectedRole);
+
+    // 4. Handle selectedRole change
+    useEffect(() => {
+        const prevRole = prevRoleRef.current;
+        if (prevRole !== selectedRole) {
+            setRoleLayouts(prev => ({
+                ...prev,
+                [prevRole]: categories
+            }));
+            prevRoleRef.current = selectedRole;
+        }
+
+        if (roleLayouts[selectedRole]) {
+            setCategories(roleLayouts[selectedRole]);
+        } else {
+            const rolePerms = dbPermissions[selectedRole] || getDefaultPermissions(selectedRole);
+            const fallback = DEFAULT_MENU_CATEGORIES.map(cat => {
+                const allowedPaths = (cat.pagePaths || []).filter(path => {
+                    const perm = rolePerms[path] || { view: false };
+                    return perm.view;
+                });
+                return {
+                    ...cat,
+                    pagePaths: allowedPaths
+                };
+            }).filter(cat => cat.pagePaths.length > 0);
+            setCategories(fallback);
+        }
+    }, [selectedRole, roleLayouts, dbPermissions, DEFAULT_MENU_CATEGORIES]);
+
     // Select first category by default if none selected
     useEffect(() => {
-        if (categories.length > 0 && !selectedCategoryId) {
-            setSelectedCategoryId(categories[0].id);
+        if (categories.length > 0) {
+            if (!selectedCategoryId || !categories.some(cat => cat.id === selectedCategoryId)) {
+                setSelectedCategoryId(categories[0].id);
+            }
+        } else {
+            setSelectedCategoryId(null);
         }
     }, [categories, selectedCategoryId]);
+
+    // Calculate active pages for selected role
+    const activePagesForRole = useMemo(() => {
+        const rolePerms = dbPermissions[selectedRole] || getDefaultPermissions(selectedRole);
+        return ALL_SYSTEM_PAGES.filter(page => {
+            const resolvedPerm = rolePerms[page.path] || { view: false };
+            return resolvedPerm.view;
+        });
+    }, [dbPermissions, selectedRole]);
 
     const handleAddCategory = () => {
         if (!newCategoryTitle.trim()) return;
@@ -712,24 +806,32 @@ const MenuLayoutManagement = ({ db }) => {
         }
     };
 
+    const handleMoveCategory = (index, direction) => {
+        const nextIndex = direction === 'UP' ? index - 1 : index + 1;
+        if (nextIndex < 0 || nextIndex >= categories.length) return;
+        const nextCategories = [...categories];
+        const temp = nextCategories[index];
+        nextCategories[index] = nextCategories[nextIndex];
+        nextCategories[nextIndex] = temp;
+        setCategories(nextCategories);
+    };
+
     const handleTogglePage = (pagePath) => {
         if (!selectedCategoryId) return;
         setCategories(prev => {
             return prev.map(cat => {
-                // Remove from all other categories
                 if (cat.id !== selectedCategoryId) {
                     return {
                         ...cat,
-                        pagePaths: cat.pagePaths.filter(path => path !== pagePath)
+                        pagePaths: (cat.pagePaths || []).filter(path => path !== pagePath)
                     };
                 }
-                // Toggle in the selected category
-                const exists = cat.pagePaths.includes(pagePath);
+                const exists = (cat.pagePaths || []).includes(pagePath);
                 return {
                     ...cat,
                     pagePaths: exists 
                         ? cat.pagePaths.filter(path => path !== pagePath)
-                        : [...cat.pagePaths, pagePath]
+                        : [...(cat.pagePaths || []), pagePath]
                 };
             });
         });
@@ -738,8 +840,18 @@ const MenuLayoutManagement = ({ db }) => {
     const handleSaveLayout = async () => {
         try {
             setSaving(true);
-            await setDoc(doc(db, 'config', 'menuLayout'), { categories });
-            alert("Menü yerleşimi başarıyla kaydedildi.");
+            const finalLayouts = {
+                ...roleLayouts,
+                [selectedRole]: categories
+            };
+
+            const adminLayout = finalLayouts[ROLES.ADMIN] || categories;
+
+            await setDoc(doc(db, 'config', 'menuLayout'), { 
+                roleLayouts: finalLayouts,
+                categories: adminLayout
+            });
+            alert("Rol bazlı menü yerleşimi başarıyla kaydedildi.");
         } catch (e) {
             console.error(e);
             alert("Menü kaydedilirken hata oluştu.");
@@ -755,10 +867,10 @@ const MenuLayoutManagement = ({ db }) => {
             <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-250 dark:border-gray-700">
                 <div>
                     <h3 className="text-lg font-bold flex items-center gap-2">
-                        <List className="w-5 h-5 text-blue-500" /> Sol Menü Kategorizasyonu
+                        <List className="w-5 h-5 text-blue-500" /> Sol Menü Kategorizasyonu (Rol Bazlı)
                     </h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Sol menüdeki sayfaları ana başlıklar altında gruplayın ve aradığınız sayfalara daha kolay erişin.
+                        Menüyü her bir kullanıcı rolü için bağımsız olarak tasarlayabilir, sayfaların sıralamasını ve ana başlıklarını yönetebilirsiniz.
                     </p>
                 </div>
                 <button
@@ -768,6 +880,25 @@ const MenuLayoutManagement = ({ db }) => {
                 >
                     <Save className="w-4 h-4" /> {saving ? "Kaydediliyor..." : "Düzeni Kaydet"}
                 </button>
+            </div>
+
+            {/* ROL SEÇİM ALANI */}
+            <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-250 dark:border-gray-700 shadow-sm justify-between">
+                <div className="flex items-center gap-3">
+                    <label className="text-sm font-extrabold text-gray-700 dark:text-gray-300 uppercase shrink-0">Düzenlenecek Rol:</label>
+                    <select
+                        value={selectedRole}
+                        onChange={(e) => setSelectedRole(e.target.value)}
+                        className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-bold"
+                    >
+                        {Object.values(ROLES).map(roleVal => (
+                            <option key={roleVal} value={roleVal}>{roleVal}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 font-bold bg-blue-50 dark:bg-blue-950/20 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-900">
+                    Seçili role ait aktif sayfa sayısı: <span className="text-blue-600 dark:text-blue-400 font-black text-sm">{activePagesForRole.length}</span>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -795,8 +926,8 @@ const MenuLayoutManagement = ({ db }) => {
                             </button>
                         </div>
 
-                        <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
-                            {categories.map(cat => {
+                        <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                            {categories.map((cat, index) => {
                                 const isSelected = cat.id === selectedCategoryId;
                                 const isEditing = cat.id === editingCategoryId;
                                 return (
@@ -827,12 +958,29 @@ const MenuLayoutManagement = ({ db }) => {
                                                 <div>
                                                     <span className="font-extrabold text-sm block truncate">{cat.title}</span>
                                                     <span className="text-[10px] text-gray-400 font-bold">
-                                                        {cat.pagePaths.length} Sayfa atandı
+                                                        {(cat.pagePaths || []).length} Sayfa atandı
                                                     </span>
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                disabled={index === 0}
+                                                onClick={() => handleMoveCategory(index, 'UP')}
+                                                className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"
+                                                title="Yukarı Taşı"
+                                            >
+                                                <ChevronUp className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                                disabled={index === categories.length - 1}
+                                                onClick={() => handleMoveCategory(index, 'DOWN')}
+                                                className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"
+                                                title="Aşağı Taşı"
+                                            >
+                                                <ChevronDown className="w-3.5 h-3.5" />
+                                            </button>
+
                                             {isEditing ? (
                                                 <button
                                                     onClick={() => handleSaveEdit(cat.id)}
@@ -865,60 +1013,137 @@ const MenuLayoutManagement = ({ db }) => {
                     </div>
                 </div>
 
-                {/* Sağ Taraf: Sayfa Atamaları */}
+                {/* Sağ Taraf: Sayfa Atamaları ve Sıralama */}
                 <div className="lg:col-span-7">
                     {selectedCategory ? (
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-250 dark:border-gray-700 space-y-4 shadow-sm">
-                            <div className="border-b border-gray-150 dark:border-gray-700 pb-3">
-                                <h4 className="font-extrabold text-sm text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                    Başlığa Atanan Sayfalar
-                                </h4>
-                                <h3 className="text-lg font-black text-blue-600 dark:text-blue-400 mt-1">
-                                    {selectedCategory.title}
-                                </h3>
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-250 dark:border-gray-700 space-y-6 shadow-sm">
+                            <div className="border-b border-gray-150 dark:border-gray-700 pb-3 flex justify-between items-end">
+                                <div>
+                                    <h4 className="font-extrabold text-sm text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                        Seçili Başlık Düzeni
+                                    </h4>
+                                    <h3 className="text-xl font-black text-blue-600 dark:text-blue-400 mt-1">
+                                        {selectedCategory.title}
+                                    </h3>
+                                </div>
+                                <span className="text-xs bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full font-bold text-gray-600 dark:text-gray-400">
+                                    {(selectedCategory.pagePaths || []).length} Sayfa Aktif
+                                </span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
-                                {ALL_SYSTEM_PAGES.map(page => {
-                                    const isAssignedToThis = selectedCategory.pagePaths.includes(page.path);
-                                    // Find if assigned to any category
-                                    const assignedCat = categories.find(c => c.pagePaths.includes(page.path));
-                                    
-                                    return (
-                                        <button
-                                            key={page.path}
-                                            type="button"
-                                            onClick={() => handleTogglePage(page.path)}
-                                            className={`p-3 rounded-lg border text-left flex items-start gap-3 transition-all duration-150 ${
-                                                isAssignedToThis
-                                                    ? 'bg-blue-50/50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-200'
-                                                    : 'bg-gray-50 dark:bg-gray-900/20 border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-900/40 text-gray-700 dark:text-gray-300'
-                                            }`}
-                                        >
-                                            <div className="pt-0.5">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isAssignedToThis}
-                                                    readOnly
-                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-extrabold truncate">{page.label}</p>
-                                                <p className="text-[10px] text-gray-400 font-mono truncate">{page.path}</p>
-                                                {assignedCat && assignedCat.id !== selectedCategoryId && (
-                                                    <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-orange-100 text-orange-850 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200 dark:border-orange-900">
-                                                        {assignedCat.title} Altında
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                            {/* ATANAN SAYFALARIN SIRALAMASI */}
+                            {(selectedCategory.pagePaths || []).length > 0 && (
+                                <div className="border border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/10 p-4 rounded-xl space-y-3">
+                                    <h5 className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <ListOrdered className="w-4 h-4" /> Sayfa Sıralaması (Yukarı / Aşağı Taşı)
+                                    </h5>
+                                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                                        {(selectedCategory.pagePaths || []).map((path, idx) => {
+                                            const pageInfo = ALL_SYSTEM_PAGES.find(p => p.path === path);
+                                            if (!pageInfo) return null;
+                                            return (
+                                                <div key={path} className="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
+                                                            {idx + 1}
+                                                        </span>
+                                                        <div>
+                                                            <span className="text-xs font-extrabold text-gray-800 dark:text-gray-200 block leading-tight">{pageInfo.label}</span>
+                                                            <span className="text-[9px] text-gray-400 font-mono">{path}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-0.5">
+                                                        <button
+                                                            type="button"
+                                                            disabled={idx === 0}
+                                                            onClick={() => {
+                                                                const newPaths = [...(selectedCategory.pagePaths || [])];
+                                                                const temp = newPaths[idx];
+                                                                newPaths[idx] = newPaths[idx - 1];
+                                                                newPaths[idx - 1] = temp;
+                                                                
+                                                                setCategories(prev => prev.map(cat => 
+                                                                    cat.id === selectedCategoryId ? { ...cat, pagePaths: newPaths } : cat
+                                                                ));
+                                                            }}
+                                                            className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"
+                                                            title="Yukarı Taşı"
+                                                        >
+                                                            <ChevronUp className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={idx === (selectedCategory.pagePaths || []).length - 1}
+                                                            onClick={() => {
+                                                                const newPaths = [...(selectedCategory.pagePaths || [])];
+                                                                const temp = newPaths[idx];
+                                                                newPaths[idx] = newPaths[idx + 1];
+                                                                newPaths[idx + 1] = temp;
+                                                                
+                                                                setCategories(prev => prev.map(cat => 
+                                                                    cat.id === selectedCategoryId ? { ...cat, pagePaths: newPaths } : cat
+                                                                ));
+                                                            }}
+                                                            className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"
+                                                            title="Aşağı Taşı"
+                                                        >
+                                                            <ChevronDown className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SAYFA EKLE / KALDIR LİSTESİ */}
+                            <div className="space-y-3">
+                                <h5 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    Sayfa Ekle / Kaldır (Bu Rol İçin Yetkili Sayfalar)
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {activePagesForRole.map(page => {
+                                        const isAssignedToThis = (selectedCategory.pagePaths || []).includes(page.path);
+                                        const assignedCat = categories.find(c => (c.pagePaths || []).includes(page.path));
+                                        
+                                        return (
+                                            <button
+                                                key={page.path}
+                                                type="button"
+                                                onClick={() => handleTogglePage(page.path)}
+                                                className={`p-3 rounded-lg border text-left flex items-start gap-3 transition-all duration-150 ${
+                                                    isAssignedToThis
+                                                        ? 'bg-blue-50/50 dark:bg-blue-955 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-200'
+                                                        : 'bg-gray-50 dark:bg-gray-900/20 border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-900/40 text-gray-700 dark:text-gray-300'
+                                                }`}
+                                            >
+                                                <div className="pt-0.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isAssignedToThis}
+                                                        readOnly
+                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-extrabold truncate">{page.label}</p>
+                                                    <p className="text-[9px] text-gray-400 font-mono truncate">{page.path}</p>
+                                                    {assignedCat && assignedCat.id !== selectedCategoryId && (
+                                                        <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-orange-100 text-orange-850 dark:bg-orange-955 dark:text-orange-400 border border-orange-200 dark:border-orange-900">
+                                                            {assignedCat.title} Altında
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </div>
                     ) : (
                         <div className="h-64 flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/10 text-gray-400">
+                        t-gray-400">
                             <List className="w-10 h-10 mb-2 opacity-50" />
                             <p className="text-sm font-bold">Lütfen işlem yapmak için bir ana başlık seçin.</p>
                         </div>

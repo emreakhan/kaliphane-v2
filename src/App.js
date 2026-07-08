@@ -697,7 +697,8 @@ const App = () => {
     ], []);
 
     const menuCategories = useMemo(() => {
-        const categories = menuLayout?.categories || DEFAULT_MENU_CATEGORIES;
+        const userRole = loggedInUser?.role;
+        const categories = menuLayout?.roleLayouts?.[userRole] || menuLayout?.categories || DEFAULT_MENU_CATEGORIES;
         if (!loggedInUser || !loggedInUser.role) return [];
         if (loggedInUser.role === ROLES.FORKLIFT_OPERATORU || loggedInUser.role === ROLES.MONTAJ_SORUMLUSU) return [];
 

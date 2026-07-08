@@ -401,7 +401,12 @@ const ToolAssignmentPage = ({ tools, machines, personnel, loggedInUser, db, proj
                 if (!isScrap && !toolEntry.isMoldMaterial) {
                     // Kullanılmış dönüyorsa ama kendisi NEW ise
                     if (returnCondition === 'USED' && toolEntry.condition !== 'USED') {
-                        const usedTool = tools.find(t => t.productCode === toolEntry.productCode && t.condition === 'USED' && t.name === toolEntry.toolName);
+                        const usedTool = tools.find(t => 
+                            t.productCode && 
+                            toolEntry.productCode && 
+                            t.productCode.trim().toUpperCase() === toolEntry.productCode.trim().toUpperCase() && 
+                            t.condition === 'USED'
+                        );
                         if (usedTool) {
                             await updateDoc(doc(db, INVENTORY_COLLECTION, usedTool.id), { totalStock: increment(1) });
                         } else {

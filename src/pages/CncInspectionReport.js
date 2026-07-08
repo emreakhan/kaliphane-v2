@@ -39,9 +39,13 @@ const CncInspectionReport = ({ db }) => {
     const [reportData, setReportData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [showAutoFill, setShowAutoFill] = useState(false);
+    const [isHolding, setIsHolding] = useState(false);
+    const holdTimerRef = useRef(null);
 
     // EK METADATA ALANLARI
     const [rawMaterialLot, setRawMaterialLot] = useState('');
+    const [pageLotNumbers, setPageLotNumbers] = useState({});
     const [preparedBy, setPreparedBy] = useState('');
     const [checkedBy, setCheckedBy] = useState('');
     const [approvedBy, setApprovedBy] = useState('');
@@ -277,20 +281,40 @@ const CncInspectionReport = ({ db }) => {
             const mSnap = await getDocs(mQuery);
             const measurements = mSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            let maxColIndex = 11; 
+            const lotMap = { 0: jobData.rawMaterialLot || '' };
             measurements.forEach(m => {
-                if (m.columnIndex !== undefined && m.columnIndex > maxColIndex) {
-                    maxColIndex = m.columnIndex;
+                const pIdx = m.pageIndex || 0;
+                if (m.lotNumber && m.lotNumber.trim() !== '') {
+                    lotMap[pIdx] = m.lotNumber;
                 }
+            });
+            setPageLotNumbers(lotMap);
+            if (lotMap[0]) {
+                setRawMaterialLot(lotMap[0]);
+            }
+
+            // Group measurements by absolute column index
+            let maxColIndex = 11;
+            const mappedMeasurements = measurements.map(m => {
+                const pIdx = m.pageIndex || 0;
+                const cIdx = m.columnIndex !== undefined ? m.columnIndex : 0;
+                const absoluteColIdx = (pIdx * 12) + cIdx;
+                if (absoluteColIdx > maxColIndex) {
+                    maxColIndex = absoluteColIdx;
+                }
+                return {
+                    ...m,
+                    absoluteColIdx
+                };
             });
 
             const totalPages = Math.ceil((maxColIndex + 1) / 12);
             const newGrid = Array(totalPages * 12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' }));
             
             let unassignedIdx = 0;
-            measurements.forEach(m => {
-                if (m.columnIndex !== undefined && m.columnIndex >= 0) {
-                    newGrid[m.columnIndex] = { ...m, timeStr: m.timeStr || '' };
+            mappedMeasurements.forEach(m => {
+                if (m.absoluteColIdx !== undefined && m.absoluteColIdx >= 0) {
+                    newGrid[m.absoluteColIdx] = { ...m, timeStr: m.timeStr || '' };
                 } else {
                     while (unassignedIdx < newGrid.length && newGrid[unassignedIdx].id) unassignedIdx++;
                     if (unassignedIdx < newGrid.length) {
@@ -313,6 +337,35 @@ const CncInspectionReport = ({ db }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const startHold = () => {
+        setIsHolding(false);
+        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+        
+        holdTimerRef.current = setTimeout(() => {
+            setIsHolding(true);
+            setShowAutoFill(prev => {
+                const newVal = !prev;
+                alert(newVal ? "Otomatik Doldur seçeneği aktif edildi!" : "Otomatik Doldur seçeneği gizlendi.");
+                return newVal;
+            });
+        }, 3000);
+    };
+
+    const endHold = () => {
+        if (holdTimerRef.current) {
+            clearTimeout(holdTimerRef.current);
+            holdTimerRef.current = null;
+        }
+    };
+
+    const handleAddShiftClick = () => {
+        if (isHolding) {
+            setIsHolding(false);
+            return;
+        }
+        handleAddShift();
     };
 
     const handleAddShift = () => {
@@ -375,8 +428,9 @@ const CncInspectionReport = ({ db }) => {
         if (!selectedJobId || !isAdmin) return;
         setSaving(true);
         try {
+            const firstPageLot = pageLotNumbers[0] || '';
             await updateDoc(doc(db, CNC_LATHE_JOBS_COLLECTION, selectedJobId), {
-                rawMaterialLot, preparedBy, checkedBy, approvedBy, displayStartTime, displayEndTime, remarks 
+                rawMaterialLot: firstPageLot, preparedBy, checkedBy, approvedBy, displayStartTime, displayEndTime, remarks 
             });
 
             for (let i = 0; i < gridData.length; i++) {
@@ -384,10 +438,17 @@ const CncInspectionReport = ({ db }) => {
                 const hasData = colData.operator?.trim().length > 0 || colData.timeStr?.trim().length > 0 || colData.details?.some(d => d.value !== '');
                 
                 if (hasData) {
+                    const pIdx = Math.floor(i / 12);
+                    const cIdx = i % 12;
                     const docData = {
-                        jobId: selectedJobId, columnIndex: i, 
-                        operator: colData.operator || '', timeStr: colData.timeStr || '',
-                        details: colData.details || [], timestamp: colData.timestamp || Date.now() + i
+                        jobId: selectedJobId, 
+                        pageIndex: pIdx,
+                        columnIndex: cIdx, 
+                        operator: colData.operator || '', 
+                        timeStr: colData.timeStr || '',
+                        lotNumber: pageLotNumbers[pIdx] || '',
+                        details: colData.details || [], 
+                        timestamp: colData.timestamp || Date.now() + (pIdx * 20) + cIdx
                     };
 
                     if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData);
@@ -406,6 +467,10 @@ const CncInspectionReport = ({ db }) => {
     const handleDownloadPdf = () => {
         const element = reportRef.current;
         if (!element) return;
+        
+        const originalZoom = element.style.zoom;
+        element.style.zoom = '1.0';
+
         const opt = {
             margin: [2, 5, 2, 5], 
             filename: `Kontrol_Formu_${reportData.job.orderNumber}.pdf`,
@@ -413,13 +478,15 @@ const CncInspectionReport = ({ db }) => {
             html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
         };
-        html2pdf().set(opt).from(element).save();
+        html2pdf().set(opt).from(element).save().then(() => {
+            element.style.zoom = originalZoom;
+        });
     };
 
     const numPages = Math.ceil(gridData.length / 12);
 
     return (
-        <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
+        <div className="p-6 max-w-[95%] w-full mx-auto min-h-screen bg-gray-100 dark:bg-gray-900 font-sans">
             
             {/* GEÇMİŞ İŞ EMRİ EKLEME MODALI */}
             <SimpleModal isOpen={isAddPastJobModalOpen} onClose={() => setIsAddPastJobModalOpen(false)} title="Geçmişe Dönük İş Emri Ekle">
@@ -649,12 +716,22 @@ const CncInspectionReport = ({ db }) => {
                     <div className="flex gap-2">
                         {isAdmin && (
                             <>
-                                <button onClick={handleAddShift} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
+                                <button 
+                                    onMouseDown={startHold}
+                                    onMouseUp={endHold}
+                                    onMouseLeave={endHold}
+                                    onTouchStart={startHold}
+                                    onTouchEnd={endHold}
+                                    onClick={handleAddShiftClick} 
+                                    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 select-none"
+                                >
                                     <Plus className="w-5 h-5 mr-2"/> SAYFA EKLE
                                 </button>
-                                <button onClick={handleAutoFill} className="px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
-                                    <Wand2 className="w-5 h-5 mr-2"/> OTOMATİK DOLDUR
-                                </button>
+                                {showAutoFill && (
+                                    <button onClick={handleAutoFill} className="px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95">
+                                        <Wand2 className="w-5 h-5 mr-2"/> OTOMATİK DOLDUR
+                                    </button>
+                                )}
                                 {gridData.length > 12 && (
                                     <button onClick={handleRemoveShift} disabled={saving} className="px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg flex items-center transition transform active:scale-95 disabled:opacity-50">
                                         <Trash2 className="w-5 h-5 mr-2"/> SON SAYFAYI SİL
@@ -678,7 +755,7 @@ const CncInspectionReport = ({ db }) => {
 
             {reportData && (
                 <div className="overflow-auto bg-gray-200 p-4 rounded-lg border border-gray-300">
-                    <div ref={reportRef} className="bg-white text-black mx-auto shadow-sm" style={{ width: '290mm', position: 'relative' }}>
+                    <div ref={reportRef} className="bg-white text-black mx-auto shadow-sm" style={{ width: '290mm', position: 'relative', zoom: '1.2' }}>
                         
                         {Array.from({ length: numPages }).map((_, pageIndex) => {
                             const startIndex = pageIndex * 12;
@@ -689,69 +766,76 @@ const CncInspectionReport = ({ db }) => {
                             ];
 
                             return (
-                                <div key={pageIndex} className="p-4 relative" style={{ height: '195mm', overflow: 'hidden', pageBreakAfter: pageIndex < numPages - 1 ? 'always' : 'auto', backgroundColor: 'white' }}>
+                                <div key={pageIndex} className="p-2 relative bg-white" style={{ height: '195mm', overflow: 'hidden', pageBreakAfter: pageIndex < numPages - 1 ? 'always' : 'auto', backgroundColor: 'white', color: 'black' }}>
                                     
-                                    <div className="border-2 border-black mb-1 m-4 mt-4">
-                                        <div className="grid grid-cols-4 text-center border-b border-black">
-                                            <div className="p-2 border-r border-black flex items-center justify-center">
-                                                <img src="/logo512.png" alt="ETKA-D Logo" className="h-24 object-contain" />
+                                    <div className="border-2 border-black mb-0.5 m-2 mt-1 bg-white">
+                                        <div className="grid grid-cols-4 text-center border-b border-black bg-white">
+                                            <div className="p-1.5 border-r border-black flex items-center justify-center bg-white">
+                                                <img src="/logo512.png" alt="ETKA-D Logo" className="h-12 w-auto object-contain mx-auto" />
                                             </div>
-                                            <div className="col-span-3 p-2 font-bold text-2xl flex items-center justify-center tracking-wide">
+                                            <div className="col-span-3 p-1 font-bold text-lg flex items-center justify-center tracking-wide text-black bg-white" style={{ color: 'black' }}>
                                                 TALAŞLI İMALAT KONTROL FORMU {numPages > 1 && `(SAYFA ${pageIndex + 1})`}
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-12 border-b border-black text-xs">
-                                            <div className="col-span-1 border-r border-black flex items-center justify-center font-bold bg-gray-100 text-center">Parça<br/>Bilgileri</div>
-                                            <div className="col-span-10 grid grid-cols-2">
-                                                <div className="p-1 border-r border-black border-b border-black flex items-center"><span className="font-bold mr-2">Parça Adı:</span> <span>{reportData.part.partName}</span></div>
-                                                <div className="p-1 border-b border-black flex items-center"><span className="font-bold mr-2">Teknik Resim NO:</span> <span>{reportData.part.technicalDrawingNo || '-'}</span></div>
-                                                <div className="p-1 border-r border-black flex items-center"><span className="font-bold mr-2">Parça Kodu:</span> <span>{reportData.part.orderNumber}</span></div>
-                                                <div className="p-1 flex items-center"><span className="font-bold mr-2">Revizyon No/Tarih:</span> <span>{reportData.part.revisionInfo || '-'}</span></div>
+                                        <div className="grid grid-cols-12 border-b border-black text-[10px] bg-white text-black" style={{ color: 'black' }}>
+                                            <div className="col-span-1 border-r border-black flex items-center justify-center font-bold bg-gray-100 text-center text-black">Parça<br/>Bilgileri</div>
+                                            <div className="col-span-10 grid grid-cols-2 text-black bg-white">
+                                                <div className="p-0.5 border-r border-black border-b border-black flex items-center text-black"><span className="font-bold mr-2 text-black">Parça Adı:</span> <span className="text-black">{reportData.part.partName}</span></div>
+                                                <div className="p-0.5 border-b border-black flex items-center text-black"><span className="font-bold mr-2 text-black">Teknik Resim NO:</span> <span className="text-black">{reportData.part.technicalDrawingNo || '-'}</span></div>
+                                                <div className="p-0.5 border-r border-black flex items-center text-black"><span className="font-bold mr-2 text-black">Parça Kodu:</span> <span className="text-black">{reportData.part.orderNumber}</span></div>
+                                                <div className="p-0.5 flex items-center text-black"><span className="font-bold mr-2 text-black">Revizyon No/Tarih:</span> <span className="text-black">{reportData.part.revisionInfo || '-'}</span></div>
                                             </div>
-                                            <div className="col-span-1 flex flex-col items-center justify-center bg-gray-100 border-l border-black">
-                                                <div className="font-bold text-[9px] border-b border-black w-full text-center">Talimat NO:</div>
-                                                <div className="font-bold text-lg">{reportData.part.instructionNo || '-'}</div>
+                                            <div className="col-span-1 flex flex-col items-center justify-center bg-gray-100 border-l border-black text-black">
+                                                <div className="font-bold text-[8px] border-b border-black w-full text-center text-black">Talimat NO:</div>
+                                                <div className="font-bold text-base text-black">{reportData.part.instructionNo || '-'}</div>
                                             </div>
                                         </div>
 
-                                        <div className="text-[8px] p-1 border-b border-black text-center bg-gray-50">
+                                        <div className="text-[8px] p-0.5 border-b border-black text-center bg-gray-50 text-black" style={{ color: 'black' }}>
                                             Kontroller TL04 - Numune Alma Planına göre yapılacaktır. Uygunsuzlukta PR05 - UYGUN OLMAYAN ÜRÜN VE SAHTE PARÇA KONTROL PROSEDÜRÜ uygulanır. Kontrol maddeleri, üretimi yapılan ürünün üretim ve kontrol talimatında yer alan maddelere istinaden doldurulacaktır.
                                         </div>
 
-                                        <div className="grid grid-cols-12 text-xs">
-                                            <div className="col-span-1 border-r border-black flex items-center justify-center font-bold bg-gray-100 text-center">Üretim<br/>Bilgileri</div>
-                                            <div className="col-span-11 grid grid-cols-2">
-                                                <div className="p-1 border-r border-black border-b border-black flex items-center">
-                                                    <span className="font-bold mr-2">Üretim Başlangıç:</span> 
+                                        <div className="grid grid-cols-12 text-[10px] bg-white text-black" style={{ color: 'black' }}>
+                                            <div className="col-span-1 border-r border-black flex items-center justify-center font-bold bg-gray-100 text-center text-black">Üretim<br/>Bilgileri</div>
+                                            <div className="col-span-11 grid grid-cols-2 text-black bg-white">
+                                                <div className="p-0.5 border-r border-black border-b border-black flex items-center text-black">
+                                                    <span className="font-bold mr-2 text-black">Üretim Başlangıç:</span> 
                                                     <input 
                                                         type="text" 
                                                         value={displayStartTime}
                                                         onChange={(e) => setDisplayStartTime(e.target.value)}
                                                         readOnly={!isAdmin}
+                                                        style={{ color: '#1e3a8a', backgroundColor: 'transparent' }}
                                                         className={`border-b border-black border-dashed bg-transparent outline-none w-24 text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`}
                                                     />
                                                 </div>
-                                                <div className="p-1 border-b border-black flex items-center"><span className="font-bold mr-2">İş Emri No:</span> <span>{reportData.job.orderNumber}</span></div>
-                                                <div className="p-1 border-r border-black border-b border-black flex items-center">
-                                                    <span className="font-bold mr-2">Üretim Bitiş:</span> 
+                                                <div className="p-0.5 border-b border-black flex items-center text-black"><span className="font-bold mr-2 text-black">İş Emri No:</span> <span className="text-black">{reportData.job.orderNumber}</span></div>
+                                                <div className="p-0.5 border-r border-black border-b border-black flex items-center text-black">
+                                                    <span className="font-bold mr-2 text-black">Üretim Bitiş:</span> 
                                                     <input 
                                                         type="text" 
                                                         value={displayEndTime}
                                                         onChange={(e) => setDisplayEndTime(e.target.value)}
                                                         readOnly={!isAdmin}
+                                                        style={{ color: '#1e3a8a', backgroundColor: 'transparent' }}
                                                         className={`border-b border-black border-dashed bg-transparent outline-none w-24 text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`}
                                                     />
                                                 </div>
-                                                <div className="p-1 border-b border-black flex items-center"><span className="font-bold mr-2">Makine No:</span> <span>{reportData.job.machine}</span></div>
-                                                <div className="p-1 border-r border-black flex items-center"><span className="font-bold mr-2">Hammalzeme Stok Kodu:</span> <span>{reportData.part.rawMaterialCode || '-'}</span></div>
-                                                <div className="p-1 flex items-center">
-                                                    <span className="font-bold mr-2">Hammalzeme Lot:</span> 
+                                                <div className="p-0.5 border-b border-black flex items-center text-black"><span className="font-bold mr-2 text-black">Makine No:</span> <span className="text-black">{reportData.job.machine}</span></div>
+                                                <div className="p-0.5 border-r border-black flex items-center text-black"><span className="font-bold mr-2 text-black">Hammalzeme Stok Kodu:</span> <span className="text-black">{reportData.part.rawMaterialCode || '-'}</span></div>
+                                                <div className="p-0.5 flex items-center text-black">
+                                                    <span className="font-bold mr-2 text-black">Hammalzeme Lot:</span> 
                                                     <input 
                                                         type="text" 
-                                                        value={rawMaterialLot}
-                                                        onChange={(e) => setRawMaterialLot(e.target.value)}
+                                                        value={pageLotNumbers[pageIndex] ?? ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            setPageLotNumbers(prev => ({ ...prev, [pageIndex]: val }));
+                                                            if (pageIndex === 0) setRawMaterialLot(val);
+                                                        }}
                                                         readOnly={!isAdmin}
+                                                        style={{ color: '#1e3a8a', backgroundColor: 'transparent' }}
                                                         className={`border-b border-black border-dashed bg-transparent outline-none w-32 px-1 text-xs text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} 
                                                     />
                                                 </div>
@@ -760,32 +844,34 @@ const CncInspectionReport = ({ db }) => {
                                     </div>
 
                                     {/* ÖLÇÜM TABLOSU */}
-                                    <div className="w-full mt-1 px-4">
-                                        <table className="w-full border-collapse border border-black text-center text-[10px]">
+                                    <div className="w-full mt-0.5 px-2">
+                                        <table className="w-full border-collapse border border-black text-center text-[9px] bg-white text-black" style={{ color: 'black' }}>
                                             <thead>
-                                                <tr className="bg-gray-200">
-                                                    <th className="border border-black p-1 w-6">NO</th>
-                                                    <th className="border border-black p-1">KONTROL KRİTERİ (Nominal / Tol)</th>
-                                                    <th className="border border-black p-1 w-16">METOT</th>
+                                                <tr className="bg-gray-200 text-black">
+                                                    <th className="border border-black p-0.5 w-6 text-black">NO</th>
+                                                    <th className="border border-black p-0.5 text-black">KONTROL KRİTERİ (Nominal / Tol)</th>
+                                                    <th className="border border-black p-0.5 w-16 text-black">METOT</th>
                                                     
                                                     {pageHeaders.map((col) => (
-                                                        <th key={col.index} className={`border border-black p-1 align-top ${col.width} ${col.bg}`}>
-                                                            <div className="font-bold border-b border-gray-400 pb-1 mb-1 text-[9px] whitespace-pre-line leading-tight">
+                                                        <th key={col.index} className={`border border-black p-0.5 align-top ${col.width} ${col.bg} text-black`} style={{ color: 'black' }}>
+                                                            <div className="font-bold border-b border-gray-400 pb-0.5 mb-0.5 text-[8.5px] whitespace-pre-line leading-tight text-black">
                                                                 {col.title}
                                                             </div>
                                                             <input 
                                                                 type="text" 
                                                                 placeholder="SAAT"
                                                                 readOnly={!isAdmin}
-                                                                className={`text-[9px] font-black text-gray-700 bg-transparent border-b border-gray-400 w-full text-center outline-none pb-0.5 mb-0.5 font-mono ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
+                                                                style={{ color: 'black', backgroundColor: 'transparent' }}
+                                                                className={`text-[8.5px] font-black text-black bg-transparent border-b border-gray-400 w-full text-center outline-none pb-0.5 mb-0.5 font-mono ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
                                                                 value={gridData[col.index]?.timeStr ?? ''}
                                                                 onChange={(e) => handleHeaderChange(col.index, 'timeStr', e.target.value)}
                                                             />
-                                                            <input 
-                                                                type="text" 
+                                                            <textarea 
                                                                 placeholder="OPR."
                                                                 readOnly={!isAdmin}
-                                                                className={`text-[8px] font-black text-blue-900 uppercase bg-transparent border-none w-full text-center outline-none ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
+                                                                rows={2}
+                                                                style={{ color: '#1e3a8a', backgroundColor: 'transparent', resize: 'none', minHeight: '16px', lineHeight: '8px' }}
+                                                                className={`text-[6.5px] font-black text-blue-900 uppercase bg-transparent border-none w-full text-center outline-none tracking-tighter overflow-hidden p-0 m-0 ${isAdmin ? 'focus:bg-yellow-100 placeholder-gray-500' : 'cursor-not-allowed placeholder-gray-400'}`}
                                                                 value={gridData[col.index]?.operator ?? ''}
                                                                 onChange={(e) => handleHeaderChange(col.index, 'operator', e.target.value)}
                                                             />
@@ -795,17 +881,17 @@ const CncInspectionReport = ({ db }) => {
                                             </thead>
                                             <tbody>
                                                 {reportData.criteria.map((crit, idx) => (
-                                                    <tr key={crit.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="border border-black p-1 font-bold">{idx + 1}</td>
-                                                        <td className="border border-black p-1 text-left px-2">
-                                                            <span className="font-bold text-xs">{crit.name}</span>
+                                                    <tr key={crit.id} className="hover:bg-gray-50 transition-colors bg-white text-black">
+                                                        <td className="border border-black p-0.5 font-bold text-black" style={{ color: 'black' }}>{idx + 1}</td>
+                                                        <td className="border border-black p-0.5 text-left px-2 text-black">
+                                                            <span className="font-bold text-[10px] text-black" style={{ color: 'black' }}>{crit.name}</span>
                                                             {crit.type !== 'BOOL' && (
-                                                                <span className="block text-[9px] text-gray-600">
+                                                                <span className="block text-[8px] text-gray-600" style={{ color: '#4b5563' }}>
                                                                     {crit.nominal} (+{crit.upperTol} / -{Math.abs(crit.lowerTol)})
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="border border-black p-1 font-bold uppercase text-blue-800">
+                                                        <td className="border border-black p-0.5 font-bold uppercase text-blue-800 text-[9px]" style={{ color: '#1e3a8a' }}>
                                                             {crit.method || '-'}
                                                         </td>
                                                         
@@ -831,24 +917,30 @@ const CncInspectionReport = ({ db }) => {
                                                                 }
                                                             }
 
+                                                            const resolvedColor = textClass.includes('text-green-700') 
+                                                                ? '#15803d' 
+                                                                : (textClass.includes('text-red-600') ? '#dc2626' : 'black');
+
                                                             return (
-                                                                <td key={col.index} className={`border border-black p-0 h-6 align-middle ${textClass}`}>
+                                                                <td key={col.index} className={`border border-black p-0 h-5 align-middle ${textClass}`} style={{ color: resolvedColor }}>
                                                                     {crit.type === 'BOOL' ? (
                                                                         <select 
                                                                             disabled={!isAdmin}
-                                                                            className={`w-full h-full bg-transparent border-none text-center outline-none appearance-none ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed'} ${textClass}`}
+                                                                            style={{ color: resolvedColor, backgroundColor: 'transparent' }}
+                                                                            className={`w-full h-full bg-transparent border-none text-center outline-none appearance-none text-[9px] ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed'} ${textClass}`}
                                                                             value={val}
                                                                             onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'BOOL')}
                                                                         >
-                                                                            <option value=""></option>
-                                                                            <option value="OK">OK</option>
-                                                                            <option value="RET">RET</option>
+                                                                            <option value="" style={{ color: 'black', backgroundColor: 'white' }}></option>
+                                                                            <option value="OK" style={{ color: '#15803d', backgroundColor: 'white' }}>OK</option>
+                                                                            <option value="RET" style={{ color: '#dc2626', backgroundColor: 'white' }}>RET</option>
                                                                         </select>
                                                                     ) : (
                                                                         <input 
                                                                             type="text"
                                                                             readOnly={!isAdmin}
-                                                                            className={`w-full h-full bg-transparent border-none text-center outline-none ${isAdmin ? 'focus:bg-yellow-100 focus:ring-1 focus:ring-blue-400' : 'cursor-not-allowed'} ${textClass}`}
+                                                                            style={{ color: resolvedColor, backgroundColor: 'transparent' }}
+                                                                            className={`w-full h-full bg-transparent border-none text-center outline-none text-[9px] ${isAdmin ? 'focus:bg-yellow-100 focus:ring-1 focus:ring-blue-400' : 'cursor-not-allowed'} ${textClass}`}
                                                                             value={val}
                                                                             onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'NUMBER')}
                                                                         />
@@ -863,35 +955,36 @@ const CncInspectionReport = ({ db }) => {
                                     </div>
 
                                     {/* FOOTER ALANI (AÇIKLAMA VE İMZALAR) */}
-                                    <div className="absolute bottom-3 left-4 right-4 px-4">
+                                    <div className="absolute bottom-1.5 left-4 right-4 px-4 bg-white text-black" style={{ color: 'black', backgroundColor: 'white' }}>
                                         
-                                        <div className="w-full flex items-start border border-black p-1 mb-2 bg-gray-50">
-                                            <span className="font-bold text-[10px] mr-2 whitespace-nowrap pt-1">Açıklama:</span>
+                                        <div className="w-full flex items-start border border-black p-0.5 mb-1 bg-gray-50 text-black">
+                                            <span className="font-bold text-[9px] mr-2 whitespace-nowrap pt-1 text-black">Açıklama:</span>
                                             <textarea 
                                                 value={remarks}
                                                 onChange={(e) => setRemarks(e.target.value)}
                                                 readOnly={!isAdmin}
-                                                className={`w-full text-[10px] bg-transparent outline-none resize-none ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`}
+                                                style={{ color: 'black', backgroundColor: 'transparent' }}
+                                                className={`w-full text-[9px] text-black bg-transparent outline-none resize-none ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`}
                                                 rows="2"
                                                 placeholder={isAdmin ? "Açıklama veya notlarınızı buraya girebilirsiniz..." : ""}
                                             ></textarea>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-8 text-center text-sm border-t border-black pt-2 mb-2">
-                                            <div>
-                                                <div className="font-bold mb-2">Hazırlayan</div>
-                                                <input type="text" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} readOnly={!isAdmin} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
+                                        <div className="grid grid-cols-3 gap-8 text-center text-xs border-t border-black pt-1 mb-1 text-black">
+                                            <div className="text-black">
+                                                <div className="font-bold mb-1 text-black">Hazırlayan</div>
+                                                <input type="text" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} readOnly={!isAdmin} style={{ color: '#1e3a8a', backgroundColor: 'transparent' }} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
                                             </div>
-                                            <div>
-                                                <div className="font-bold mb-2">Kontrol Eden</div>
-                                                <input type="text" value={checkedBy} onChange={(e) => setCheckedBy(e.target.value)} readOnly={!isAdmin} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
+                                            <div className="text-black">
+                                                <div className="font-bold mb-1 text-black">Kontrol Eden</div>
+                                                <input type="text" value={checkedBy} onChange={(e) => setCheckedBy(e.target.value)} readOnly={!isAdmin} style={{ color: '#1e3a8a', backgroundColor: 'transparent' }} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
                                             </div>
-                                            <div>
-                                                <div className="font-bold mb-2">Onaylayan</div>
-                                                <input type="text" value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} readOnly={!isAdmin} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
+                                            <div className="text-black">
+                                                <div className="font-bold mb-1 text-black">Onaylayan</div>
+                                                <input type="text" value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} readOnly={!isAdmin} style={{ color: '#1e3a8a', backgroundColor: 'transparent' }} className={`border-b border-black border-dashed bg-transparent outline-none w-32 text-center text-blue-900 font-bold ${isAdmin ? 'focus:bg-yellow-100' : 'cursor-not-allowed'}`} />
                                             </div>
                                         </div>
-                                        <div className="text-left font-extrabold text-xs text-gray-800 tracking-wider">FR 372</div>
+                                        <div className="text-left font-extrabold text-[10px] text-gray-800 tracking-wider">FR 372</div>
                                     </div>
                                 </div>
                             );

@@ -135,7 +135,28 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
     const [partSearchTerm, setPartSearchTerm] = useState('');
     const [isPartDropdownOpen, setIsPartDropdownOpen] = useState(false);
     
-    const [gridData, setGridData] = useState(Array(12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' })));
+    const [measurePages, setMeasurePages] = useState([[...Array(12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' }))]]);
+    const [activeMeasurePageIdx, setActiveMeasurePageIdx] = useState(0);
+    const [pageLotNumbers, setPageLotNumbers] = useState(['']);
+
+    const gridData = useMemo(() => {
+        return measurePages[activeMeasurePageIdx] || Array(12).fill(null).map(() => ({ details: [], operator: '', timeStr: '' }));
+    }, [measurePages, activeMeasurePageIdx]);
+
+    const setGridData = (newGrid) => {
+        setMeasurePages(prev => {
+            const next = [...prev];
+            next[activeMeasurePageIdx] = newGrid;
+            return next;
+        });
+    };
+
+    const handleAddMeasurePage = () => {
+        setMeasurePages(prev => [...prev, Array(12).fill(null).map(() => ({ details: [], operator: loggedInUser?.name || '', timeStr: '' }))]);
+        setPageLotNumbers(prev => [...prev, '']);
+        setActiveMeasurePageIdx(measurePages.length);
+    };
+
     const [spcGridData, setSpcGridData] = useState([]); 
     const [savingForm, setSavingForm] = useState(false);
 
@@ -408,20 +429,47 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
             const mSnap = await getDocs(mQuery);
             const measurements = mSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-            const newGrid = Array(12).fill(null).map(() => ({ details: [], operator: loggedInUser.name, timeStr: '' }));
-            let unassignedIdx = 0;
+            // Group measurements by pageIndex
+            const pagesMap = {};
+            const lotNumbersMap = {};
             measurements.forEach(m => {
-                if (m.columnIndex !== undefined && m.columnIndex >= 0 && m.columnIndex < 12) {
-                    newGrid[m.columnIndex] = { ...newGrid[m.columnIndex], ...m, timeStr: m.timeStr || '' };
-                } else { 
-                    while (unassignedIdx < 12 && newGrid[unassignedIdx].id) unassignedIdx++; 
-                    if (unassignedIdx < 12) { 
-                        newGrid[unassignedIdx] = { ...newGrid[unassignedIdx], ...m, timeStr: m.timeStr || '' }; 
-                        unassignedIdx++; 
-                    } 
+                const pIdx = m.pageIndex || 0;
+                if (!pagesMap[pIdx]) {
+                    pagesMap[pIdx] = [];
+                }
+                pagesMap[pIdx].push(m);
+                if (m.lotNumber && !lotNumbersMap[pIdx]) {
+                    lotNumbersMap[pIdx] = m.lotNumber;
                 }
             });
-            setGridData(newGrid); setIsMeasureModalOpen(true);
+
+            const maxPageIdx = Math.max(0, ...Object.keys(pagesMap).map(k => parseInt(k)));
+            const loadedPages = [];
+            const loadedLotNumbers = [];
+
+            for (let pIdx = 0; pIdx <= maxPageIdx; pIdx++) {
+                const pageDocs = pagesMap[pIdx] || [];
+                const newGrid = Array(12).fill(null).map(() => ({ details: [], operator: loggedInUser?.name || '', timeStr: '' }));
+                let unassignedIdx = 0;
+                pageDocs.forEach(m => {
+                    if (m.columnIndex !== undefined && m.columnIndex >= 0 && m.columnIndex < 12) {
+                        newGrid[m.columnIndex] = { ...newGrid[m.columnIndex], ...m, timeStr: m.timeStr || '' };
+                    } else { 
+                        while (unassignedIdx < 12 && newGrid[unassignedIdx].id) unassignedIdx++; 
+                        if (unassignedIdx < 12) { 
+                            newGrid[unassignedIdx] = { ...newGrid[unassignedIdx], ...m, timeStr: m.timeStr || '' }; 
+                            unassignedIdx++; 
+                        } 
+                    }
+                });
+                loadedPages.push(newGrid);
+                loadedLotNumbers.push(lotNumbersMap[pIdx] || '');
+            }
+
+            setMeasurePages(loadedPages);
+            setPageLotNumbers(loadedLotNumbers);
+            setActiveMeasurePageIdx(0);
+            setIsMeasureModalOpen(true);
         } catch (error) { alert("Hata oluştu."); }
     };
 
@@ -439,20 +487,29 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
         if (!selectedJob) return;
         setSavingForm(true);
         try {
-            for (let i = 0; i < 12; i++) {
-                const colData = gridData[i];
-                const hasData = colData.operator?.trim().length > 0 || colData.timeStr?.trim() !== '' || colData.details?.some(d => d.value !== '');
-                if (hasData) {
-                    const docData = { 
-                        jobId: selectedJob.id, 
-                        columnIndex: i, 
-                        operator: colData.operator || '', 
-                        timeStr: colData.timeStr || '',
-                        details: colData.details || [], 
-                        timestamp: colData.timestamp || Date.now() + i 
-                    };
-                    if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData); 
-                    else await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
+            for (let pIdx = 0; pIdx < measurePages.length; pIdx++) {
+                const pageGrid = measurePages[pIdx];
+                const lotNo = pageLotNumbers[pIdx] || '';
+                for (let i = 0; i < 12; i++) {
+                    const colData = pageGrid[i];
+                    const hasData = colData.operator?.trim().length > 0 || colData.timeStr?.trim() !== '' || colData.details?.some(d => d.value !== '') || lotNo.trim() !== '';
+                    if (hasData) {
+                        const docData = { 
+                            jobId: selectedJob.id, 
+                            pageIndex: pIdx,
+                            columnIndex: i, 
+                            operator: colData.operator || '', 
+                            timeStr: colData.timeStr || '',
+                            lotNumber: lotNo,
+                            details: colData.details || [], 
+                            timestamp: colData.timestamp || Date.now() + (pIdx * 20) + i 
+                        };
+                        if (colData.id) await updateDoc(doc(db, CNC_MEASUREMENTS_COLLECTION, colData.id), docData); 
+                        else {
+                            const newDoc = await addDoc(collection(db, CNC_MEASUREMENTS_COLLECTION), docData);
+                            colData.id = newDoc.id;
+                        }
+                    }
                 }
             }
             setIsMeasureModalOpen(false);
@@ -687,7 +744,18 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                                 {activeJob ? (
                                     <>
                                         <div className="space-y-4 flex-1">
-                                            <div><span className="text-xs font-bold text-gray-400 uppercase">İŞ EMRİ / PARÇA</span><div className="font-mono font-bold text-xl text-gray-900 dark:text-white">{activeJob.orderNumber || '---'}</div><div className="text-sm font-bold text-gray-600 dark:text-gray-300 truncate">{activeJob.partName}</div></div>
+                                            <div>
+                                                <span className="text-xs font-bold text-gray-400 uppercase">İŞ EMRİ / PARÇA</span>
+                                                <div className="font-mono font-bold text-xl text-gray-900 dark:text-white">{activeJob.orderNumber || '---'}</div>
+                                                <div className="text-sm font-bold text-gray-600 dark:text-gray-300 truncate" title={jobPart?.orderNumber || activeJob.partName}>
+                                                    {jobPart?.orderNumber || activeJob.partName || '---'}
+                                                </div>
+                                                {jobPart?.orderNumber && (
+                                                    <div className="text-[10px] text-gray-500 dark:text-gray-400 font-bold truncate mt-0.5" title={activeJob.partName}>
+                                                        {activeJob.partName}
+                                                    </div>
+                                                )}
+                                            </div>
                                             <div className="flex justify-between bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
                                                 <div><span className="text-[10px] text-gray-400 block uppercase">HEDEF</span><span className="font-bold text-gray-700 dark:text-gray-200">{activeJob.targetQuantity} Adet</span></div>
                                                 <div className="text-right"><span className="text-[10px] text-gray-400 block uppercase">SÜRE</span><span className="font-bold text-yellow-600 flex items-center"><Clock className="w-3 h-3 mr-1"/>{calculateDuration(activeJob.startTime)}</span></div>
@@ -710,11 +778,13 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
             </div>
 
             {/* --- 1. STANDART KONTROL FORMU (12 SÜTUNLU) SAAT EKLENMİŞ HALİ --- */}
-            <SimpleModal isOpen={isMeasureModalOpen} onClose={() => setIsMeasureModalOpen(false)} title="Talaşlı İmalat Kontrol Formu" maxWidth="max-w-[95vw] lg:max-w-[1200px]">
-                <div className="bg-white dark:bg-gray-800 rounded-lg">
+            <SimpleModal isOpen={isMeasureModalOpen} onClose={() => setIsMeasureModalOpen(false)} title="Talaşlı İmalat Kontrol Formu" maxWidth="max-w-[98vw] 2xl:max-w-[1560px]">
+                <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+                    
+                    {/* ÜST BİLGİ ALANI VE ONALAYAN */}
                     <div className="flex justify-between items-end mb-4 border-b border-gray-200 dark:border-gray-700 pb-4">
                         <div>
-                            <div className="text-2xl font-black text-gray-800 dark:text-white">{selectedJob?.partName}</div>
+                            <div className="text-2xl font-black text-gray-850 dark:text-white">{selectedJob?.partName}</div>
                             <div className="text-sm text-gray-500 font-bold mt-1">İş Emri: {selectedJob?.orderNumber || 'Yok'}</div>
                         </div>
                         <div className="text-right">
@@ -724,23 +794,66 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                         </div>
                     </div>
 
-                    <div className="overflow-x-auto pb-4">
-                        <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 text-center text-xs">
+                    {/* VARDİYA / SAYFA SEÇİCİ & LOT NUMARASI GİRİŞİ */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-6 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-250 dark:border-gray-700">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-black uppercase text-gray-400 dark:text-gray-500 mr-2 tracking-wider">Sayfalar (Vardiyalar):</span>
+                            {measurePages.map((_, pIdx) => (
+                                <button
+                                    key={pIdx}
+                                    type="button"
+                                    onClick={() => setActiveMeasurePageIdx(pIdx)}
+                                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                                        activeMeasurePageIdx === pIdx
+                                            ? 'bg-blue-600 text-white shadow-md'
+                                            : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
+                                    }`}
+                                >
+                                    Sayfa {pIdx + 1}
+                                </button>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={handleAddMeasurePage}
+                                className="px-3 py-2 text-xs font-black bg-green-50 hover:bg-green-100 text-green-700 dark:bg-green-950/20 dark:hover:bg-green-950/40 dark:text-green-400 rounded-lg flex items-center transition border border-green-200 dark:border-green-800"
+                            >
+                                <Plus className="w-3.5 h-3.5 mr-1" /> YENİ SAYFA EKLE
+                            </button>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <label className="text-xs font-black text-gray-600 dark:text-gray-300 uppercase shrink-0 tracking-wider">Ham Malzeme Lot No:</label>
+                            <input
+                                type="text"
+                                placeholder="LOT NUMARASI GİRİNİZ"
+                                value={pageLotNumbers[activeMeasurePageIdx] || ''}
+                                onChange={(e) => {
+                                    const newLotNumbers = [...pageLotNumbers];
+                                    newLotNumbers[activeMeasurePageIdx] = e.target.value;
+                                    setPageLotNumbers(newLotNumbers);
+                                }}
+                                className="px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 text-gray-850 dark:text-white font-bold text-xs outline-none border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 w-64 uppercase tracking-wider"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto pb-4 custom-scrollbar">
+                        <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 text-center text-sm">
                             <thead>
-                                <tr className="bg-gray-100 dark:bg-gray-700">
-                                    <th className="border border-gray-300 dark:border-gray-600 p-2 w-10 text-gray-700 dark:text-gray-300">NO</th>
-                                    <th className="border border-gray-300 dark:border-gray-600 p-2 text-left text-gray-700 dark:text-gray-300">KONTROL KRİTERİ (Nominal / Tol)</th>
+                                <tr className="bg-gray-100 dark:bg-gray-800">
+                                    <th className="border border-gray-300 dark:border-gray-600 p-3 w-12 text-gray-700 dark:text-gray-300 font-extrabold bg-gray-100 dark:bg-gray-900">NO</th>
+                                    <th className="border border-gray-300 dark:border-gray-600 p-3 text-left text-gray-700 dark:text-gray-300 font-extrabold bg-gray-100 dark:bg-gray-900">KONTROL KRİTERİ (Nominal / Tol)</th>
                                     
                                     {tableHeaders.map((col) => (
                                         <th key={col.index} className={`border border-gray-300 dark:border-gray-600 p-2 align-top ${col.width} ${col.bg}`}>
-                                            <div className="font-bold border-b border-gray-300 dark:border-gray-500 pb-1 mb-1 text-[10px] whitespace-pre-line text-gray-800 dark:text-gray-200">
+                                            <div className="font-extrabold border-b border-gray-350 dark:border-gray-500 pb-1 mb-1 text-[11px] whitespace-pre-line text-gray-800 dark:text-gray-200">
                                                 {col.title}
                                             </div>
-                                            {/* YENİ SAAT INPUTU EKLENDİ */}
+                                            {/* SAAT INPUTU */}
                                             <input 
                                                 type="text" 
                                                 placeholder="SAAT"
-                                                className="text-[10px] font-black text-gray-700 dark:text-gray-300 bg-transparent border-b border-gray-300 dark:border-gray-500 w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400 pb-1 mb-1 font-mono"
+                                                className="text-xs font-black text-gray-700 dark:text-gray-300 bg-transparent border-b border-gray-350 dark:border-gray-500 w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400 pb-1 mb-1 font-mono"
                                                 value={gridData[col.index]?.timeStr ?? ''}
                                                 onChange={(e) => {
                                                     const newGrid = [...gridData];
@@ -750,10 +863,11 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                                                     }
                                                 }}
                                             />
+                                            {/* OPERATÖR ADI */}
                                             <input 
                                                 type="text" 
                                                 placeholder="OPR."
-                                                className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase bg-transparent border-none w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400"
+                                                className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase bg-transparent border-none w-full text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 placeholder-gray-400"
                                                 value={gridData[col.index]?.operator ?? ''}
                                                 onChange={(e) => {
                                                     const newGrid = [...gridData];
@@ -770,24 +884,24 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                             <tbody>
                                 {activeCriteria.map((crit, idx) => (
                                     <tr key={crit.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                        <td className="border border-gray-300 dark:border-gray-600 p-2 font-bold text-gray-600 dark:text-gray-400">{idx + 1}</td>
-                                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-left px-3">
-                                            <span className="font-bold text-sm text-gray-800 dark:text-white block">{crit.name}</span>
-                                            {crit.type !== 'BOOL' && <span className="text-[10px] text-gray-500">{crit.nominal} (+{crit.upperTol}/-{Math.abs(crit.lowerTol)})</span>}
+                                        <td className="border border-gray-300 dark:border-gray-600 p-3 font-extrabold text-gray-600 dark:text-gray-400">{idx + 1}</td>
+                                        <td className="border border-gray-300 dark:border-gray-600 p-3 text-left px-4">
+                                            <span className="font-bold text-base text-gray-800 dark:text-white block leading-tight">{crit.name}</span>
+                                            {crit.type !== 'BOOL' && <span className="text-xs text-gray-500 dark:text-gray-400">{crit.nominal} (+{crit.upperTol}/-{Math.abs(crit.lowerTol)})</span>}
                                         </td>
                                         
                                         {tableHeaders.map((col) => {
                                             const detail = gridData[col.index]?.details?.find(d => d.criterionId === crit.id);
                                             let rawVal = detail?.value;
                                             if (rawVal === null || rawVal === undefined) rawVal = '';
-
+ 
                                             let displayVal = rawVal;
                                             let textClass = 'text-gray-900 dark:text-white font-mono';
-
+ 
                                             if (rawVal !== '') {
                                                 if (crit.type === 'BOOL') {
                                                     displayVal = rawVal === 1 ? 'OK' : (rawVal === 0 ? 'RET' : '');
-                                                    textClass = displayVal === 'OK' ? 'text-green-600 font-bold' : 'text-red-600 font-extrabold';
+                                                    textClass = displayVal === 'OK' ? 'text-green-600 dark:text-green-400 font-black' : 'text-red-600 dark:text-red-400 font-black';
                                                 } else {
                                                     const numVal = parseFloat(rawVal.toString().replace(',', '.'));
                                                     const nom = parseFloat(crit.nominal);
@@ -802,15 +916,15 @@ const CncLatheDashboard = ({ db, loggedInUser, cncJobs }) => {
                                                     }
                                                 }
                                             }
-
+ 
                                             return (
-                                                <td key={col.index} className={`border border-gray-300 dark:border-gray-600 p-0 h-10 align-middle ${col.bg}`}>
+                                                <td key={col.index} className={`border border-gray-300 dark:border-gray-600 p-0 h-12 align-middle ${col.bg}`}>
                                                     {crit.type === 'BOOL' ? (
-                                                        <select className={`w-full h-full bg-transparent border-none text-center outline-none cursor-pointer text-xs font-bold ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'BOOL', gridData, setGridData)}>
+                                                        <select className={`w-full h-full bg-transparent border-none text-center outline-none cursor-pointer text-sm font-bold ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'BOOL', gridData, setGridData)}>
                                                             <option value=""></option><option value="OK">OK</option><option value="RET">RET</option>
                                                         </select>
                                                     ) : (
-                                                        <input type="text" className={`w-full h-full bg-transparent border-none text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 text-sm ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'NUMBER', gridData, setGridData)} />
+                                                        <input type="text" className={`w-full h-full bg-transparent border-none text-center outline-none focus:bg-yellow-100 dark:focus:bg-gray-600 text-sm md:text-base ${textClass}`} value={displayVal ?? ''} onChange={(e) => handleCellChange(col.index, crit.id, e.target.value, 'NUMBER', gridData, setGridData)} />
                                                     )}
                                                 </td>
                                             );
