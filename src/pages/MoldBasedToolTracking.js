@@ -22,6 +22,7 @@ const MoldBasedToolTracking = ({ db }) => {
 
     // Genişletilmiş satırlar için state (parça detayları)
     const [expandedParts, setExpandedParts] = useState({});
+    const [expandedCategories, setExpandedCategories] = useState({});
 
     // 1. Projeleri ve İşlem Geçmişini Realtime Dinle
     useEffect(() => {
@@ -70,12 +71,15 @@ const MoldBasedToolTracking = ({ db }) => {
         let totalScrapped = 0;
         let totalReturned = 0;
         const partBreakdown = {};
+        const categoryBreakdown = {};
 
         moldTransactions.forEach(t => {
             const partName = t.moldPart ? t.moldPart.trim().toUpperCase() : 'BELİRTİLMEMİŞ';
+            const catName = t.category ? t.category.trim().toUpperCase() : 'BELİRTİLMEMİŞ';
             const qty = Number(t.quantity) || 1;
             const toolName = t.toolName || 'Bilinmeyen Takım';
 
+            // Parça Kırılımı Hesaplama
             if (!partBreakdown[partName]) {
                 partBreakdown[partName] = {
                     partName: partName,
@@ -86,7 +90,6 @@ const MoldBasedToolTracking = ({ db }) => {
                 };
             }
 
-            // Takım Bazlı Ayrıntılar için
             if (!partBreakdown[partName].tools[toolName]) {
                 partBreakdown[partName].tools[toolName] = {
                     name: toolName,
@@ -96,10 +99,38 @@ const MoldBasedToolTracking = ({ db }) => {
                 };
             }
 
+            // Kategori Kırılımı Hesaplama
+            if (!categoryBreakdown[catName]) {
+                categoryBreakdown[catName] = {
+                    categoryName: catName,
+                    issuedCount: 0,
+                    returnedCount: 0,
+                    scrappedWearCount: 0,
+                    scrappedDamageCount: 0,
+                    totalScrappedCount: 0,
+                    tools: {},
+                    scrapLogs: []
+                };
+            }
+
+            if (!categoryBreakdown[catName].tools[toolName]) {
+                categoryBreakdown[catName].tools[toolName] = {
+                    name: toolName,
+                    issued: 0,
+                    returned: 0,
+                    scrappedWear: 0,
+                    scrappedDamage: 0,
+                    scrappedTotal: 0
+                };
+            }
+
             if (t.type === TOOL_TRANSACTION_TYPES.ISSUE) {
                 totalIssued += qty;
                 partBreakdown[partName].issuedCount += qty;
                 partBreakdown[partName].tools[toolName].issued += qty;
+
+                categoryBreakdown[catName].issuedCount += qty;
+                categoryBreakdown[catName].tools[toolName].issued += qty;
             } else if (
                 t.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
                 t.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR || 
@@ -108,10 +139,34 @@ const MoldBasedToolTracking = ({ db }) => {
                 totalScrapped += qty;
                 partBreakdown[partName].scrappedCount += qty;
                 partBreakdown[partName].tools[toolName].scrapped += qty;
+
+                categoryBreakdown[catName].totalScrappedCount += qty;
+                categoryBreakdown[catName].tools[toolName].scrappedTotal += qty;
+
+                if (t.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE) {
+                    categoryBreakdown[catName].scrappedDamageCount += qty;
+                    categoryBreakdown[catName].tools[toolName].scrappedDamage += qty;
+                } else {
+                    categoryBreakdown[catName].scrappedWearCount += qty;
+                    categoryBreakdown[catName].tools[toolName].scrappedWear += qty;
+                }
+
+                categoryBreakdown[catName].scrapLogs.push({
+                    id: t.id,
+                    toolName,
+                    type: t.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE ? 'Kırılma/Hasar' : 'Aşınma',
+                    quantity: qty,
+                    notes: t.notes || 'Açıklama belirtilmemiş.',
+                    date: t.date,
+                    user: t.user || t.receiver || 'Bilinmiyor'
+                });
             } else if (t.type === TOOL_TRANSACTION_TYPES.RETURN_HEALTHY) {
                 totalReturned += qty;
                 partBreakdown[partName].returnedCount += qty;
                 partBreakdown[partName].tools[toolName].returned += qty;
+
+                categoryBreakdown[catName].returnedCount += qty;
+                categoryBreakdown[catName].tools[toolName].returned += qty;
             }
         });
 
@@ -125,7 +180,8 @@ const MoldBasedToolTracking = ({ db }) => {
             totalReturned,
             activeCount,
             scrapRate,
-            parts: Object.values(partBreakdown).sort((a, b) => b.issuedCount - a.issuedCount)
+            parts: Object.values(partBreakdown).sort((a, b) => b.issuedCount - a.issuedCount),
+            categories: Object.values(categoryBreakdown).sort((a, b) => b.issuedCount - a.issuedCount)
         };
     }, [moldTransactions, selectedProjectId]);
 
@@ -133,6 +189,13 @@ const MoldBasedToolTracking = ({ db }) => {
         setExpandedParts(prev => ({
             ...prev,
             [partName]: !prev[partName]
+        }));
+    };
+
+    const toggleCategoryExpand = (catName) => {
+        setExpandedCategories(prev => ({
+            ...prev,
+            [catName]: !prev[catName]
         }));
     };
 
@@ -273,6 +336,143 @@ const MoldBasedToolTracking = ({ db }) => {
                         </div>
                     </div>
 
+                    {/* KATEGORİ BAZLI KIRILIM LİSTESİ */}
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                            <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                                <Package className="w-5 h-5 text-indigo-500" />
+                                Kategori Bazlı Takım & Hurda Dağılımı
+                            </h3>
+                            <span className="text-xs font-bold text-gray-400 dark:text-gray-500">Satırlara tıklayarak kategori detaylarını görebilirsiniz</span>
+                        </div>
+
+                        {moldStats.categories.length === 0 ? (
+                            <div className="p-8 text-center text-gray-500 dark:text-gray-400 font-semibold">
+                                Bu kalıba ait kategori bazlı veri bulunmuyor.
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-gray-150 dark:divide-gray-700">
+                                {moldStats.categories.map(cat => {
+                                    const catScrapRate = cat.issuedCount > 0 ? ((cat.totalScrappedCount / cat.issuedCount) * 100).toFixed(1) : '0.0';
+                                    const isExpanded = !!expandedCategories[cat.categoryName];
+
+                                    return (
+                                        <div key={cat.categoryName} className="transition">
+                                            {/* Kategori Satırı Ana Başlık */}
+                                            <div 
+                                                onClick={() => toggleCategoryExpand(cat.categoryName)}
+                                                className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer select-none"
+                                            >
+                                                <div className="flex-1 min-w-0 pr-4">
+                                                    <span className="text-xs text-indigo-550 dark:text-indigo-400 font-extrabold tracking-wide">TAKIM KATEGORİSİ</span>
+                                                    <h4 className="text-base font-black text-gray-900 dark:text-white mt-0.5">{cat.categoryName}</h4>
+                                                </div>
+
+                                                <div className="flex items-center gap-4 md:gap-8 shrink-0 flex-wrap justify-end">
+                                                    <div className="text-center min-w-[70px]">
+                                                        <span className="text-[10px] text-gray-400 font-bold block">VERİLEN</span>
+                                                        <span className="font-extrabold text-sm text-gray-900 dark:text-white">{cat.issuedCount} Adet</span>
+                                                    </div>
+                                                    <div className="text-center min-w-[70px]">
+                                                        <span className="text-[10px] text-gray-400 font-bold block">AŞINMA (HURDA)</span>
+                                                        <span className="font-extrabold text-sm text-orange-600 dark:text-orange-400">{cat.scrappedWearCount} Adet</span>
+                                                    </div>
+                                                    <div className="text-center min-w-[70px]">
+                                                        <span className="text-[10px] text-red-500/80 font-bold block">KIRILMA (HURDA)</span>
+                                                        <span className="font-extrabold text-sm text-red-655 dark:text-red-400">{cat.scrappedDamageCount} Adet</span>
+                                                    </div>
+                                                    <div className="text-center min-w-[70px]">
+                                                        <span className="text-[10px] text-gray-400 font-bold block">İADE SAĞLAM</span>
+                                                        <span className="font-extrabold text-sm text-green-600 dark:text-green-400">{cat.returnedCount} Adet</span>
+                                                    </div>
+                                                    <div className="text-center">
+                                                        <span className="text-[10px] text-gray-400 font-bold block">TOPLAM HURDA ORANI</span>
+                                                        <span className={`px-2 py-0.5 rounded text-xs font-black border ${Number(catScrapRate) > 30 ? 'bg-red-50 text-red-655 border-red-200 dark:bg-red-950/20 dark:text-red-400' : 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400'}`}>
+                                                            %{catScrapRate}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Genişletilmiş Kategori Detayları */}
+                                            {isExpanded && (
+                                                <div className="bg-gray-50/50 dark:bg-gray-900/20 px-8 py-4 border-t border-gray-100 dark:border-gray-800 space-y-4">
+                                                    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                                                        <table className="min-w-full divide-y divide-gray-250 dark:divide-gray-700">
+                                                            <thead className="bg-gray-100 dark:bg-gray-800 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                                <tr>
+                                                                    <th className="px-4 py-2">Takım Adı</th>
+                                                                    <th className="px-4 py-2 text-center w-24">Verilen</th>
+                                                                    <th className="px-4 py-2 text-center w-24">Aşınma</th>
+                                                                    <th className="px-4 py-2 text-center w-24">Kırılma</th>
+                                                                    <th className="px-4 py-2 text-center w-24">İade</th>
+                                                                    <th className="px-4 py-2 text-center w-28">Toplam Hurda Oranı</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-150 dark:divide-gray-750 bg-white dark:bg-gray-800">
+                                                                {Object.values(cat.tools).map(tool => {
+                                                                    const toolScrapRate = tool.issued > 0 ? ((tool.scrappedTotal / tool.issued) * 100).toFixed(1) : '0.0';
+                                                                    return (
+                                                                        <tr key={tool.name} className="text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                                            <td className="px-4 py-2 font-bold text-gray-800 dark:text-gray-200">{tool.name}</td>
+                                                                            <td className="px-4 py-2 text-center font-extrabold text-blue-600 dark:text-blue-400">{tool.issued}</td>
+                                                                            <td className="px-4 py-2 text-center font-semibold text-orange-600 dark:text-orange-400">{tool.scrappedWear}</td>
+                                                                            <td className="px-4 py-2 text-center font-semibold text-red-655 dark:text-red-400">{tool.scrappedDamage}</td>
+                                                                            <td className="px-4 py-2 text-center font-extrabold text-green-600 dark:text-green-400">{tool.returned}</td>
+                                                                            <td className="px-4 py-2 text-center">
+                                                                                <span className={`px-1.5 py-0.5 rounded text-xs font-black ${Number(toolScrapRate) > 30 ? 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+                                                                                    %{toolScrapRate}
+                                                                                </span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+
+                                                    {/* Hurda ve Kırılma Detay Logları */}
+                                                    {cat.scrapLogs.length > 0 && (
+                                                        <div className="bg-red-50/30 dark:bg-red-950/10 p-4 rounded-xl border border-red-100/55 dark:border-red-950/30">
+                                                            <h5 className="text-xs font-black text-red-700 dark:text-red-400 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                                                <ShieldAlert className="w-4 h-4" /> Kategori Hurda & Kırılma Detayları
+                                                            </h5>
+                                                            <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                                                {cat.scrapLogs.map(log => (
+                                                                    <div key={log.id} className="text-xs bg-white dark:bg-gray-800 p-2.5 rounded-lg border border-gray-150 dark:border-gray-700 flex justify-between items-start gap-4">
+                                                                        <div>
+                                                                            <span className="font-bold text-gray-900 dark:text-white block">{log.toolName}</span>
+                                                                            <span className="text-[10px] text-gray-500 font-semibold mt-1 block">
+                                                                                Neden: <strong className={log.type === 'Kırılma/Hasar' ? 'text-red-650 dark:text-red-400' : 'text-orange-650 dark:text-orange-400'}>{log.type}</strong>
+                                                                                &nbsp;|&nbsp; Bildiren: {log.user}
+                                                                                &nbsp;|&nbsp; Tarih: {log.date}
+                                                                            </span>
+                                                                            {log.notes && (
+                                                                                <p className="mt-1 text-gray-600 dark:text-gray-350 italic font-medium bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded">
+                                                                                    {log.notes}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                        <span className="shrink-0 bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-400 font-black px-2 py-0.5 rounded text-[10px]">
+                                                                            {log.quantity} Adet
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
                     {/* PARÇA BAZLI KIRILIM LİSTESİ */}
                     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                         <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
@@ -345,7 +545,7 @@ const MoldBasedToolTracking = ({ db }) => {
                                                                     const toolScrapRate = tool.issued > 0 ? ((tool.scrapped / tool.issued) * 100).toFixed(1) : '0.0';
                                                                     return (
                                                                         <tr key={tool.name} className="text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                                                            <td className="px-4 py-2 font-bold text-gray-800 dark:text-gray-250">{tool.name}</td>
+                                                                            <td className="px-4 py-2 font-bold text-gray-800 dark:text-gray-200">{tool.name}</td>
                                                                             <td className="px-4 py-2 text-center font-extrabold text-blue-600 dark:text-blue-400">{tool.issued}</td>
                                                                             <td className="px-4 py-2 text-center font-extrabold text-green-600 dark:text-green-400">{tool.returned}</td>
                                                                             <td className="px-4 py-2 text-center font-extrabold text-red-600 dark:text-red-400">{tool.scrapped}</td>

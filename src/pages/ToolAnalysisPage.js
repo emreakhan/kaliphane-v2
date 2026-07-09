@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     BarChart2, AlertTriangle, Users, TrendingUp, 
-    Download, Calendar, Filter, CheckCircle, Recycle, XCircle, Search, Layers
+    Download, Calendar, Filter, CheckCircle, Recycle, XCircle, Layers
 } from 'lucide-react';
 import { collection, query, getDocs, onSnapshot } from '../config/firebase.js';
 import { 
@@ -12,7 +12,8 @@ import {
 
 // GRAFİK KÜTÜPHANESİ
 import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
+    AreaChart, Area
 } from 'recharts';
 
 // PDF KÜTÜPHANESİ
@@ -35,6 +36,16 @@ const CustomYAxisTick = ({ x, y, payload }) => {
     );
 };
 
+const months = [
+    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+];
+
+const cleanToolName = (name) => {
+    if (!name) return '';
+    return name.replace(/^\[[^\]]+\]\s*/, '').trim();
+};
+
 const ToolAnalysisPage = ({ db }) => {
     const [activeTab, setActiveTab] = useState('USAGE'); 
     const [inventory, setInventory] = useState([]);
@@ -45,12 +56,23 @@ const ToolAnalysisPage = ({ db }) => {
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [selectedMonth, setSelectedMonth] = useState('ALL'); 
-    const [toolSearchTerm, setToolSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('ALL');
+    const [selectedTool, setSelectedTool] = useState('ALL');
 
-    const months = [
-        "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
-        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
-    ];
+    // --- KATEGORİ VE TAKIM LİSTELERİ ---
+    const categories = useMemo(() => {
+        const cats = new Set(inventory.map(t => t.category).filter(Boolean));
+        return ['ALL', ...Array.from(cats).sort()];
+    }, [inventory]);
+
+    const toolsInCategory = useMemo(() => {
+        let result = inventory;
+        if (selectedCategory !== 'ALL') {
+            result = result.filter(t => t.category === selectedCategory);
+        }
+        const uniqueNames = Array.from(new Set(result.map(t => cleanToolName(t.name)).filter(Boolean)));
+        return uniqueNames.sort((a, b) => a.localeCompare(b, 'tr'));
+    }, [inventory, selectedCategory]);
 
     // --- GEÇMİŞ YILLARI DİNAMİK HESAPLAMA ---
     const availableYears = useMemo(() => {
@@ -110,7 +132,13 @@ const ToolAnalysisPage = ({ db }) => {
             // Kalıp malzemelerini grafikte gösterme
             if (tx.isMoldMaterial || (tx.toolName && tx.toolName.toLowerCase().includes('kalıp malzemesi'))) return;
 
-            const name = tx.toolName || 'Bilinmiyor';
+            const name = cleanToolName(tx.toolName || 'Bilinmiyor');
+
+            // Kategori ve Takım filtreleri
+            const toolMatch = inventory.find(t => (t.id === tx.toolId || cleanToolName(t.name) === name) && t.category) || 
+                              inventory.find(t => t.id === tx.toolId || cleanToolName(t.name) === name);
+            if (selectedCategory !== 'ALL' && (!toolMatch || toolMatch.category !== selectedCategory)) return;
+            if (selectedTool !== 'ALL' && name !== selectedTool) return;
             
             if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
                 usageMap[name] = (usageMap[name] || 0) + (parseInt(tx.quantity) || 1);
@@ -120,7 +148,7 @@ const ToolAnalysisPage = ({ db }) => {
             if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
                 tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE || 
                 tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
-                scrapMap[name] = (scrapMap[name] || 0) + 1;
+                scrapMap[name] = (scrapMap[name] || 0) + (parseInt(tx.quantity) || 1);
             }
         });
 
@@ -135,7 +163,102 @@ const ToolAnalysisPage = ({ db }) => {
             .slice(0, 10); 
 
         return { usageData, scrapData, usageMap, scrapMap };
-    }, [filteredTransactions]);
+    }, [filteredTransactions, inventory, selectedCategory, selectedTool]);
+
+    // --- SEÇİLEN KATEGORİ VE TAKIMIN AYLIK DEĞİŞİM TRENDİ ---
+    const monthlyTrendData = useMemo(() => {
+        const trend = Array.from({ length: 12 }, (_, i) => ({
+            monthName: months[i],
+            issued: 0,
+            scrappedWear: 0,
+            scrappedDamage: 0,
+            totalScrapped: 0
+        }));
+
+        transactions.forEach(tx => {
+            if (!tx.date) return;
+            const txDate = new Date(tx.date);
+            if (txDate.getFullYear() !== parseInt(selectedYear)) return;
+
+            const name = cleanToolName(tx.toolName || 'Bilinmiyor');
+
+            // Filter by Category and Tool selection
+            const toolMatch = inventory.find(t => (t.id === tx.toolId || cleanToolName(t.name) === name) && t.category) || 
+                              inventory.find(t => t.id === tx.toolId || cleanToolName(t.name) === name);
+            if (selectedCategory !== 'ALL' && (!toolMatch || toolMatch.category !== selectedCategory)) return;
+            if (selectedTool !== 'ALL' && name !== selectedTool) return;
+
+            const monthIdx = txDate.getMonth();
+            const qty = parseInt(tx.quantity) || 1;
+
+            if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
+                trend[monthIdx].issued += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
+                trend[monthIdx].scrappedWear += qty;
+                trend[monthIdx].totalScrapped += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE) {
+                trend[monthIdx].scrappedDamage += qty;
+                trend[monthIdx].totalScrapped += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
+                trend[monthIdx].scrappedWear += qty;
+                trend[monthIdx].totalScrapped += qty;
+            }
+        });
+
+        return trend;
+    }, [transactions, inventory, selectedYear, selectedCategory, selectedTool]);
+
+    // --- SEÇİLEN KATEGORİDEKİ TÜM TAKIMLARIN KULLANIM SIRALAMASI ---
+    const categoryUsageRanking = useMemo(() => {
+        const statsMap = {};
+
+        // İlk olarak kategorideki tüm takımları haritaya ekle
+        inventory.forEach(tool => {
+            if (selectedCategory !== 'ALL' && tool.category !== selectedCategory) return;
+            const cleanName = cleanToolName(tool.name);
+            if (!cleanName) return;
+
+            if (!statsMap[cleanName]) {
+                statsMap[cleanName] = {
+                    name: cleanName,
+                    category: tool.category,
+                    totalStock: 0,
+                    totalIssued: 0,
+                    totalScrapped: 0,
+                    scrappedWear: 0,
+                    scrappedDamage: 0
+                };
+            }
+            statsMap[cleanName].totalStock += (parseInt(tool.totalStock) || 0);
+        });
+
+        // Tüketim/Hurda hareketlerini yansıt
+        transactions.forEach(tx => {
+            if (!tx.date) return;
+            const txDate = new Date(tx.date);
+            if (txDate.getFullYear() !== parseInt(selectedYear)) return;
+
+            const cleanName = cleanToolName(tx.toolName);
+            if (!cleanName || !statsMap[cleanName]) return;
+
+            const qty = parseInt(tx.quantity) || 1;
+
+            if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
+                statsMap[cleanName].totalIssued += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
+                statsMap[cleanName].scrappedWear += qty;
+                statsMap[cleanName].totalScrapped += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE) {
+                statsMap[cleanName].scrappedDamage += qty;
+                statsMap[cleanName].totalScrapped += qty;
+            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP) {
+                statsMap[cleanName].scrappedWear += qty;
+                statsMap[cleanName].totalScrapped += qty;
+            }
+        });
+
+        return Object.values(statsMap).sort((a, b) => b.totalIssued - a.totalIssued);
+    }, [transactions, inventory, selectedYear, selectedCategory]);
 
     const operatorStats = useMemo(() => {
         const ops = {};
@@ -153,65 +276,18 @@ const ToolAnalysisPage = ({ db }) => {
             // 1. HATA/KIRILMA (Performansa Eksi Yazar) - Eski 'RETURN_SCRAP' ve yeni 'DAMAGE'
             if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || 
                 tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE) {
-                ops[opName].totalScrap += 1;
+                ops[opName].totalScrap += (parseInt(tx.quantity) || 1);
             }
 
             // 2. DOĞAL AŞINMA (Performansı Etkilemez) - Yeni 'WEAR'
             if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
-                ops[opName].totalWear += 1;
+                ops[opName].totalWear += (parseInt(tx.quantity) || 1);
             }
         });
         return Object.values(ops).sort((a, b) => b.totalTaken - a.totalTaken);
     }, [filteredTransactions]);
 
-    // --- TÜM TAKIM TRAFİĞİ (LİSTE VE ARAMA) ---
-    const comprehensiveToolStats = useMemo(() => {
-        const statsMap = {};
-        inventory.forEach(tool => {
-            statsMap[tool.id] = {
-                id: tool.id,
-                name: tool.name,
-                code: tool.productCode || '-',
-                category: tool.category,
-                currentStock: tool.totalStock,
-                yearEntry: 0,
-                yearUsed: 0,
-                yearScrap: 0,
-                allTimeEntry: 0,
-                allTimeUsed: 0,
-                allTimeScrap: 0
-            };
-        });
 
-        transactions.forEach(tx => {
-            const toolMatch = inventory.find(t => t.id === tx.toolId || t.name === tx.toolName);
-            if (!toolMatch) return;
-
-            const st = statsMap[toolMatch.id];
-            const txYear = new Date(tx.date).getFullYear();
-            const isSelectedYear = txYear === parseInt(selectedYear);
-            const qty = parseInt(tx.quantity) || 1;
-
-            if (tx.type === TOOL_TRANSACTION_TYPES.STOCK_ENTRY) {
-                st.allTimeEntry += qty;
-                if (isSelectedYear) st.yearEntry += qty;
-            } else if (tx.type === TOOL_TRANSACTION_TYPES.ISSUE) {
-                st.allTimeUsed += qty;
-                if (isSelectedYear) st.yearUsed += qty;
-            } else if (tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP || tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE || tx.type === TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR) {
-                st.allTimeScrap += 1;
-                if (isSelectedYear) st.yearScrap += 1;
-            }
-        });
-
-        let list = Object.values(statsMap);
-        if (toolSearchTerm.trim()) {
-            const lower = toolSearchTerm.toLowerCase();
-            list = list.filter(t => t.name.toLowerCase().includes(lower) || t.code.toLowerCase().includes(lower));
-        }
-
-        return list.sort((a, b) => b.yearUsed - a.yearUsed);
-    }, [inventory, transactions, selectedYear, toolSearchTerm]);
 
     // --- PDF RAPOR OLUŞTURMA ---
     const generatePDF = () => {
@@ -319,6 +395,37 @@ const ToolAnalysisPage = ({ db }) => {
                             ))}
                         </select>
                     </div>
+                    {/* Kategori Seçimi */}
+                    <div className="flex items-center px-2 border-l border-gray-300 dark:border-gray-600">
+                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 mr-2">Kategori:</span>
+                        <select 
+                            value={selectedCategory} 
+                            onChange={(e) => {
+                                setSelectedCategory(e.target.value);
+                                setSelectedTool('ALL');
+                            }}
+                            className="bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold outline-none cursor-pointer max-w-[150px]"
+                        >
+                            {categories.map(cat => (
+                                <option key={cat} value={cat} className="dark:text-white dark:bg-gray-800">{cat === 'ALL' ? 'Tümü' : cat}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Takım Seçimi */}
+                    <div className="flex items-center px-2 border-l border-gray-300 dark:border-gray-600">
+                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 mr-2">Takım:</span>
+                        <select 
+                            value={selectedTool} 
+                            onChange={(e) => setSelectedTool(e.target.value)}
+                            className="bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 font-bold outline-none cursor-pointer max-w-[200px]"
+                        >
+                            <option value="ALL" className="dark:text-white dark:bg-gray-800">Tümü</option>
+                            {toolsInCategory.map(tName => (
+                                <option key={tName} value={tName} className="dark:text-white dark:bg-gray-800">{tName}</option>
+                            ))}
+                        </select>
+                    </div>
 
                     {/* PDF Butonu */}
                     <button 
@@ -406,55 +513,136 @@ const ToolAnalysisPage = ({ db }) => {
                         </div>
                     </div>
 
-                    {/* YENİ: TÜM TAKIM TRAFİĞİ LİSTESİ */}
-                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
-                        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
-                                <Layers className="w-5 h-5 mr-2 text-indigo-500" />
-                                Tüm Takım Trafiği & Envanter Detayı
-                            </h3>
-                            <div className="relative w-full sm:w-64">
-                                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                                <input 
-                                    type="text"
-                                    placeholder="Takım Adı veya Kod Ara..."
-                                    value={toolSearchTerm}
-                                    onChange={(e) => setToolSearchTerm(e.target.value)}
-                                    className="w-full pl-9 p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
+                    {/* YENİ: AYLIK DETAYLI TREND ANALİZİ */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col p-6 space-y-6">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 dark:border-gray-700 pb-4 gap-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                                    <TrendingUp className="w-5 h-5 text-indigo-500" />
+                                    {selectedTool !== 'ALL' ? `"${selectedTool}" Aylık Değişim Trendi` : selectedCategory !== 'ALL' ? `"${selectedCategory}" Kategorisi Aylık Değişim Trendi` : 'Tüm Takımlar Aylık Değişim Trendi'}
+                                </h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-semibold">
+                                    {selectedYear} yılındaki aylık tüketim ve hurda dağılım grafiği.
+                                </p>
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+
+                        {/* Trend Grafiği */}
+                        <div className="h-72 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="colorIssued" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.8}/>
+                                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                                        </linearGradient>
+                                        <linearGradient id="colorScrapped" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#EF4444" stopOpacity={0.8}/>
+                                            <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                                    <XAxis dataKey="monthName" tick={{ fill: '#9CA3AF', fontSize: 11, fontWeight: 'bold' }} />
+                                    <YAxis tick={{ fill: '#9CA3AF', fontSize: 11, fontWeight: 'bold' }} />
+                                    <Tooltip 
+                                        contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }} 
+                                        itemStyle={{ color: '#fff' }}
+                                    />
+                                    <Legend />
+                                    <Area type="monotone" dataKey="issued" name="Kullanım / Verilen" stroke="#3B82F6" fillOpacity={1} fill="url(#colorIssued)" strokeWidth={2} />
+                                    <Area type="monotone" dataKey="totalScrapped" name="Hurdaya Ayrılan" stroke="#EF4444" fillOpacity={1} fill="url(#colorScrapped)" strokeWidth={2} />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        {/* Aylık Detay Tablosu */}
+                        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                            <table className="min-w-full text-left text-sm text-gray-600 dark:text-gray-300">
                                 <thead className="bg-gray-100 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
                                     <tr>
-                                        <th className="p-4">Stok Kodu / Takım</th>
-                                        <th className="p-4 text-center">Mevcut Stok</th>
-                                        <th className="p-4 text-center">{selectedYear} Alınan</th>
-                                        <th className="p-4 text-center">{selectedYear} Kullanım</th>
-                                        <th className="p-4 text-center">{selectedYear} Hurda</th>
-                                        <th className="p-4 text-center">Aylık Ort. Kullanım</th>
-                                        <th className="p-4 text-center">Tüm Zamanlar Kullanım</th>
+                                        <th className="p-3">Ay</th>
+                                        <th className="p-3 text-center">Kullanım / Verilen</th>
+                                        <th className="p-3 text-center">Doğal Aşınma (Hurda)</th>
+                                        <th className="p-3 text-center">Kırılma / Hata (Hurda)</th>
+                                        <th className="p-3 text-center">Toplam Hurda</th>
+                                        <th className="p-3 text-center">Aylık Hurda Oranı</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                                    {comprehensiveToolStats.length === 0 ? (
-                                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">Veri bulunamadı.</td></tr>
+                                <tbody className="divide-y divide-gray-150 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                    {monthlyTrendData.map((row, idx) => {
+                                        const rate = row.issued > 0 ? ((row.totalScrapped / row.issued) * 100).toFixed(1) : '0.0';
+                                        return (
+                                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                                <td className="p-3 font-bold text-gray-800 dark:text-white">{row.monthName}</td>
+                                                <td className="p-3 text-center font-extrabold text-blue-600 dark:text-blue-400">{row.issued} Adet</td>
+                                                <td className="p-3 text-center font-semibold text-orange-600 dark:text-orange-400">{row.scrappedWear} Adet</td>
+                                                <td className="p-3 text-center font-semibold text-red-650 dark:text-red-400">{row.scrappedDamage} Adet</td>
+                                                <td className="p-3 text-center font-extrabold text-red-600 dark:text-red-500">{row.totalScrapped} Adet</td>
+                                                <td className="p-3 text-center">
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-black border ${Number(rate) > 30 ? 'bg-red-50 text-red-655 border-red-200 dark:bg-red-950/20 dark:text-red-400' : 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900/30 dark:text-gray-300'}`}>
+                                                        %{rate}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* KATEGORİ DETAYLI KULLANIM SIRALAMASI */}
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col p-6 space-y-4">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                                <Layers className="w-5 h-5 text-blue-500" />
+                                {selectedCategory !== 'ALL' ? `"${selectedCategory}" Kategorisi Takım Kullanım Sıralaması` : 'Tüm Kategoriler Takım Kullanım Sıralaması'}
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-semibold">
+                                {selectedYear} yılındaki en çok kullanılandan en az kullanılana doğru takım sıralaması ve hurda detayları.
+                            </p>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                            <table className="min-w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                                <thead className="bg-gray-100 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
+                                    <tr>
+                                        <th className="p-3 text-center w-12">Sıra</th>
+                                        <th className="p-3">Takım Adı</th>
+                                        {selectedCategory === 'ALL' && <th className="p-3">Kategori</th>}
+                                        <th className="p-3 text-center">Toplam Stok</th>
+                                        <th className="p-3 text-center">Tüketim / Kullanım</th>
+                                        <th className="p-3 text-center">Aşınma (Hurda)</th>
+                                        <th className="p-3 text-center">Kırılma/Hata (Hurda)</th>
+                                        <th className="p-3 text-center">Toplam Hurda</th>
+                                        <th className="p-3 text-center">Hurda Oranı</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-150 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                    {categoryUsageRanking.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={selectedCategory === 'ALL' ? 9 : 8} className="p-8 text-center text-gray-400">
+                                                Veri bulunamadı.
+                                            </td>
+                                        </tr>
                                     ) : (
-                                        comprehensiveToolStats.map((item, idx) => {
-                                            const monthlyAvg = (item.yearUsed / 12).toFixed(1);
+                                        categoryUsageRanking.map((row, idx) => {
+                                            const scrapRate = row.totalIssued > 0 ? ((row.totalScrapped / row.totalIssued) * 100).toFixed(1) : '0.0';
                                             return (
                                                 <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                                    <td className="p-4">
-                                                        <div className="font-bold text-gray-900 dark:text-white">{item.name}</div>
-                                                        <div className="text-xs text-gray-500 font-mono mt-0.5">{item.code}</div>
+                                                    <td className="p-3 text-center font-bold text-gray-400 dark:text-gray-500">#{idx + 1}</td>
+                                                    <td className="p-3 font-bold text-gray-900 dark:text-white">{row.name}</td>
+                                                    {selectedCategory === 'ALL' && <td className="p-3 font-semibold text-gray-500">{row.category || '-'}</td>}
+                                                    <td className="p-3 text-center font-semibold text-gray-800 dark:text-gray-200">{row.totalStock} Adet</td>
+                                                    <td className="p-3 text-center font-extrabold text-blue-600 dark:text-blue-400">{row.totalIssued} Adet</td>
+                                                    <td className="p-3 text-center font-medium text-orange-500">{row.scrappedWear} Adet</td>
+                                                    <td className="p-3 text-center font-medium text-red-500">{row.scrappedDamage} Adet</td>
+                                                    <td className="p-3 text-center font-extrabold text-red-600 dark:text-red-500">{row.totalScrapped} Adet</td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`px-2 py-0.5 rounded text-xs font-black border ${Number(scrapRate) > 25 ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/20 dark:text-red-400' : 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900/30 dark:text-gray-300'}`}>
+                                                            %{scrapRate}
+                                                        </span>
                                                     </td>
-                                                    <td className="p-4 text-center font-bold text-gray-800 dark:text-gray-200">{item.currentStock}</td>
-                                                    <td className="p-4 text-center font-bold text-green-600 dark:text-green-400">+{item.yearEntry}</td>
-                                                    <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{item.yearUsed}</td>
-                                                    <td className="p-4 text-center font-bold text-red-600 dark:text-red-400">{item.yearScrap}</td>
-                                                    <td className="p-4 text-center font-bold text-orange-600 dark:text-orange-400">{monthlyAvg}</td>
-                                                    <td className="p-4 text-center font-bold text-purple-600 dark:text-purple-400">{item.allTimeUsed}</td>
                                                 </tr>
                                             );
                                         })

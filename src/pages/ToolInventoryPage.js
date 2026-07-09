@@ -44,6 +44,7 @@ const ToolInventoryPage = ({ tools, loggedInUser, db, machines = [], personnel =
     
     // Stok Ekleme Modalı State
     const [addStockModal, setAddStockModal] = useState({ isOpen: false, tool: null, quantity: '1' });
+    const [scrapModal, setScrapModal] = useState({ isOpen: false, tool: null, quantity: '1', reason: 'WEAR', notes: '' });
     const [stockUpdateId, setStockUpdateId] = useState(null); 
     const [tempStockValue, setTempStockValue] = useState('');
 
@@ -306,6 +307,44 @@ const ToolInventoryPage = ({ tools, loggedInUser, db, machines = [], personnel =
         }
     };
 
+    const handleConfirmScrap = async () => {
+        const { tool, quantity, reason, notes } = scrapModal;
+        if (!tool) return;
+
+        const qty = parseInt(quantity);
+        if (isNaN(qty) || qty <= 0) return alert("Lütfen geçerli ve 0'dan büyük bir miktar giriniz.");
+        if (qty > tool.totalStock) return alert(`Hata: Stokta en fazla ${tool.totalStock} adet bulunmaktadır!`);
+
+        const oldStock = parseInt(tool.totalStock);
+        const newStock = oldStock - qty;
+
+        try {
+            await updateDoc(doc(db, INVENTORY_COLLECTION, tool.id), { totalStock: newStock });
+
+            const conditionText = tool.condition === 'USED' ? '[KULLANILMIŞ DEPO] ' : '[SIFIR DEPO] ';
+            const type = reason === 'WEAR' ? TOOL_TRANSACTION_TYPES.RETURN_SCRAP_WEAR : TOOL_TRANSACTION_TYPES.RETURN_SCRAP_DAMAGE;
+            
+            await addDoc(collection(db, TOOL_TRANSACTIONS_COLLECTION), {
+                type: type,
+                toolId: tool.id,
+                toolName: conditionText + tool.name,
+                category: tool.category || 'DİĞER',
+                quantity: qty,
+                oldStock: oldStock,
+                newStock: newStock,
+                user: loggedInUser.name,
+                date: getCurrentDateTimeString(),
+                notes: notes.trim() || (reason === 'WEAR' ? 'Ömrünü Tamamlayarak Hurda' : 'Kırılma/Hata Kaynaklı Hurda')
+            });
+
+            alert("Takım başarıyla hurdaya ayrıldı.");
+            setScrapModal({ isOpen: false, tool: null, quantity: '1', reason: 'WEAR', notes: '' });
+        } catch (error) {
+            console.error("Hurda kaydetme hatası:", error);
+            alert("İşlem sırasında hata oluştu.");
+        }
+    };
+
     // --- KATEGORİ YÖNETİMİ ---
     const [newCatName, setNewCatName] = useState('');
     
@@ -561,11 +600,12 @@ const ToolInventoryPage = ({ tools, loggedInUser, db, machines = [], personnel =
                                                      ) : (
                                                          <>
                                                              <button 
-                                                                 onClick={() => handleQuickStockUpdate(tool, -1)}
-                                                                 className="w-8 h-8 flex items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition"
-                                                             >
-                                                                 <MinusCircle className="w-5 h-5" />
-                                                             </button>
+                                                                onClick={() => setScrapModal({ isOpen: true, tool: tool, quantity: '1', reason: 'WEAR', notes: '' })}
+                                                                className="w-8 h-8 flex items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition"
+                                                                title="Takımı Hurdaya Ayır"
+                                                            >
+                                                                <MinusCircle className="w-5 h-5" />
+                                                            </button>
                                                              
                                                              <span className={`text-lg font-bold w-12 text-center cursor-pointer hover:underline ${isCritical ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}
                                                                    onClick={() => { setStockUpdateId(tool.id); setTempStockValue(tool.totalStock); }}
@@ -939,6 +979,80 @@ const ToolInventoryPage = ({ tools, loggedInUser, db, machines = [], personnel =
                                     className="flex-1 py-3 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-1.5"
                                 >
                                     <Check className="w-4 h-4" /> Stok Ekle
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* --- MODAL: TAKIM HURDAYA AYIRMA --- */}
+            {scrapModal.isOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+                        <div className="bg-red-600 dark:bg-red-700 p-5 flex justify-between items-center text-white shrink-0">
+                            <h3 className="text-lg font-bold flex items-center gap-2"><Trash2 className="w-5 h-5" /> Takım Hurdaya Ayırma</h3>
+                            <button onClick={() => setScrapModal({ isOpen: false, tool: null, quantity: '1', reason: 'WEAR', notes: '' })} className="hover:bg-white/20 p-1.5 rounded-lg transition"><X className="w-5 h-5" /></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-800/50">
+                                <span className="block text-xs font-bold text-red-600 dark:text-red-400 mb-1 uppercase tracking-wider">Seçilen Parça</span>
+                                <div className="text-md font-bold text-gray-900 dark:text-white">{scrapModal.tool?.name}</div>
+                                {scrapModal.tool?.productCode && <div className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-1">Kod: {scrapModal.tool?.productCode}</div>}
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Mevcut Stok: <strong className="text-gray-950 dark:text-white">{scrapModal.tool?.totalStock} Adet</strong></div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hurdaya Ayrılacak Adet</label>
+                                <div className="relative">
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        max={scrapModal.tool?.totalStock || 1}
+                                        className="w-full p-3.5 pl-4 pr-16 border border-gray-300 dark:border-gray-600 rounded-xl font-bold text-xl text-red-600 dark:text-red-400 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-red-500 focus:outline-none"
+                                        value={scrapModal.quantity}
+                                        onChange={(e) => setScrapModal({ ...scrapModal, quantity: e.target.value })}
+                                        autoFocus
+                                    />
+                                    <span className="absolute right-4 top-4 text-sm font-bold text-gray-400">Adet</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hurdaya Ayrılma Nedeni</label>
+                                <select 
+                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl text-sm dark:bg-gray-950 dark:text-white font-semibold"
+                                    value={scrapModal.reason}
+                                    onChange={(e) => setScrapModal({ ...scrapModal, reason: e.target.value })}
+                                >
+                                    <option value="WEAR">Ömrünü Tamamladı (Doğal Aşınma)</option>
+                                    <option value="DAMAGE">Kırılma / Hata / Hasar</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Açıklama (İsteğe Bağlı)</label>
+                                <textarea 
+                                    placeholder="Hurdaya ayırma detaylarını buraya girebilirsiniz..."
+                                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl text-sm dark:bg-gray-950 dark:text-white h-20 resize-none"
+                                    value={scrapModal.notes}
+                                    onChange={(e) => setScrapModal({ ...scrapModal, notes: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <button 
+                                    type="button" 
+                                    onClick={() => setScrapModal({ isOpen: false, tool: null, quantity: '1', reason: 'WEAR', notes: '' })}
+                                    className="flex-1 py-3 text-sm font-semibold bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition text-gray-800 dark:text-gray-200"
+                                >
+                                    İptal
+                                </button>
+                                <button 
+                                    type="button" 
+                                    onClick={handleConfirmScrap}
+                                    className="flex-1 py-3 text-sm font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-1.5"
+                                >
+                                    <Check className="w-4 h-4" /> Hurdaya Ayır
                                 </button>
                             </div>
                         </div>
