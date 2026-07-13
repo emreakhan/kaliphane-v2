@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import GridLayout from 'react-grid-layout';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { Save, RotateCcw, LayoutDashboard, Monitor, Map as MapIcon, Copy } from 'lucide-react';
+import { Save, RotateCcw, LayoutDashboard, Monitor, Map as MapIcon, Copy, Eye, EyeOff } from 'lucide-react';
 import { OPERATION_STATUS } from '../config/constants';
 
 const WorkshopEditorPage = ({ machines, projects }) => {
@@ -92,11 +92,40 @@ const WorkshopEditorPage = ({ machines, projects }) => {
         }
     };
 
+    // --- YENİ: TV MODUNDA TEZGAH GİZLEME / GÖSTERME ---
+    const toggleMachineVisibility = (machineName) => {
+        setLayout(prevLayout => 
+            prevLayout.map(item => {
+                if (item.i === machineName) {
+                    return { ...item, hidden: !item.hidden };
+                }
+                return item;
+            })
+        );
+    };
+
+    const handleLayoutChange = (newLayout) => {
+        // React-grid-layout custom properties'leri sildiği için eski hidden durumlarını koruyoruz
+        const merged = newLayout.map(newItem => {
+            const oldItem = layout.find(o => o.i === newItem.i);
+            return {
+                ...newItem,
+                hidden: oldItem ? !!oldItem.hidden : false
+            };
+        });
+        setLayout(merged);
+    };
+
     const handleSave = async () => {
         setIsSaving(true);
         try {
             const layoutToSave = layout.map(item => ({
-                i: item.i, x: item.x, y: item.y, w: item.w, h: item.h
+                i: item.i, 
+                x: item.x, 
+                y: item.y, 
+                w: item.w, 
+                h: item.h,
+                hidden: !!item.hidden
             }));
             
             await setDoc(doc(db, collectionName, docId), {
@@ -179,7 +208,7 @@ const WorkshopEditorPage = ({ machines, projects }) => {
                         width={MAP_WIDTH}
                         cols={24}
                         rowHeight={40}
-                        onLayoutChange={(newLayout) => setLayout(newLayout)}
+                        onLayoutChange={handleLayoutChange}
                         isDraggable={true}
                         isResizable={true}
                         compactType={null}
@@ -191,15 +220,28 @@ const WorkshopEditorPage = ({ machines, projects }) => {
                             return (
                                 <div 
                                     key={item.i} 
-                                    className={`rounded-lg shadow-md flex flex-col items-center justify-center cursor-move transition-all overflow-hidden
+                                    className={`rounded-lg shadow-md flex flex-col items-center justify-center cursor-move transition-all overflow-hidden relative
                                         ${activeTab === 'tv' 
-                                            ? 'bg-gray-800 border-2 border-gray-600 text-gray-200' 
+                                            ? (item.hidden ? 'bg-gray-800/30 border-2 border-dashed border-gray-700 text-gray-500 opacity-60' : 'bg-gray-800 border-2 border-gray-600 text-gray-200') 
                                             : (isBusy ? 'bg-gradient-to-br from-green-500 to-green-600 text-white' : 'bg-gradient-to-br from-red-500 to-red-600 text-white')
                                         } hover:scale-[1.02] z-10`}
                                 >
+                                    {activeTab === 'tv' && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleMachineVisibility(item.i);
+                                            }}
+                                            className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/80 rounded text-gray-300 hover:text-white transition z-20"
+                                            title={item.hidden ? "TV Modunda Göster" : "TV Modunda Gizle"}
+                                        >
+                                            {item.hidden ? <EyeOff className="w-3.5 h-3.5 text-red-500" /> : <Eye className="w-3.5 h-3.5 text-green-500" />}
+                                        </button>
+                                    )}
+
                                     {activeTab === 'tv' ? (
                                         <div className="w-full h-full p-2 flex flex-col justify-between text-center pointer-events-none opacity-70">
-                                            <div className="font-black text-lg truncate border-b border-gray-600 pb-1">{item.i}</div>
+                                            <div className="font-black text-lg truncate border-b border-gray-600 pb-1 pr-6">{item.i}</div>
                                             <div className="text-[10px] space-y-1">
                                                 <div className="bg-white/10 h-2 rounded w-3/4 mx-auto"></div>
                                                 <div className="bg-white/10 h-2 rounded w-1/2 mx-auto"></div>

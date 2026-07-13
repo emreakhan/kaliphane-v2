@@ -278,7 +278,7 @@ const App = () => {
         }
 
         // Clean up unwanted sample machines from database
-        const UNWANTED_MACHINES = ['K40', 'K68', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
+        const UNWANTED_MACHINES = ['K40', 'K70', 'Fİ-200', 'AG-500', 'DECKEL-50'];
         for (const name of UNWANTED_MACHINES) {
             await deleteDoc(doc(db, MACHINES_COLLECTION, `machine-${name}`));
         }

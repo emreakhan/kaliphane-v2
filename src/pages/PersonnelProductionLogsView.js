@@ -272,34 +272,17 @@ const getDayBoundaries = (dayKey, shiftLogs, operatorName) => {
     dayShifts.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const shiftStartLog = dayShifts.find(s => s.action === 'SHIFT_START');
-    const shiftEndLog = dayShifts.find(s => s.action === 'SHIFT_END');
 
     let startMs, endMs;
 
     if (shiftStartLog) {
         startMs = new Date(shiftStartLog.timestamp).getTime();
     } else {
-        startMs = new Date(`${dayKey}T00:00:00`).getTime();
+        startMs = new Date(`${dayKey}T08:00:00`).getTime();
     }
 
-    if (shiftEndLog) {
-        endMs = new Date(shiftEndLog.timestamp).getTime();
-    } else if (shiftStartLog) {
-        const todayStr = getTodayKey();
-        if (dayKey === todayStr) {
-            endMs = Date.now();
-        } else {
-            endMs = new Date(`${dayKey}T23:59:59`).getTime();
-        }
-    } else {
-        startMs = new Date(`${dayKey}T00:00:00`).getTime();
-        const todayStr = getTodayKey();
-        if (dayKey === todayStr) {
-            endMs = Date.now();
-        } else {
-            endMs = new Date(`${dayKey}T23:59:59`).getTime();
-        }
-    }
+    // Sabit 10 saat (36,000,000 ms) üzerinden çalışma süresi sınırı
+    endMs = startMs + 10 * 3600000;
 
     return { startMs, endMs, hasShift: !!shiftStartLog };
 };
@@ -716,7 +699,7 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         if (!activePeriodData) return null;
 
         const dayLogs = activePeriodData.logs;
-        const actualShiftHours = activePeriodData.shiftMs > 0 ? (activePeriodData.shiftMs / 3600000) : 8;
+        const actualShiftHours = 10; // Sabit 10 saat üzerinden hesapla
 
         // 1. Get shift boundaries in milliseconds
         const { startMs: dayStartMs, endMs: dayEndMs } = getDayBoundaries(selectedDayKey, shiftLogs, selectedOperator.name);
@@ -725,6 +708,8 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         let setupMinutes = 0;
         let pauseMinutes = 0;
         let idleMinutes = 0; // Teknik serbest / boş zaman
+        let workedMinutes = 0; // Ayar + İmalat
+        let unworkedMinutes = 0; // Duruş + Boşta
 
         const stepMs = 60000; // 1 minute
 
@@ -739,6 +724,7 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
             if (activeSegs.length === 0) {
                 // No active machines -> operator is free/idle
                 idleMinutes++;
+                unworkedMinutes++;
             } else {
                 const hasSetup = activeSegs.some(seg => seg.typeKey === 'setup');
                 const hasPause = activeSegs.some(seg => seg.typeKey === 'pause');
@@ -748,8 +734,15 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
                 } else if (hasPause) {
                     pauseMinutes++;
                 } else {
-                    // All active machines are in production -> Operator is Teknik Serbest / Gözlem
                     idleMinutes++;
+                }
+
+                // Kullanıcı Kuralı: Eğer tezgahların en az birinde Ayar (setup) veya Duruş/Müdahale (pause) yapılıyorsa operatör aktiftir (Çalışıyordur).
+                // Eğer tezgahların tamamı İmalat (production) olarak aktif ise operatör fiziksel olarak aktif değildir (Çalışmıyordur).
+                if (hasSetup || hasPause) {
+                    workedMinutes++;
+                } else {
+                    unworkedMinutes++;
                 }
             }
         }
@@ -757,6 +750,8 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         const setupHours = setupMinutes / 60;
         const pauseHours = pauseMinutes / 60;
         const idleHours = idleMinutes / 60;
+        const workedHours = workedMinutes / 60;
+        const unworkedHours = unworkedMinutes / 60;
 
         // Machine production hours (net sum of machine runs for efficiency index)
         let prodHours = 0;
@@ -775,15 +770,22 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
         const pausePercent = totalMeasured > 0 ? ((pauseHours / totalMeasured) * 100).toFixed(1) : 0;
         const idlePercent = totalMeasured > 0 ? ((idleHours / totalMeasured) * 100).toFixed(1) : 0;
 
+        const workedPercent = ((workedHours / actualShiftHours) * 100).toFixed(1);
+        const unworkedPercent = ((unworkedHours / actualShiftHours) * 100).toFixed(1);
+
         return {
             setupHours: setupHours.toFixed(1),
             pauseHours: pauseHours.toFixed(1),
             prodHours: prodHours.toFixed(1), // This remains the net machine production hours
             idleHours: idleHours.toFixed(1), // This is the calculated free/idle hours
+            workedHours: workedHours.toFixed(1),
+            unworkedHours: unworkedHours.toFixed(1),
             workloadFactor,
             setupPercent,
             pausePercent,
             idlePercent,
+            workedPercent,
+            unworkedPercent,
             machinesCount: activePeriodData.machines.size,
             moldsCount: activePeriodData.molds.size,
             actualShiftHours: actualShiftHours.toFixed(1)
@@ -1036,6 +1038,44 @@ const PersonnelProductionLogsView = ({ projects, personnel = [] }) => {
 
                                         {simulatorStats ? (
                                             <div className="space-y-6">
+                                                {/* YENİ: Çalıştığı / Çalışmadığı Süre Özeti (Sabit 10 Saat Üzerinden) */}
+                                                <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                                    <div className="flex justify-between text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                                        <span>Çalışma Oranı Analizi (Sabit 10saat)</span>
+                                                        <span className="text-blue-600 dark:text-blue-400">Sabit Hedef: 10 Saat</span>
+                                                    </div>
+                                                    
+                                                    {/* İki Segmentli Bar */}
+                                                    <div className="h-4 w-full rounded-full overflow-hidden flex bg-gray-200 dark:bg-gray-700 shadow-inner">
+                                                        <div 
+                                                            style={{ width: `${simulatorStats.workedPercent}%` }} 
+                                                            className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 transition-all flex items-center justify-center text-[9px] text-white font-extrabold truncate"
+                                                            title={`Çalıştığı Süre: ${simulatorStats.workedHours} Saat`}
+                                                        >
+                                                            {simulatorStats.workedPercent}% Çalışılan
+                                                        </div>
+                                                        <div 
+                                                            style={{ width: `${simulatorStats.unworkedPercent}%` }} 
+                                                            className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 transition-all flex items-center justify-center text-[9px] text-white font-extrabold truncate"
+                                                            title={`Çalışmadığı Süre: ${simulatorStats.unworkedHours} Saat`}
+                                                        >
+                                                            {simulatorStats.unworkedPercent}% Boşta / Duruş
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Detay Bilgileri */}
+                                                    <div className="grid grid-cols-2 gap-4 text-center pt-1">
+                                                        <div className="bg-emerald-50/40 dark:bg-emerald-950/10 p-2 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
+                                                            <span className="block text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">Çalıştığı Süre</span>
+                                                            <span className="text-base font-black text-emerald-600 dark:text-emerald-400">{simulatorStats.workedHours} Saat</span>
+                                                        </div>
+                                                        <div className="bg-amber-50/40 dark:bg-amber-950/10 p-2 rounded-lg border border-amber-100 dark:border-amber-900/30">
+                                                            <span className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase">Çalışmadığı Süre</span>
+                                                            <span className="text-base font-black text-amber-600 dark:text-amber-400">{simulatorStats.unworkedHours} Saat</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
                                                 {/* 1. Operatörün Zaman Dağılım Barı (Shift Balance Bar) */}
                                                 <div className="space-y-2">
                                                     <div className="flex justify-between text-xs font-bold text-gray-600 dark:text-gray-400">

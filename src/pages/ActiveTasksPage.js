@@ -20,6 +20,10 @@ import { formatDate } from '../utils/dateUtils';
 import MachineStatusModal from '../components/Modals/MachineStatusModal'; 
 
 const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUpdateMachineStatus }) => {
+    const filteredMachines = useMemo(() => {
+        return (machines || []).filter(m => !['K41', 'K60', 'K65'].includes(m.name));
+    }, [machines]);
+
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState('list'); 
     
@@ -88,10 +92,14 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         }
     }, [isTvMode]);
 
+    const visibleTvLayout = useMemo(() => {
+        return tvLayout.filter(item => !item.hidden);
+    }, [tvLayout]);
+
     // Dinamik Yükseklik Hesaplama
     const calculateTvRowHeight = useMemo(() => {
-        if (!isTvMode || tvLayout.length === 0) return 30;
-        const maxRowsUsed = Math.max(...tvLayout.map(item => (item.y || 0) + (item.h || 0)), 1);
+        if (!isTvMode || visibleTvLayout.length === 0) return 30;
+        const maxRowsUsed = Math.max(...visibleTvLayout.map(item => (item.y || 0) + (item.h || 0)), 1);
         const headerHeight = 64;
         const paddingY = 32;
         const safeArea = 20;
@@ -99,7 +107,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         const totalMarginSpace = Math.max(0, maxRowsUsed - 1) * 10;
         const rowHeight = (availableHeight - totalMarginSpace) / maxRowsUsed;
         return Math.max(rowHeight, 10);
-    }, [isTvMode, tvLayout, windowSize.height]);
+    }, [isTvMode, visibleTvLayout, windowSize.height]);
 
     // Süre Formatlama
     const formatDuration = (startDate) => {
@@ -142,7 +150,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
     // TEZGAH DURUM HARİTASI
     const machineStatusMap = useMemo(() => {
         const map = {};
-        machines.forEach(machine => {
+        filteredMachines.forEach(machine => {
             const manualStatus = machine.currentStatus || MACHINE_STATUS.AVAILABLE;
             const manualReason = machine.statusReason || '';
             const statusTime = machine.statusStartTime || null;
@@ -253,7 +261,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             }
         });
         return map;
-    }, [activeOperations, machines]);
+    }, [activeOperations, filteredMachines]);
 
     const machineStatusList = useMemo(() => {
         return Object.entries(machineStatusMap).map(([name, status]) => ({
@@ -304,7 +312,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             setSelectedMachine(statusInfo.machineObj);
             setIsStatusModalOpen(true);
         } else {
-             const tempMachine = machines.find(m => m.name === machineName);
+             const tempMachine = filteredMachines.find(m => m.name === machineName);
              if(tempMachine) { setSelectedMachine(tempMachine); setIsStatusModalOpen(true); }
         }
     };
@@ -456,7 +464,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     <div style={{ width: '100%', height: '100%', maxHeight: '100vh' }}>
                         <GridLayout
                             className="layout"
-                            layout={tvLayout} 
+                            layout={visibleTvLayout} 
                             cols={24}
                             rowHeight={calculateTvRowHeight}
                             width={windowSize.width - (windowSize.width < 768 ? 16 : 32)} 
@@ -466,7 +474,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                             useCSSTransforms={true}
                             compactType={null}
                         >
-                            {tvLayout.map(item => (
+                            {visibleTvLayout.map(item => (
                                 <div key={item.i} className="h-full w-full">
                                     {renderTvItem(item)}
                                 </div>
