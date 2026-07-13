@@ -78,6 +78,7 @@ import ContinuousImprovementPage from './pages/ContinuousImprovementPage.js';
 import ShiftPlannerPage from './pages/ShiftPlannerPage.js';
 import MoldMaterialDebitsPage from './pages/MoldMaterialDebitsPage.js';
 import SurveyEvaluationPage from './pages/SurveyEvaluationPage.js';
+import ToolRequestBridgePage from './pages/ToolRequestBridgePage.js';
 import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
 import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
 import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
@@ -682,7 +683,7 @@ const App = () => {
         {
             id: "cat-2",
             title: "Depo & Stok Yönetimi",
-            pagePaths: ["/tool-inventory", "/tool-assignment", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
+            pagePaths: ["/tool-inventory", "/tool-assignment", "/tool-requests", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
         },
         {
             id: "cat-3",
@@ -1087,6 +1088,12 @@ const App = () => {
                         <Route path="/tool-assignment" element={
                             activeUserPermissions['/tool-assignment']?.view
                             ? <ToolAssignmentPage tools={tools} machines={machines} personnel={personnel} loggedInUser={loggedInUser} db={db} projects={projects} canEdit={activeUserPermissions['/tool-assignment']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-requests" element={
+                            activeUserPermissions['/tool-requests']?.view
+                            ? <ToolRequestBridgePage db={db} loggedInUser={loggedInUser} machines={machines} projects={projects} />
                             : <Navigate to="/" replace />
                         } />
 

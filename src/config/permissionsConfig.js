@@ -45,6 +45,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/cnc-inspection-report', label: 'Torna Raporlar (Form)', iconName: 'FileOutput' },
     { path: '/operator-performance', label: 'Torna Personel Takip', iconName: 'Users' },
     { path: '/cnc-torna-history', label: 'Torna Geçmiş İşler', iconName: 'Archive' },
+    { path: '/tool-requests', label: 'Takım Hazırlama Talepleri', iconName: 'ClipboardCheck' },
 ];
 
 export const getDefaultPermissions = (role) => {
@@ -136,7 +137,9 @@ export const getDefaultPermissions = (role) => {
     if ([ROLES.ADMIN].includes(role)) permissions['/forklift'] = { view: true, edit: false };
     if ([ROLES.ADMIN].includes(role)) permissions['/assembly'] = { view: true, edit: false };
     if (rolesExceptToolRoomAndCnc.includes(role)) permissions['/continuous-improvement'] = { view: true, edit: false };
-    if ([ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.MACHINE_OPERATOR, ROLES.CNC_TORNA_OPERATORU, ROLES.CNC_TORNA_SORUMLUSU].includes(role)) permissions['/survey-evaluation'] = { view: true, edit: false };
+    if ([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU].includes(role)) {
+        permissions['/tool-requests'] = { view: true, edit: true };
+    }
 
     // Edit permission default logic based on role authority
     const isEditUser = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU, 'CAM Sorumlusu'].includes(role);
