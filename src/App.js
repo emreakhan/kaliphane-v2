@@ -82,6 +82,7 @@ import ToolRequestBridgePage from './pages/ToolRequestBridgePage.js';
 import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
 import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
 import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
+import TechnicalDrawingsPage from './pages/TechnicalDrawingsPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -696,7 +697,7 @@ const App = () => {
         {
             id: "cat-1",
             title: "Kalıphane Planlama & İzleme",
-            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/project-management", "/design-office", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
+            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/technical-drawings", "/project-management", "/design-office", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
         },
         {
             id: "cat-2",
@@ -1263,6 +1264,12 @@ const App = () => {
                         <Route path="/cam-job-entry" element={
                             activeUserPermissions['/cam-job-entry']?.view
                             ? <CamJobEntryPage projects={projects} personnel={personnel} loggedInUser={loggedInUser} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/technical-drawings" element={
+                            activeUserPermissions['/technical-drawings']?.view
+                            ? <TechnicalDrawingsPage db={db} projects={projects} loggedInUser={loggedInUser} />
                             : <Navigate to="/" replace />
                         } />
 

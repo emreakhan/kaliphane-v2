@@ -469,7 +469,12 @@ const MoldDetailPage = ({
             const downloadURL = await getDownloadURL(storageRef);
 
             const updatedTasks = mold.tasks.map(t => {
-                if (t.id === task.id) return { ...t, technicalDrawingUrl: downloadURL };
+                if (t.id === task.id) return { 
+                    ...t, 
+                    technicalDrawingUrl: downloadURL,
+                    technicalDrawingUploadedAt: new Date().toISOString(),
+                    technicalDrawingUploadedBy: loggedInUser?.name || 'Bilinmeyen Kullanıcı'
+                };
                 return t;
             });
             const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
