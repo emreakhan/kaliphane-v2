@@ -5,7 +5,7 @@ import {
     BarChart2, AlertTriangle, Users, TrendingUp, 
     Download, Calendar, Filter, CheckCircle, Recycle, XCircle, Layers
 } from 'lucide-react';
-import { collection, query, getDocs, onSnapshot } from '../config/firebase.js';
+import { collection, onSnapshot } from '../config/firebase.js';
 import { 
     INVENTORY_COLLECTION, TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES 
 } from '../config/constants.js';
@@ -94,16 +94,19 @@ const ToolAnalysisPage = ({ db }) => {
             setInventory(data);
         });
 
-        const fetchHistory = async () => {
-            const q = query(collection(db, TOOL_TRANSACTIONS_COLLECTION));
-            const snapshot = await getDocs(q);
+        const unsubTransactions = onSnapshot(collection(db, TOOL_TRANSACTIONS_COLLECTION), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTransactions(data);
             setLoading(false);
-        };
+        }, (error) => {
+            console.error("Transactions loading error:", error);
+            setLoading(false);
+        });
 
-        fetchHistory();
-        return () => unsubInventory();
+        return () => {
+            unsubInventory();
+            unsubTransactions();
+        };
     }, [db]);
 
     // --- ANALİZ MANTIKLARI ---

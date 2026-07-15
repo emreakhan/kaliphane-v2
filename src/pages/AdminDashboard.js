@@ -3,9 +3,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings, ChevronUp, ChevronDown, ListOrdered } from 'lucide-react';
 // ROLES eklendi
-import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES } from '../config/constants.js';
-import { db, setDoc, doc, updateDoc, collection, query, onSnapshot } from '../config/firebase.js'; 
-import { PROJECT_COLLECTION } from '../config/constants.js'; 
+import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES, PROJECT_TYPE_CONFIG } from '../config/constants.js';
+import { db, setDoc, doc, updateDoc, collection, query, onSnapshot, deleteDoc } from '../config/firebase.js'; 
+import { PROJECT_COLLECTION, DELETED_PROJECT_COLLECTION } from '../config/constants.js'; 
 import { ALL_SYSTEM_PAGES, getDefaultPermissions } from '../config/permissionsConfig.js'; 
 
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
@@ -13,12 +13,32 @@ import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
 
 // --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
-const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
+const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) => {
+    const [subTab, setSubTab] = useState('active'); // 'active' or 'deleted'
     const [searchTerm, setSearchTerm] = useState('');
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedMold, setSelectedMold] = useState(null);
     const [editFormData, setEditFormData] = useState({ moldName: '', customer: '' });
+
+    const [deletedProjects, setDeletedProjects] = useState([]);
+    const [isRestoring, setIsRestoring] = useState(false);
+
+    // Load deleted projects when 'deleted' tab is active
+    useEffect(() => {
+        if (!db || subTab !== 'deleted') return;
+        const q = query(collection(db, DELETED_PROJECT_COLLECTION));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            list.sort((a, b) => {
+                const dateA = a.deletedAt ? new Date(a.deletedAt) : new Date(0);
+                const dateB = b.deletedAt ? new Date(b.deletedAt) : new Date(0);
+                return dateB - dateA; // Newest deleted first
+            });
+            setDeletedProjects(list);
+        });
+        return () => unsubscribe();
+    }, [db, subTab]);
 
     // HATA DÜZELTME: Veri Temizliği
     const cleanProjects = useMemo(() => {
@@ -32,13 +52,22 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
     }, [projects]);
 
     const filteredProjects = useMemo(() => {
-        if (!searchTerm) return cleanProjects;
-        const lowerSearch = searchTerm.toLowerCase();
-        return cleanProjects.filter(p => 
-            p.moldName.toLowerCase().includes(lowerSearch) || 
-            p.customer.toLowerCase().includes(lowerSearch)
-        );
-    }, [cleanProjects, searchTerm]);
+        if (subTab === 'active') {
+            if (!searchTerm) return cleanProjects;
+            const lowerSearch = searchTerm.toLowerCase();
+            return cleanProjects.filter(p => 
+                p.moldName.toLowerCase().includes(lowerSearch) || 
+                p.customer.toLowerCase().includes(lowerSearch)
+            );
+        } else {
+            if (!searchTerm) return deletedProjects;
+            const lowerSearch = searchTerm.toLowerCase();
+            return deletedProjects.filter(p => 
+                p.moldName.toLowerCase().includes(lowerSearch) || 
+                p.customer.toLowerCase().includes(lowerSearch)
+            );
+        }
+    }, [cleanProjects, deletedProjects, searchTerm, subTab]);
 
     const openEditModal = (mold) => {
         setSelectedMold(mold);
@@ -69,39 +98,103 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
         closeModals();
     };
 
+    const handleRestoreConfirm = async (mold) => {
+        if (!db || isRestoring) return;
+        if (!window.confirm(`"${mold.moldName}" kalıbını silinenlerden geri yüklemek istediğinize emin misiniz?`)) return;
+        setIsRestoring(true);
+        try {
+            const { deletedAt, ...originalData } = mold;
+            await setDoc(doc(db, PROJECT_COLLECTION, mold.id), originalData);
+            await deleteDoc(doc(db, DELETED_PROJECT_COLLECTION, mold.id));
+        } catch (e) {
+            console.error("Kalıp geri yüklenirken hata:", e);
+            alert("Kalıp geri yüklenirken bir hata oluştu.");
+        } finally {
+            setIsRestoring(false);
+        }
+    };
+
     return (
         <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/10">
             <h3 className="text-xl font-semibold dark:text-white mb-4 flex items-center">
-                <Database className="w-5 h-5 mr-2" />
-                Kalıp Yönetimi
+                <Database className="w-5 h-5 mr-2 text-blue-500 animate-pulse" />
+                Kalıp / Proje Yönetimi
             </h3>
+
+            {/* Sub-tabs */}
+            <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 gap-2">
+                <button
+                    onClick={() => { setSubTab('active'); setSearchTerm(''); }}
+                    className={`px-4 py-2 text-sm font-bold rounded-t-lg border-t border-x -mb-[1px] transition-all duration-200 ${
+                        subTab === 'active'
+                            ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border-gray-200 dark:border-gray-700'
+                            : 'bg-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border-transparent'
+                    }`}
+                >
+                    Aktif Kalıplar ({cleanProjects.length})
+                </button>
+                <button
+                    onClick={() => { setSubTab('deleted'); setSearchTerm(''); }}
+                    className={`px-4 py-2 text-sm font-bold rounded-t-lg border-t border-x -mb-[1px] transition-all duration-200 ${
+                        subTab === 'deleted'
+                            ? 'bg-white dark:bg-gray-800 text-red-600 dark:text-red-400 border-gray-200 dark:border-gray-700'
+                            : 'bg-transparent text-gray-500 hover:text-red-500 border-transparent'
+                    }`}
+                >
+                    Silinen Kalıplar / Çöp Kutusu ({deletedProjects.length})
+                </button>
+            </div>
             
             <div className="mb-4 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                     type="text"
-                    placeholder="Kalıp adı veya müşteri ara..."
+                    placeholder={subTab === 'active' ? "Kalıp adı veya müşteri ara..." : "Silinen kalıp adı veya müşteri ara..."}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 font-medium text-sm"
                 />
             </div>
 
             <div className="max-h-[60vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="divide-y divide-gray-200 dark:divide-gray-700">
                     {filteredProjects.length === 0 ? (
-                        <p className="p-4 text-center text-gray-500 dark:text-gray-400">Kalıp bulunamadı.</p>
+                        <p className="p-4 text-center text-gray-500 dark:text-gray-400 font-medium">Kayıt bulunamadı.</p>
                     ) : (
                         filteredProjects.map(mold => (
                             <div key={mold.id} className="p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                 <div>
-                                    <p className="font-semibold text-gray-900 dark:text-white">{mold.moldName}</p>
-                                    <p className="text-sm text-gray-600 dark:text-gray-400">{mold.customer}</p>
-                                    <p className="text-xs text-gray-400 dark:text-gray-500">ID: {mold.id}</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-semibold text-gray-900 dark:text-white">{mold.moldName}</p>
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase shrink-0 ${
+                                            PROJECT_TYPE_CONFIG[mold.projectType || 'YENİ KALIP']?.colorClass || 'bg-gray-100 text-gray-800'
+                                        }`}>
+                                            {PROJECT_TYPE_CONFIG[mold.projectType || 'YENİ KALIP']?.label || 'YENİ KALIP'}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">{mold.customer}</p>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                                        ID: {mold.id} 
+                                        {mold.deletedAt && ` • Silinme: ${new Date(mold.deletedAt).toLocaleString('tr-TR')}`}
+                                    </p>
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => openEditModal(mold)} className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition" title="Düzenle"><Edit className="w-4 h-4" /></button>
-                                    <button onClick={() => openDeleteModal(mold)} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition" title="Sil"><Trash2 className="w-4 h-4" /></button>
+                                    {subTab === 'active' ? (
+                                        <>
+                                            <button onClick={() => openEditModal(mold)} className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition" title="Düzenle"><Edit className="w-4 h-4" /></button>
+                                            <button onClick={() => openDeleteModal(mold)} className="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition" title="Sil"><Trash2 className="w-4 h-4" /></button>
+                                        </>
+                                    ) : (
+                                        <button 
+                                            onClick={() => handleRestoreConfirm(mold)} 
+                                            disabled={isRestoring}
+                                            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs font-black rounded-lg transition flex items-center gap-1" 
+                                            title="Geri Yükle"
+                                        >
+                                            <RefreshCw className={`w-3.5 h-3.5 ${isRestoring ? 'animate-spin' : ''}`} />
+                                            Geri Yükle
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))
@@ -122,8 +215,8 @@ const MoldManagement = ({ projects, handleDeleteMold, handleUpdateMold }) => {
             {deleteModalOpen && selectedMold && (
                 <Modal isOpen={deleteModalOpen} onClose={closeModals} title="Kalıbı Sil">
                     <div className="text-gray-800 dark:text-gray-200">
-                        <div className="flex items-center gap-3 mb-4"><AlertTriangle className="w-12 h-12 text-red-500" /><p>**{selectedMold.moldName}** kalıbını silmek üzeresiniz. Bu işlem, kalıba ait tüm parçaları, operasyonları ve notları kalıcı olarak silecektir.</p></div>
-                         <p className="font-semibold text-center">Bu işlem geri alınamaz. Emin misiniz?</p>
+                        <div className="flex items-center gap-3 mb-4"><AlertTriangle className="w-12 h-12 text-red-500" /><p>**{selectedMold.moldName}** kalıbını silmek üzeresiniz. Bu işlem, kalıbı aktif listesinden kaldırıp Çöp Kutusu'na taşıyacaktır.</p></div>
+                         <p className="font-semibold text-center font-bold">Bu kalıp daha sonra Çöp Kutusu'ndan geri yüklenebilir. Silmek istediğinize emin misiniz?</p>
                     </div>
                     <div className="mt-6 flex justify-end gap-3"><button onClick={closeModals} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition">İptal</button><button onClick={handleDeleteConfirm} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center"><Trash2 className="w-4 h-4 mr-2" /> Evet, Sil</button></div>
                 </Modal>
@@ -491,10 +584,20 @@ const AdminDashboard = ({
                                                 onClick={() => setIsSearchableSelectOpen(!isSearchableSelectOpen)}
                                                 className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             >
-                                                <span className="truncate">
-                                                    {selectedMoldId 
-                                                        ? (cleanProjects.find(p => p.id === selectedMoldId)?.moldName || "Kalıp Seçiniz") 
-                                                        : "Kalıp Seçiniz"}
+                                                <span className="truncate flex items-center gap-2">
+                                                    {selectedMoldId ? (() => {
+                                                        const p = cleanProjects.find(item => item.id === selectedMoldId);
+                                                        if (!p) return "Kalıp Seçiniz";
+                                                        const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
+                                                        return (
+                                                            <>
+                                                                <span>{p.moldName}</span>
+                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${cfg?.colorClass || 'bg-gray-100 text-gray-800'}`}>
+                                                                    {cfg?.label || 'YENİ KALIP'}
+                                                                </span>
+                                                            </>
+                                                        );
+                                                    })() : "Kalıp Seçiniz"}
                                                 </span>
                                                 <span className="text-gray-400 text-xs">▼</span>
                                             </button>
@@ -531,25 +634,35 @@ const AdminDashboard = ({
                                                             </button>
                                                             {cleanProjects
                                                                 .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()))
-                                                                .map(p => (
-                                                                    <button
-                                                                        key={p.id}
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            setSelectedMoldId(p.id);
-                                                                            setBatchError('');
-                                                                            setIsSearchableSelectOpen(false);
-                                                                            setMoldSearchQuery('');
-                                                                        }}
-                                                                        className={`w-full text-left px-3 py-2 text-sm rounded font-medium transition-colors ${
-                                                                            selectedMoldId === p.id 
-                                                                                ? 'bg-blue-600 text-white' 
-                                                                                : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
-                                                                        }`}
-                                                                    >
-                                                                        {p.moldName}
-                                                                    </button>
-                                                                ))
+                                                                .map(p => {
+                                                                    const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
+                                                                    return (
+                                                                        <button
+                                                                            key={p.id}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setSelectedMoldId(p.id);
+                                                                                setBatchError('');
+                                                                                setIsSearchableSelectOpen(false);
+                                                                                setMoldSearchQuery('');
+                                                                            }}
+                                                                            className={`w-full text-left px-3 py-2 text-sm rounded font-medium transition-colors flex justify-between items-center ${
+                                                                                selectedMoldId === p.id 
+                                                                                    ? 'bg-blue-600 text-white' 
+                                                                                    : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                                                                            }`}
+                                                                        >
+                                                                            <span>{p.moldName}</span>
+                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
+                                                                                selectedMoldId === p.id 
+                                                                                    ? 'bg-blue-500 text-white' 
+                                                                                    : cfg?.colorClass || 'bg-gray-150 text-gray-800'
+                                                                            }`}>
+                                                                                {cfg?.label || 'YENİ KALIP'}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                })
                                                             }
                                                             {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase())).length === 0 && (
                                                                 <div className="text-sm text-gray-400 dark:text-gray-500 py-2 text-center">Eşleşen kalıp bulunamadı</div>
@@ -585,6 +698,7 @@ const AdminDashboard = ({
             case 'mold_management':
                 return (
                     <MoldManagement
+                        db={db}
                         projects={projects}
                         handleDeleteMold={handleDeleteMold}
                         handleUpdateMold={handleUpdateMold}

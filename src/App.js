@@ -15,7 +15,7 @@ import {
 import { 
     ROLES, OPERATION_STATUS, mapTaskStatusToMoldStatus,
     PERSONNEL_ROLES, INVENTORY_COLLECTION,
-    PROJECT_COLLECTION, 
+    PROJECT_COLLECTION, DELETED_PROJECT_COLLECTION,
     CNC_LATHE_JOBS_COLLECTION, 
     DESIGN_JOBS_COLLECTION,  
     PERSONNEL_COLLECTION,
@@ -261,7 +261,8 @@ const App = () => {
         const HARDCODED_MACHINES = [
             { name: 'K41', ekBilgi: 'CNC TORNA TEZGAHI' },
             { name: 'K60', ekBilgi: 'CNC TORNA TEZGAHI' },
-            { name: 'K65', ekBilgi: 'CNC TORNA TEZGAHI' }
+            { name: 'K65', ekBilgi: 'CNC TORNA TEZGAHI' },
+            { name: 'K68', ekBilgi: 'CNC DİK İŞLEM TEZGAHI' }
         ];
         
         for (const m of HARDCODED_MACHINES) {
@@ -667,7 +668,24 @@ const App = () => {
     const handleUpdateProjectManager = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { projectManager: val || '' }); }, []);
     const handleUpdateCamResponsible = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { camResponsible: val || '' }); }, []);
     const handleUpdateMoldDesigner = useCallback(async (id, val) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), { moldDesigner: val || '' }); }, []);
-    const handleDeleteMold = useCallback(async (id) => { if(db) { await deleteDoc(doc(db, PROJECT_COLLECTION, id)); await deleteDoc(doc(db, MOLD_NOTES_COLLECTION, id)); if (location.pathname.includes(id)) navigate('/'); } }, [location.pathname, navigate]);
+    const handleDeleteMold = useCallback(async (id) => { 
+        if (db) { 
+            try {
+                const projectDoc = await getDoc(doc(db, PROJECT_COLLECTION, id));
+                if (projectDoc.exists()) {
+                    const data = projectDoc.data();
+                    await setDoc(doc(db, DELETED_PROJECT_COLLECTION, id), {
+                        ...data,
+                        deletedAt: new Date().toISOString()
+                    });
+                }
+                await deleteDoc(doc(db, PROJECT_COLLECTION, id)); 
+                if (location.pathname.includes(id)) navigate('/'); 
+            } catch (e) {
+                console.error("Kalıp silinirken hata:", e);
+            }
+        } 
+    }, [location.pathname, navigate]);
     const handleUpdateMold = useCallback(async (id, data) => { if(db) await updateDoc(doc(db, PROJECT_COLLECTION, id), data); }, []);
 
     const isForkliftOp = loggedInUser?.role === ROLES.FORKLIFT_OPERATORU;

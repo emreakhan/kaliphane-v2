@@ -27,6 +27,14 @@ const MACHINE_QUESTIONS = [
     { id: 'q5', text: 'İş ve Tezgah Güvenliği', desc: 'Korumaları aşmama, gözlük kullanma ve güvenlik kurallarına tam uyum' }
 ];
 
+const CAM_BY_MANAGER_QUESTIONS = [
+    { id: 'q1', text: 'CAM Programlama Hızı ve Zaman Yönetimi', desc: 'Tasarımı biten kalıpların CAM programlamasının zamanında yapılması ve üretim akışını aksatmaması' },
+    { id: 'q2', text: 'Hassas ve Optimize Kesme Stratejileri', desc: 'Takım ömrünü koruyan, tezgah verimini artıran ve işleme sürelerini en aza indiren stratejilerin seçimi' },
+    { id: 'q3', text: 'Tezgah Operatörlerine Teknik Destek ve Problem Çözme', desc: 'Atölyede karşılaşılan program veya işleme sorunlarına hızlı, doğru ve çözüm odaklı müdahale etmesi' },
+    { id: 'q4', text: 'Program Hata Oranı ve Kalite Standartları', desc: 'Üretim esnasında CAM hatası kaynaklı çarpma, parça bozma ve fire oranlarının düşüklüğü' },
+    { id: 'q5', text: 'Yeni Teknolojilere ve İşleme Yöntemlerine Uyum', desc: 'Yüksek hızlı işleme stratejilerini, yeni takım teknolojilerini araştırma ve uygulama istekliliği' }
+];
+
 // Tarih gruplama yardımcıları
 const getWeekRange = (date) => {
     const temp = new Date(date);
@@ -71,15 +79,117 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
     const [editText, setEditText] = useState('');
     const [editDesc, setEditDesc] = useState('');
 
+    const [surveysLoaded, setSurveysLoaded] = useState(false);
+
     // Load surveys from Firestore
     useEffect(() => {
         if (!db) return;
         const q = query(collection(db, 'operatorSurveys'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setSurveys(snapshot.docs.map(doc => doc.data()));
+            setSurveysLoaded(true);
         });
         return () => unsubscribe();
     }, []);
+
+    // Seed sample manager evaluations for CAM operators if none exist
+    useEffect(() => {
+        if (!db || !surveysLoaded) return;
+        
+        const hasManagerCamSurveys = surveys.some(s => 
+            s.evaluatorId === 'person-admin' && 
+            s.targetRole?.toUpperCase().includes('CAM')
+        );
+        
+        if (!hasManagerCamSurveys) {
+            const sampleSurveys = [
+                {
+                    id: 'sample-mgr-survey-1',
+                    evaluatorId: 'person-admin',
+                    evaluatorName: 'Ayşe Hanım (Yönetici)',
+                    evaluatorRole: 'Yönetici',
+                    targetId: 'person-cam1',
+                    targetName: 'Emre Bey (CAM)',
+                    targetRole: 'CAM Operatörü',
+                    ratings: {
+                        'system-cam-mgr-1': 4,
+                        'system-cam-mgr-2': 5,
+                        'system-cam-mgr-3': 4,
+                        'system-cam-mgr-4': 5,
+                        'system-cam-mgr-5': 4
+                    },
+                    averageScore: 4.4,
+                    comment: 'CAM programlama hızı gayet iyi, hata oranı çok düşük. Yeni işleme yöntemlerine hızlı uyum sağlıyor.',
+                    timestamp: '2026-07-08 14:00:00'
+                },
+                {
+                    id: 'sample-mgr-survey-2',
+                    evaluatorId: 'person-admin',
+                    evaluatorName: 'Ayşe Hanım (Yönetici)',
+                    evaluatorRole: 'Yönetici',
+                    targetId: 'person-cam1',
+                    targetName: 'Emre Bey (CAM)',
+                    targetRole: 'CAM Operatörü',
+                    ratings: {
+                        'system-cam-mgr-1': 5,
+                        'system-cam-mgr-2': 4,
+                        'system-cam-mgr-3': 4,
+                        'system-cam-mgr-4': 5,
+                        'system-cam-mgr-5': 5
+                    },
+                    averageScore: 4.6,
+                    comment: 'Talaş kaldırma verimliliği yüksek. Takım ömrünü artırıcı stratejileri başarıyla uyguluyor.',
+                    timestamp: '2026-07-01 10:30:00'
+                },
+                {
+                    id: 'sample-mgr-survey-3',
+                    evaluatorId: 'person-admin',
+                    evaluatorName: 'Ayşe Hanım (Yönetici)',
+                    evaluatorRole: 'Yönetici',
+                    targetId: 'person-cam2',
+                    targetName: 'Can Bey (CAM)',
+                    targetRole: 'CAM Operatörü',
+                    ratings: {
+                        'system-cam-mgr-1': 5,
+                        'system-cam-mgr-2': 4,
+                        'system-cam-mgr-3': 5,
+                        'system-cam-mgr-4': 4,
+                        'system-cam-mgr-5': 4
+                    },
+                    averageScore: 4.4,
+                    comment: 'Operatörlerle olan iletişimi ve problem çözme hızı mükemmel. Programları güvenli.',
+                    timestamp: '2026-07-09 11:15:00'
+                },
+                {
+                    id: 'sample-mgr-survey-4',
+                    evaluatorId: 'person-admin',
+                    evaluatorName: 'Ayşe Hanım (Yönetici)',
+                    evaluatorRole: 'Yönetici',
+                    targetId: 'person-cam-sorumlu',
+                    targetName: 'Murat Bey (CAM Sorumlusu)',
+                    targetRole: 'CAM Sorumlusu',
+                    ratings: {
+                        'system-cam-mgr-1': 5,
+                        'system-cam-mgr-2': 5,
+                        'system-cam-mgr-3': 5,
+                        'system-cam-mgr-4': 5,
+                        'system-cam-mgr-5': 5
+                    },
+                    averageScore: 5.0,
+                    comment: 'Bölüm liderliği ve teknik donanımı üst düzey. İş kalitesi standartlarimizi başarıyla koruyor.',
+                    timestamp: '2026-07-10 15:45:00'
+                }
+            ];
+
+            sampleSurveys.forEach(async (survey) => {
+                try {
+                    await setDoc(doc(db, 'operatorSurveys', survey.id), survey);
+                } catch (e) {
+                    console.error("Örnek değerlendirme yüklenemedi:", e);
+                }
+            });
+        }
+    }, [surveys, surveysLoaded]);
 
     const [questions, setQuestions] = useState([]);
 
@@ -89,7 +199,8 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
         const q = query(collection(db, 'operatorSurveyQuestions'));
         const unsubscribe = onSnapshot(q, async (snapshot) => {
             const hasSystemQuestions = snapshot.docs.some(doc => doc.id === 'system-cam-1');
-            if (snapshot.empty || !hasSystemQuestions) {
+            const hasManagerQuestions = snapshot.docs.some(doc => doc.id === 'system-cam-mgr-1');
+            if (snapshot.empty || !hasSystemQuestions || !hasManagerQuestions) {
                 const defaults = [
                     ...CAM_QUESTIONS.map((item, idx) => ({ 
                         id: `system-cam-${idx + 1}`, 
@@ -104,6 +215,14 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
                         text: item.text, 
                         desc: item.desc, 
                         target: 'MACHINE', 
+                        isSystem: true,
+                        order: idx
+                    })),
+                    ...CAM_BY_MANAGER_QUESTIONS.map((item, idx) => ({ 
+                        id: `system-cam-mgr-${idx + 1}`, 
+                        text: item.text, 
+                        desc: item.desc, 
+                        target: 'CAM_BY_MANAGER', 
                         isSystem: true,
                         order: idx
                     }))
@@ -172,9 +291,12 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
     const activeQuestions = useMemo(() => {
         if (!selectedTarget) return [];
         const isCam = selectedTarget.role?.toUpperCase().includes('CAM');
-        const targetType = isCam ? 'CAM' : 'MACHINE';
+        let targetType = isCam ? 'CAM' : 'MACHINE';
+        if (isAdmin && isCam) {
+            targetType = 'CAM_BY_MANAGER';
+        }
         return questions.filter(q => q.target === targetType);
-    }, [selectedTarget, questions]);
+    }, [selectedTarget, questions, isAdmin]);
 
     // Helper to check if two timestamp dates fall in the same calendar week
     const isSameCalendarWeek = (dateStr1, dateStr2) => {
@@ -437,7 +559,7 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
             });
         });
 
-        const allCamQuestions = questions.filter(q => q.target === 'CAM');
+        const allCamQuestions = questions.filter(q => q.target === 'CAM' || q.target === 'CAM_BY_MANAGER');
         const allMachineQuestions = questions.filter(q => q.target === 'MACHINE');
 
         allCamQuestions.forEach(q => {
@@ -931,7 +1053,7 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
                                                 </h3>
                                                 <div className="space-y-3">
                                                     {(selectedPersonStats.role?.toUpperCase().includes('CAM') 
-                                                        ? questions.filter(q => q.target === 'CAM') 
+                                                        ? questions.filter(q => q.target === 'CAM' || q.target === 'CAM_BY_MANAGER') 
                                                         : questions.filter(q => q.target === 'MACHINE')
                                                     ).map((q, idx) => {
                                                         const score = selectedPersonStats.qAverages[q.id] || 0;
@@ -1135,7 +1257,8 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
                                             className="w-full p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-orange-500 font-bold"
                                         >
                                             <option value="MACHINE" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold">Tezgah Operatörleri İçin</option>
-                                            <option value="CAM" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold">CAM Operatörleri İçin</option>
+                                            <option value="CAM" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold">CAM Operatörleri İçin (Tezgah Operatörü Puanlar)</option>
+                                            <option value="CAM_BY_MANAGER" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold">CAM Operatörleri İçin (Yönetici Puanlar)</option>
                                         </select>
                                     </div>
 
@@ -1159,6 +1282,86 @@ const SurveyEvaluationPage = ({ loggedInUser, personnel = [] }) => {
                                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">CAM Değerlendirme Soruları</h4>
                                         <div className="space-y-2">
                                             {questions.filter(q => q.target === 'CAM').map((q, idx) => {
+                                                const isEditing = editingQuestionId === q.id;
+                                                return (
+                                                    <div key={q.id} className="p-3.5 bg-gray-50/50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                        {isEditing ? (
+                                                            <div className="flex-1 w-full space-y-2">
+                                                                <input 
+                                                                    type="text" 
+                                                                    value={editText} 
+                                                                    onChange={(e) => setEditText(e.target.value)} 
+                                                                    className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
+                                                                />
+                                                                <input 
+                                                                    type="text" 
+                                                                    value={editDesc} 
+                                                                    onChange={(e) => setEditDesc(e.target.value)} 
+                                                                    className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-xs text-gray-900 dark:text-white"
+                                                                />
+                                                                <div className="flex gap-2 justify-end">
+                                                                    <button 
+                                                                        onClick={() => setEditingQuestionId(null)}
+                                                                        className="px-3 py-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-[10px] font-bold text-gray-700 dark:text-gray-300"
+                                                                    >
+                                                                        İptal
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleUpdateQuestion(q.id)}
+                                                                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold"
+                                                                    >
+                                                                        Kaydet
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="text-xs font-bold text-gray-850 dark:text-white flex items-center gap-2">
+                                                                        <span>{idx + 1}. {q.text}</span>
+                                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                                                                            q.isSystem 
+                                                                                ? 'text-blue-500 bg-blue-50 dark:bg-blue-950/45' 
+                                                                                : 'text-orange-500 bg-orange-50 dark:bg-orange-950/45'
+                                                                        }`}>
+                                                                            {q.isSystem ? 'SİSTEM' : 'ÖZEL'}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-normal">{q.desc}</div>
+                                                                </div>
+                                                                <div className="flex gap-2 shrink-0">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setEditingQuestionId(q.id);
+                                                                            setEditText(q.text);
+                                                                            setEditDesc(q.desc);
+                                                                        }}
+                                                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 p-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 hover:scale-105 transition-all"
+                                                                        title="Soruyu Düzenle"
+                                                                    >
+                                                                        <Edit3 className="w-4 h-4" />
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleDeleteQuestion(q.id)}
+                                                                        className="text-red-650 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 hover:scale-105 transition-all"
+                                                                        title="Soruyu Sil"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* CAM Yönetici Soru Seti */}
+                                    <div className="pt-2">
+                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">CAM Değerlendirme Soruları (Yönetici Puanlama)</h4>
+                                        <div className="space-y-2">
+                                            {questions.filter(q => q.target === 'CAM_BY_MANAGER').map((q, idx) => {
                                                 const isEditing = editingQuestionId === q.id;
                                                 return (
                                                     <div key={q.id} className="p-3.5 bg-gray-50/50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">

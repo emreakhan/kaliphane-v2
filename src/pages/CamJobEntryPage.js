@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, AlertTriangle, List, Briefcase, Search, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION } from '../config/constants.js';
+import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
 
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
@@ -221,12 +221,22 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                 <button
                                     type="button"
                                     onClick={() => setIsSearchableSelectOpen(!isSearchableSelectOpen)}
-                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-left flex justify-between items-center"
                                 >
-                                    <span className="truncate">
-                                        {selectedMoldId 
-                                            ? (cleanProjects.find(p => p.id === selectedMoldId)?.moldName || "Kalıp Seçiniz") 
-                                            : "Kalıp Seçiniz"}
+                                    <span className="truncate flex items-center gap-2">
+                                        {selectedMoldId ? (() => {
+                                            const p = cleanProjects.find(item => item.id === selectedMoldId);
+                                            if (!p) return "Kalıp Seçiniz";
+                                            const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
+                                            return (
+                                                <>
+                                                    <span>{p.moldName}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${cfg?.colorClass || 'bg-gray-100 text-gray-800'}`}>
+                                                        {cfg?.label || 'YENİ KALIP'}
+                                                    </span>
+                                                </>
+                                            );
+                                        })() : "Kalıp Seçiniz"}
                                     </span>
                                     <span className="text-gray-400 text-xs">▼</span>
                                 </button>
@@ -258,30 +268,40 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                                         setMoldSearchQuery('');
                                                     }}
                                                     className="w-full text-left px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded font-medium transition-colors"
-                                                >
+                                                    >
                                                     Kalıp Seçiniz (Seçimi Temizle)
                                                 </button>
                                                 {cleanProjects
                                                     .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()))
-                                                    .map(p => (
-                                                        <button
-                                                            key={p.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setSelectedMoldId(p.id);
-                                                                setBatchError('');
-                                                                setIsSearchableSelectOpen(false);
-                                                                setMoldSearchQuery('');
-                                                            }}
-                                                            className={`w-full text-left px-3 py-2 text-sm rounded font-medium transition-colors ${
-                                                                selectedMoldId === p.id 
-                                                                    ? 'bg-blue-600 text-white' 
-                                                                    : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
-                                                            }`}
-                                                        >
-                                                            {p.moldName}
-                                                        </button>
-                                                    ))
+                                                    .map(p => {
+                                                        const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
+                                                        return (
+                                                            <button
+                                                                key={p.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSelectedMoldId(p.id);
+                                                                    setBatchError('');
+                                                                    setIsSearchableSelectOpen(false);
+                                                                    setMoldSearchQuery('');
+                                                                }}
+                                                                className={`w-full text-left px-3 py-2 text-sm rounded font-medium transition-colors flex justify-between items-center ${
+                                                                    selectedMoldId === p.id 
+                                                                        ? 'bg-blue-600 text-white' 
+                                                                        : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                                                                }`}
+                                                            >
+                                                                <span>{p.moldName}</span>
+                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
+                                                                    selectedMoldId === p.id 
+                                                                        ? 'bg-blue-500 text-white' 
+                                                                        : cfg?.colorClass || 'bg-gray-150 text-gray-800'
+                                                                }`}>
+                                                                    {cfg?.label || 'YENİ KALIP'}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })
                                                 }
                                                 {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase())).length === 0 && (
                                                     <div className="text-sm text-gray-400 dark:text-gray-500 py-2 text-center">Eşleşen kalıp bulunamadı</div>

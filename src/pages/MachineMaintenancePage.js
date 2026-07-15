@@ -9,7 +9,8 @@ import {
 import { 
     MACHINES_COLLECTION,
     MACHINE_MAINTENANCE_TASKS_COLLECTION, 
-    MACHINE_MAINTENANCE_LOGS_COLLECTION 
+    MACHINE_MAINTENANCE_LOGS_COLLECTION,
+    PERSONNEL_COLLECTION
 } from '../config/constants.js';
 import Modal from '../components/Modals/Modal.js';
 import html2pdf from 'html2pdf.js';
@@ -391,6 +392,273 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
     const [previewScale, setPreviewScale] = useState(1);
     const containerRef = useRef(null);
 
+    // Auto-Fill & Manual past entry state
+    const [isHiddenAutoFillModalOpen, setIsHiddenAutoFillModalOpen] = useState(false);
+    const [personnelList, setPersonnelList] = useState([]);
+    const [selectedAutoMachineId, setSelectedAutoMachineId] = useState('');
+    const [selectedAutoOperator, setSelectedAutoOperator] = useState(null);
+    const [operatorSearchQuery, setOperatorSearchQuery] = useState('');
+    const [isOperatorDropdownOpen, setIsOperatorDropdownOpen] = useState(false);
+    const [selectedAutoMonth, setSelectedAutoMonth] = useState(() => new Date().toISOString().substring(0, 7));
+    const [isSaving, setIsSaving] = useState(false);
+    const [activeFillType, setActiveFillType] = useState('auto'); // 'auto' or 'manual'
+
+    // Manual past entry specific states
+    const [manualDate, setManualDate] = useState('');
+    const [selectedManualTaskIds, setSelectedManualTaskIds] = useState([]);
+
+    const pressTimerRef = useRef(null);
+
+    const handlePressStart = () => {
+        if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = setTimeout(() => {
+            setIsHiddenAutoFillModalOpen(true);
+        }, 3000);
+    };
+
+    const handlePressEnd = () => {
+        if (pressTimerRef.current) {
+            clearTimeout(pressTimerRef.current);
+            pressTimerRef.current = null;
+        }
+    };
+
+    // Personnel Subscriber
+    useEffect(() => {
+        if (!db) return;
+        const unsubscribePersonnel = onSnapshot(collection(db, PERSONNEL_COLLECTION), (snapshot) => {
+            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setPersonnelList(list);
+        });
+        return () => unsubscribePersonnel();
+    }, []);
+
+    // Filtered personnel list for search
+    const filteredPersonnelList = useMemo(() => {
+        const queryVal = operatorSearchQuery.trim().toLowerCase();
+        if (!queryVal) return personnelList;
+        return personnelList.filter(p => p.name && p.name.toLowerCase().includes(queryVal));
+    }, [personnelList, operatorSearchQuery]);
+
+    // Filter tasks for chosen machine (manual entry)
+    const activeMachineTasks = useMemo(() => {
+        if (!selectedAutoMachineId) return [];
+        return tasks.filter(t => t.machineIds?.includes('all') || t.machineIds?.includes(selectedAutoMachineId));
+    }, [tasks, selectedAutoMachineId]);
+
+    const handleAutoFillLogs = async () => {
+        if (!selectedAutoMachineId) {
+            alert("Lütfen bir makine seçiniz.");
+            return;
+        }
+        if (!selectedAutoOperator) {
+            alert("Lütfen bakım yapan personeli seçiniz.");
+            return;
+        }
+        if (!selectedAutoMonth) {
+            alert("Lütfen doldurulacak ayı seçiniz.");
+            return;
+        }
+
+        const [yearStr, monthStr] = selectedAutoMonth.split('-');
+        const year = parseInt(yearStr, 10);
+        const monthIndex = parseInt(monthStr, 10) - 1;
+
+        const start = new Date(year, monthIndex, 1);
+        const end = new Date(year, monthIndex + 1, 0); // Last day of month
+
+        const machineObj = machines.find(m => m.id === selectedAutoMachineId);
+        if (!machineObj) return;
+
+        const machineName = machineObj.ekBilgi ? `${machineObj.name} (${machineObj.ekBilgi})` : machineObj.name;
+
+        // Find tasks assigned to this machine
+        const machineTasks = tasks.filter(t => t.machineIds?.includes('all') || t.machineIds?.includes(selectedAutoMachineId));
+        if (machineTasks.length === 0) {
+            alert("Bu tezgaha atanmış herhangi bir bakım görevi bulunmuyor. Önce görev tanımlayın.");
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            let currentDate = new Date(start);
+            const batchPromises = [];
+            let skippedCount = 0;
+
+            while (currentDate <= end) {
+                const dateStr = currentDate.toISOString().substring(0, 10);
+
+                // Check if a log already exists for this machine on this date
+                const alreadyExists = logs.some(log => log.machineId === selectedAutoMachineId && log.date === dateStr);
+                if (alreadyExists) {
+                    skippedCount++;
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    continue;
+                }
+
+                const dayOfWeek = currentDate.getDay(); // 0: Sunday, 1: Monday, ... 5: Friday, 6: Saturday
+                if (dayOfWeek === 0) {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    continue;
+                }
+                const dayOfMonth = currentDate.getDate();
+                const month = currentDate.getMonth();
+
+                // Determine completed tasks for this specific date
+                const completedTasks = [];
+                machineTasks.forEach(task => {
+                    if (task.frequency === 'DAILY') {
+                        completedTasks.push({
+                            taskId: task.id,
+                            taskName: task.name,
+                            frequency: 'DAILY'
+                        });
+                    } else if (task.frequency === 'WEEKLY') {
+                        if (dayOfWeek === 5) {
+                            completedTasks.push({
+                                taskId: task.id,
+                                taskName: task.name,
+                                frequency: 'WEEKLY'
+                            });
+                        }
+                    } else if (task.frequency === 'BIWEEKLY') {
+                        if (dayOfWeek === 5) {
+                            // Calculate week number
+                            const tempDate = new Date(currentDate.getTime());
+                            tempDate.setHours(0, 0, 0, 0);
+                            tempDate.setDate(tempDate.getDate() + 3 - (tempDate.getDay() + 6) % 7);
+                            const week1 = new Date(tempDate.getFullYear(), 0, 4);
+                            const weekNum = 1 + Math.round(((tempDate.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+                            if (weekNum % 2 === 0) {
+                                completedTasks.push({
+                                    taskId: task.id,
+                                    taskName: task.name,
+                                    frequency: 'BIWEEKLY'
+                                });
+                            }
+                        }
+                    } else if (task.frequency === 'MONTHLY') {
+                        if (dayOfMonth === 15) {
+                            completedTasks.push({
+                                taskId: task.id,
+                                taskName: task.name,
+                                frequency: 'MONTHLY'
+                            });
+                        }
+                    } else if (task.frequency === 'YEARLY') {
+                        if (month === 11 && dayOfMonth === 15) {
+                            completedTasks.push({
+                                taskId: task.id,
+                                taskName: task.name,
+                                frequency: 'YEARLY'
+                            });
+                        }
+                    }
+                });
+
+                if (completedTasks.length > 0) {
+                    const logId = `mlog-auto-${selectedAutoMachineId}-${dateStr}-${Date.now()}`;
+                    const logData = {
+                        id: logId,
+                        machineId: selectedAutoMachineId,
+                        machineName: machineName,
+                        operatorName: selectedAutoOperator.name,
+                        date: dateStr,
+                        timestamp: new Date(currentDate.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+                        completedTasks: completedTasks,
+                        isAutoFilled: true
+                    };
+                    
+                    batchPromises.push(setDoc(doc(db, MACHINE_MAINTENANCE_LOGS_COLLECTION, logId), logData));
+                }
+
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            if (batchPromises.length > 0) {
+                await Promise.all(batchPromises);
+            }
+
+            let message = `${batchPromises.length} adet günlük bakım kaydı başarıyla oluşturuldu.`;
+            if (skippedCount > 0) {
+                message += ` (${skippedCount} gün önceden doldurulmuş olduğu için atlandı ve korundu.)`;
+            }
+            alert(message);
+            setIsHiddenAutoFillModalOpen(false);
+            // Reset fields
+            setSelectedAutoMachineId('');
+            setSelectedAutoOperator(null);
+            setOperatorSearchQuery('');
+        } catch (e) {
+            console.error(e);
+            alert("Kayıtlar oluşturulurken bir hata oluştu.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleManualFillLogs = async () => {
+        if (!selectedAutoMachineId) {
+            alert("Lütfen bir makine seçiniz.");
+            return;
+        }
+        if (!selectedAutoOperator) {
+            alert("Lütfen bakım yapan personeli seçiniz.");
+            return;
+        }
+        if (!manualDate) {
+            alert("Lütfen bakım tarihini seçiniz.");
+            return;
+        }
+        if (selectedManualTaskIds.length === 0) {
+            alert("Lütfen tamamlanan en az bir görev seçiniz.");
+            return;
+        }
+
+        const machineObj = machines.find(m => m.id === selectedAutoMachineId);
+        if (!machineObj) return;
+
+        const machineName = machineObj.ekBilgi ? `${machineObj.name} (${machineObj.ekBilgi})` : machineObj.name;
+
+        const completedTasks = tasks
+            .filter(t => selectedManualTaskIds.includes(t.id))
+            .map(t => ({
+                taskId: t.id,
+                taskName: t.name,
+                frequency: t.frequency
+            }));
+
+        setIsSaving(true);
+        try {
+            const logId = `mlog-manual-${selectedAutoMachineId}-${manualDate}-${Date.now()}`;
+            const logData = {
+                id: logId,
+                machineId: selectedAutoMachineId,
+                machineName: machineName,
+                operatorName: selectedAutoOperator.name,
+                date: manualDate,
+                timestamp: new Date(manualDate + 'T12:00:00').toISOString(),
+                completedTasks: completedTasks,
+                isManualFilled: true
+            };
+
+            await setDoc(doc(db, MACHINE_MAINTENANCE_LOGS_COLLECTION, logId), logData);
+            alert("Bakım kaydı başarıyla geçmişe dönük olarak kaydedildi.");
+            setIsHiddenAutoFillModalOpen(false);
+            // Reset fields
+            setSelectedAutoMachineId('');
+            setSelectedAutoOperator(null);
+            setOperatorSearchQuery('');
+            setManualDate('');
+            setSelectedManualTaskIds([]);
+        } catch (e) {
+            console.error(e);
+            alert("Kayıt oluşturulurken bir hata oluştu.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     useEffect(() => {
         if (!isFullScreenPreviewOpen || !containerRef.current) return;
         
@@ -715,6 +983,11 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                     </button>
                     <button
                         onClick={() => setActiveTab('print')}
+                        onMouseDown={handlePressStart}
+                        onMouseUp={handlePressEnd}
+                        onMouseLeave={handlePressEnd}
+                        onTouchStart={handlePressStart}
+                        onTouchEnd={handlePressEnd}
                         className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
                             activeTab === 'print'
                                 ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
@@ -1547,6 +1820,221 @@ const MachineMaintenancePage = ({ machines = [], loggedInUser }) => {
                         </div>
                     </div>
                 </div>
+            )}
+            {/* --- MODAL: GİZLİ GEÇMİŞE DÖNÜK BAKIM GİRİŞİ --- */}
+            {isHiddenAutoFillModalOpen && (
+                <Modal
+                    isOpen={isHiddenAutoFillModalOpen}
+                    onClose={() => {
+                        setIsHiddenAutoFillModalOpen(false);
+                        setSelectedAutoMachineId('');
+                        setSelectedAutoOperator(null);
+                        setOperatorSearchQuery('');
+                        setSelectedAutoMonth(new Date().toISOString().substring(0, 7));
+                        setManualDate('');
+                        setSelectedManualTaskIds([]);
+                    }}
+                    title="Geçmişe Dönük / Toplu Bakım Girişi"
+                >
+                    <div className="space-y-5">
+                        {/* Tab Switcher */}
+                        <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+                            <button
+                                type="button"
+                                onClick={() => setActiveFillType('auto')}
+                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                                    activeFillType === 'auto'
+                                        ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
+                                }`}
+                            >
+                                Otomatik Doldur (Toplu)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveFillType('manual')}
+                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                                    activeFillType === 'manual'
+                                        ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
+                                }`}
+                            >
+                                Manuel Log Ekle (Tekil)
+                            </button>
+                        </div>
+
+                        {/* Tezgah Seçimi */}
+                        <div>
+                            <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                Tezgah Seçiniz
+                            </label>
+                            <select
+                                value={selectedAutoMachineId}
+                                onChange={(e) => {
+                                    setSelectedAutoMachineId(e.target.value);
+                                    setSelectedManualTaskIds([]);
+                                }}
+                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                required
+                            >
+                                <option value="">Seçiniz...</option>
+                                {sortedMachines.map(m => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.ekBilgi ? `${m.name} (${m.ekBilgi})` : m.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Personel Arama ve Seçimi (Autocomplete) */}
+                        <div className="relative">
+                            <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                Bakım Yapan Personel
+                            </label>
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <input
+                                        type="text"
+                                        value={operatorSearchQuery}
+                                        onChange={(e) => {
+                                            setOperatorSearchQuery(e.target.value);
+                                            setIsOperatorDropdownOpen(true);
+                                            if (selectedAutoOperator && selectedAutoOperator.name !== e.target.value) {
+                                                setSelectedAutoOperator(null);
+                                            }
+                                        }}
+                                        onFocus={() => setIsOperatorDropdownOpen(true)}
+                                        onBlur={() => {
+                                            setTimeout(() => setIsOperatorDropdownOpen(false), 200);
+                                        }}
+                                        placeholder="Personel adı yazarak arayın..."
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                    />
+                                    {isOperatorDropdownOpen && filteredPersonnelList.length > 0 && (
+                                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                            {filteredPersonnelList.map(p => (
+                                                <div
+                                                    key={p.id}
+                                                    onMouseDown={() => {
+                                                        setSelectedAutoOperator(p);
+                                                        setOperatorSearchQuery(p.name);
+                                                        setIsOperatorDropdownOpen(false);
+                                                    }}
+                                                    className="px-4 py-2.5 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 border-b last:border-0 border-gray-100 dark:border-gray-700 text-sm font-bold text-gray-850 dark:text-gray-200"
+                                                >
+                                                    {p.name} ({p.role})
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                {selectedAutoOperator && (
+                                    <div className="flex items-center px-4 bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300 rounded-xl border border-green-200 dark:border-green-800 text-xs font-bold shrink-0">
+                                        ✓ Seçildi
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Otomatik Doldurma Parametreleri */}
+                        {activeFillType === 'auto' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                        Doldurulacak Ay Seçimi
+                                    </label>
+                                    <input
+                                        type="month"
+                                        value={selectedAutoMonth}
+                                        onChange={(e) => setSelectedAutoMonth(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                    />
+                                </div>
+                                <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 rounded-xl border border-blue-100 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300 font-bold leading-normal">
+                                    ℹ️ Belirtilen tarih aralığındaki her gün için otomatik olarak bakım kayıtları oluşturulacaktır. Günlük periyotlar her güne, haftalık periyotlar Cuma günlerine, aylık periyotlar ayın 15'ine ve yıllık periyotlar Aralık 15'ine yerleştirilerek gerçekçi bir rapor geçmişi simüle edilecektir.
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleAutoFillLogs}
+                                    disabled={isSaving}
+                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition shadow-lg"
+                                >
+                                    {isSaving ? "Kayıtlar Oluşturuluyor..." : "Otomatik Doldur ve Kaydet"}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Manuel Doldurma Parametreleri */}
+                        {activeFillType === 'manual' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                        Bakım Tarihi
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={manualDate}
+                                        onChange={(e) => setManualDate(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                    />
+                                </div>
+
+                                {selectedAutoMachineId && (
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5">
+                                            Tamamlanan Bakım Görevleri
+                                        </label>
+                                        {activeMachineTasks.length === 0 ? (
+                                            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-250 dark:border-gray-700 text-center text-xs text-gray-500 font-semibold italic">
+                                                Seçili tezgaha atanmış görev bulunamadı.
+                                            </div>
+                                        ) : (
+                                            <div className="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-xl divide-y divide-gray-150 dark:divide-gray-700 bg-gray-50 dark:bg-gray-900/40 p-2 space-y-1">
+                                                {activeMachineTasks.map(t => {
+                                                    const isChecked = selectedManualTaskIds.includes(t.id);
+                                                    return (
+                                                        <label
+                                                            key={t.id}
+                                                            className="flex items-start gap-3 p-3 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition cursor-pointer select-none"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={(e) => {
+                                                                    if (e.target.checked) {
+                                                                        setSelectedManualTaskIds(prev => [...prev, t.id]);
+                                                                    } else {
+                                                                        setSelectedManualTaskIds(prev => prev.filter(id => id !== t.id));
+                                                                    }
+                                                                }}
+                                                                className="mt-1 w-4.5 h-4.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                            <div className="flex-1">
+                                                                <p className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight">{t.name}</p>
+                                                                <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${FREQUENCIES[t.frequency]?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                                                    {FREQUENCIES[t.frequency]?.label || t.frequency}
+                                                                </span>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={handleManualFillLogs}
+                                    disabled={isSaving}
+                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition shadow-lg"
+                                >
+                                    {isSaving ? "Kaydediliyor..." : "Geçmişe Dönük Kayıt Ekle"}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </Modal>
             )}
         </div>
     );

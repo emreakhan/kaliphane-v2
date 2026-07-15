@@ -9,6 +9,7 @@ export const initialAuthToken = null;
 // ============================================================
 
 export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
+export const DELETED_PROJECT_COLLECTION = `artifacts/${appId}/public/data/deletedMoldProjects`;
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
 export const MACHINE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineTasks`;
