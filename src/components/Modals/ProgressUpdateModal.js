@@ -19,11 +19,16 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
     const [showPauseForm, setShowPauseForm] = useState(false); // Duraklatma formunu göstermek için
     const [pauseReason, setPauseReason] = useState(''); // Girilen nedeni tutmak için
 
+    const [showRemoveMachineForm, setShowRemoveMachineForm] = useState(false); // Tezgahtan çıkarma formunu göstermek için
+    const [removeReason, setRemoveReason] = useState(''); // Tezgahtan çıkarma nedenini tutmak için
+
     useEffect(() => {
         if (isOpen) {
             setProgress(operation.progressPercentage);
             setShowPauseForm(false);
             setPauseReason('');
+            setShowRemoveMachineForm(false);
+            setRemoveReason('');
         }
     }, [isOpen, operation.progressPercentage]);
 
@@ -62,11 +67,28 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
             status: OPERATION_STATUS.PAUSED 
         };
 
-        // App.js'e gönderilecek fonksiyon 5 parametre bekliyor olabilir, 
-        // ancak CamDashboard üzerinden handleUpdateOperation şu şekilde pass ediliyor:
-        // handleUpdateOperation(moldId, taskId, updatedOperationData, actionType, pauseReason)
-        // Biz de bu 5 parametreyi gönderiyoruz:
         await onSubmit(mold.id, task.id, updatedOperation, 'PAUSE_JOB', pauseReason.trim());
+        
+        setIsSaving(false);
+        onClose();
+    };
+
+    // YENİ: Tezgahtan Çıkarma İşlemini Kaydet
+    const handleConfirmRemoveMachine = async () => {
+        if (!removeReason.trim()) {
+            alert("Lütfen tezgahtan çıkarma nedenini kısaca belirtiniz.");
+            return;
+        }
+
+        setIsSaving(true);
+        
+        let updatedOperation = { 
+            ...operation, 
+            progressPercentage: progress,
+            status: OPERATION_STATUS.PAUSED 
+        };
+
+        await onSubmit(mold.id, task.id, updatedOperation, 'REMOVE_FROM_MACHINE', removeReason.trim());
         
         setIsSaving(false);
         onClose();
@@ -75,8 +97,8 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`İlerleme Güncelle: ${task.taskName} (${operation.type})`}>
             
-            {/* EĞER DURAKLATMA FORMU AÇIK DEĞİLSE NORMAL GÜNCELLEME EKRANINI GÖSTER */}
-            {!showPauseForm ? (
+            {/* EĞER FORM VE PANELLER AÇIK DEĞİLSE NORMAL GÜNCELLEME EKRANINI GÖSTER */}
+            {!showPauseForm && !showRemoveMachineForm ? (
                 <>
                     <p className="text-gray-700 dark:text-gray-300 mb-4">Mevcut ilerleme yüzdesini giriniz.</p>
 
@@ -104,12 +126,12 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
                     <div className="mt-8 flex flex-col sm:flex-row justify-end gap-3">
                         <button
                             onClick={onClose}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-650 transition"
                         >
                             İptal
                         </button>
 
-                        {/* Duraklat Butonu - Sadece formu açar */}
+                        {/* Duraklat Butonu */}
                         {progress < 100 && (
                             <button
                                 onClick={handleOpenPauseForm}
@@ -117,6 +139,17 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
                                 className="px-4 py-2 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 transition flex items-center justify-center disabled:bg-orange-300"
                             >
                                 <PauseCircle className="w-4 h-4 mr-2"/> Duraklat
+                            </button>
+                        )}
+
+                        {/* Tezgahtan Çıkar Butonu */}
+                        {progress < 100 && operation.machineName && operation.machineName !== 'YOK' && (
+                            <button
+                                onClick={() => setShowRemoveMachineForm(true)}
+                                disabled={isSaving}
+                                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center justify-center disabled:bg-red-300"
+                            >
+                                <PauseCircle className="w-4 h-4 mr-2"/> Tezgahtan Çıkar
                             </button>
                         )}
 
@@ -129,7 +162,7 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
                         </button>
                     </div>
                 </>
-            ) : (
+            ) : showPauseForm ? (
                 /* --- DURAKLATMA NEDENİ FORMU --- */
                 <div className="animation-slide-down">
                     <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg border border-orange-100 dark:border-orange-800/50 mb-4">
@@ -169,6 +202,49 @@ const ProgressUpdateModal = ({ isOpen, onClose, mold, task, operation, onSubmit,
                         >
                             <PauseCircle className="w-4 h-4 mr-2"/> 
                             {isSaving ? 'Kaydediliyor...' : 'Onayla ve Duraklat'}
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                /* --- TEZGAHTAN ÇIKARMA FORMU --- */
+                <div className="animation-slide-down">
+                    <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-100 dark:border-red-800/50 mb-4">
+                        <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-1 flex items-center">
+                            <AlertTriangle className="w-4 h-4 mr-2 text-red-600" />
+                            İşi Tezgahtan Çıkarıyorsunuz (Mevcut İlerleme: %{progress})
+                        </p>
+                        <p className="text-xs text-red-700 dark:text-red-400 font-bold">
+                            Bu işlem parçayı <strong>{operation.machineName}</strong> tezgahından çıkaracak, durumunu duraklatıldı olarak işaretleyecek ve tezgahsız bekleme süresini kaydetmeye başlayacaktır.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+                            <MessageSquare className="w-4 h-4 mr-2 text-gray-400" />
+                            Tezgahtan Çıkarma Nedeni (Zorunlu)
+                        </label>
+                        <textarea 
+                            value={removeReason}
+                            onChange={(e) => setRemoveReason(e.target.value)}
+                            placeholder="Örn: Acil iş nedeniyle tezgah değiştiriliyor, takım aşınması veya arıza var vb..."
+                            className="w-full p-3 border border-red-200 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm resize-none h-24 focus:ring-2 focus:ring-red-500 focus:outline-none"
+                        />
+                    </div>
+
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button
+                            onClick={() => setShowRemoveMachineForm(false)}
+                            className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 rounded-lg transition"
+                        >
+                            Geri Dön
+                        </button>
+                        <button
+                            onClick={handleConfirmRemoveMachine}
+                            disabled={isSaving || !removeReason.trim()}
+                            className="px-6 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition flex items-center shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <PauseCircle className="w-4 h-4 mr-2"/> 
+                            {isSaving ? 'İşlem Yapılıyor...' : 'Tezgahtan Çıkar'}
                         </button>
                     </div>
                 </div>

@@ -9,7 +9,7 @@ import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, E
 // Sabitler
 import { OPERATION_STATUS } from '../config/constants.js';
 import { PROJECT_COLLECTION } from '../config/constants.js';
-import { db, doc, updateDoc } from '../config/firebase.js';
+import { db, doc, updateDoc, getDoc } from '../config/firebase.js';
 
 // Yardımcı Fonksiyonlar
 import { formatDateTime } from '../utils/dateUtils.js';
@@ -266,13 +266,49 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
         }
 
         try {
-            if(handleAddOperation) {
-                // Seçilen tüm parçalar için operasyon ekleme işlemini paralel olarak (aynı anda) yap
-                const promises = mpSelectedTasks.map(taskId => {
+            const moldRef = doc(db, PROJECT_COLLECTION, mpSelectedMold);
+            const moldSnap = await getDoc(moldRef);
+            
+            if (!moldSnap.exists()) {
+                alert("Kalıp veritabanında bulunamadı.");
+                return;
+            }
+
+            const currentMoldData = moldSnap.data();
+            const currentTasks = currentMoldData.tasks || [];
+            
+            // Seçilen her bir taskId için tasks dizisini tek bir döngüde güncelleyelim (Senkronize olarak)
+            const updatedTasks = currentTasks.map(task => {
+                if (!mpSelectedTasks.includes(task.id)) {
+                    return task;
+                }
+
+                const operations = task.operations || [];
+                
+                // Öncelikli olarak DURAKLATILDI veya BAŞLAMADI durumundaki mevcut operasyonu bul
+                const existingOpIndex = operations.findIndex(op => op.status === OPERATION_STATUS.PAUSED) !== -1
+                    ? operations.findIndex(op => op.status === OPERATION_STATUS.PAUSED)
+                    : operations.findIndex(op => op.status === OPERATION_STATUS.NOT_STARTED);
+
+                let updatedOperations = [...operations];
+
+                if (existingOpIndex !== -1) {
+                    const existingOp = operations[existingOpIndex];
+                    updatedOperations[existingOpIndex] = {
+                        ...existingOp,
+                        machineName: multiPartModal.machineName,
+                        assignedOperator: loggedInUser.name,
+                        machineOperatorName: multiPartModal.machineOperatorName || "Bilinmiyor",
+                        status: OPERATION_STATUS.IN_PROGRESS,
+                        startDate: existingOp.startDate || new Date().toISOString(),
+                        setupStartTime: existingOp.setupStartTime || new Date().toISOString(),
+                        productionStartTime: new Date().toISOString()
+                    };
+                } else {
                     const newOpId = "op_" + Date.now().toString() + Math.random().toString(36).substr(2, 5);
                     const newOperationData = {
                         id: newOpId,
-                        type: "Ortak İşleme", // Farklı/Aynı parçaların aynı tezgahta işlendiğini belirtmek için
+                        type: "CNC",
                         machineName: multiPartModal.machineName,
                         assignedOperator: loggedInUser.name,
                         machineOperatorName: multiPartModal.machineOperatorName || "Bilinmiyor",
@@ -282,14 +318,19 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                         setupStartTime: new Date().toISOString(),
                         productionStartTime: new Date().toISOString()
                     };
-                    return handleAddOperation(mpSelectedMold, taskId, newOperationData);
-                });
+                    updatedOperations.push(newOperationData);
+                }
 
-                await Promise.all(promises);
-                alert(`${multiPartModal.machineName} tezgahına ${mpSelectedTasks.length} adet ilave parça başarıyla eklendi!`);
-            } else {
-                alert("HATA: handleAddOperation fonksiyonu bulunamadı. Lütfen App.js dosyasını kontrol edin.");
-            }
+                return {
+                    ...task,
+                    operations: updatedOperations
+                };
+            });
+
+            // Tek bir updateDoc çağrısıyla veriyi veritabanına yazalım
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            
+            alert(`${multiPartModal.machineName} tezgahına ${mpSelectedTasks.length} adet ilave parça başarıyla bağlandı ve başlatıldı!`);
             
             // İşlem bitince modali ve state'leri temizle
             setMultiPartModal({ isOpen: false, machineName: '', machineOperatorName: '' });
@@ -298,7 +339,7 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
             setMpSearchTerm('');
         } catch (err) {
             console.error("İlave parça eklenirken hata:", err);
-            alert("Parçalar eklenemedi.");
+            alert("Parçalar eklenirken bir hata oluştu: " + err.message);
         }
     };
 

@@ -397,12 +397,19 @@ const App = () => {
         const oldOperation = currentTask.operations[operationIndex];
         const now = getCurrentDateTimeString();
 
-        if (actionType === 'PAUSE_JOB' || (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED)) {
+        if (actionType === 'PAUSE_JOB' || actionType === 'REMOVE_FROM_MACHINE' || (oldOperation.status !== OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.PAUSED)) {
             if (!updatedOperationData.lastPausedAt) {
                 updatedOperationData.lastPausedAt = now;
             }
             if (pauseReason) {
-                updatedOperationData.lastPauseReason = pauseReason;
+                if (actionType === 'REMOVE_FROM_MACHINE') {
+                    updatedOperationData.lastPauseReason = `Tezgahtan Çıkarıldı: ${pauseReason}`;
+                    updatedOperationData.machineName = 'YOK';
+                    updatedOperationData.removedFromMachine = true;
+                    updatedOperationData.lastRemovedFromMachineAt = now;
+                } else {
+                    updatedOperationData.lastPauseReason = pauseReason;
+                }
             }
         } 
         else if (actionType === 'RESUME_JOB' || (oldOperation.status === OPERATION_STATUS.PAUSED && updatedOperationData.status === OPERATION_STATUS.IN_PROGRESS)) {
@@ -412,15 +419,23 @@ const App = () => {
                     ? [...oldOperation.pauseHistory] 
                     : [];
 
+                let recordReason = oldOperation.lastPauseReason || 'Belirtilmedi';
+                if (oldOperation.removedFromMachine) {
+                    // Eğer önceden tezgahtan çıkarılmışsa, süreyi belirt
+                    recordReason = `Tezgahtan Çıkarılma Süresi - ${recordReason}`;
+                }
+
                 pauseHistory.push({
                     pausedAt: oldOperation.lastPausedAt,
                     resumedAt: now,
-                    reason: pauseReason || oldOperation.lastPauseReason || 'Belirtilmedi'
+                    reason: recordReason
                 });
                 
                 updatedOperationData.pauseHistory = pauseHistory;
                 updatedOperationData.lastPausedAt = null; 
                 updatedOperationData.lastPauseReason = null; 
+                updatedOperationData.removedFromMachine = false;
+                updatedOperationData.lastRemovedFromMachineAt = null;
             }
         }
 

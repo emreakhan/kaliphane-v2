@@ -35,6 +35,9 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
     // --- TV Modu State'i ---
     const [isTvMode, setIsTvMode] = useState(false);
 
+    // --- TV Modu İçin Çoklu Parça Döngü Sayacı (5sn bir geçiş için) ---
+    const [cycleTick, setCycleTick] = useState(0);
+
     // Ekran boyutlarını takip et
     const [windowSize, setWindowSize] = useState({
         width: window.innerWidth,
@@ -56,6 +59,19 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    // 5 Saniyede Bir TV Modundaki Aktif Parçaları Döndür
+    useEffect(() => {
+        let interval = null;
+        if (isTvMode) {
+            interval = setInterval(() => {
+                setCycleTick(prev => prev + 1);
+            }, 5000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isTvMode]);
 
     // 1. Standart Haritayı Çek
     useEffect(() => {
@@ -155,23 +171,13 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             const manualReason = machine.statusReason || '';
             const statusTime = machine.statusStartTime || null;
             
-            // YENİ MANTIK: Bu tezgaha ait aktif işleri bul
-            const tasksForThisMachine = activeOperations.filter(op => op.machineName === machine.name);
-            let activeTask = null;
-
-            if (tasksForThisMachine.length > 0) {
-                // 1. ÖNCELİK: Çalışan veya Ayar Yapılan İşi Bul
-                activeTask = tasksForThisMachine.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
-                
-                // 2. ÖNCELİK: Eğer çalışan yoksa, duraklatılmış olanı al.
-                // Eğer birden fazla duraklatılmış varsa en son duraklatılanı al.
-                if (!activeTask) {
-                    activeTask = tasksForThisMachine.sort((a, b) => {
-                        const timeA = new Date(a.lastPausedAt || a.startDate).getTime();
-                        const timeB = new Date(b.lastPausedAt || b.startDate).getTime();
-                        return timeB - timeA;
-                    }).find(op => op.status === OPERATION_STATUS.PAUSED);
-                }
+            // Bu tezgaha ait aktif işleri bul
+            let tasksForThisMachine = activeOperations.filter(op => op.machineName === machine.name);
+            
+            // Eğer tezgahta en az bir adet çalışan (IN_PROGRESS) iş varsa, aynı tezgaha ait duraklatılmış (PAUSED) parçaları filtrele
+            const hasWorkingTask = tasksForThisMachine.some(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+            if (hasWorkingTask) {
+                tasksForThisMachine = tasksForThisMachine.filter(op => op.status !== OPERATION_STATUS.PAUSED);
             }
             
             if (manualStatus === MACHINE_STATUS.FAULT) {
@@ -183,7 +189,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     text: 'ARIZALI', 
                     detail: manualReason, 
                     time: statusTime, 
-                    machineObj: machine 
+                    machineObj: machine,
+                    tasks: []
                 };
             } else if (manualStatus === MACHINE_STATUS.MAINTENANCE) {
                 map[machine.name] = { 
@@ -194,7 +201,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     text: 'BAKIMDA', 
                     detail: manualReason, 
                     time: statusTime, 
-                    machineObj: machine 
+                    machineObj: machine,
+                    tasks: []
                 };
             } else if (manualStatus === MACHINE_STATUS.WAITING) { 
                 map[machine.name] = { 
@@ -205,7 +213,8 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     text: 'BEKLİYOR', 
                     detail: manualReason, 
                     time: statusTime, 
-                    machineObj: machine 
+                    machineObj: machine,
+                    tasks: []
                 };
             } else if (manualStatus === MACHINE_STATUS.BUSY) { 
                 map[machine.name] = { 
@@ -216,28 +225,32 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     text: 'MEŞGUL', 
                     detail: manualReason, 
                     time: statusTime, 
-                    machineObj: machine 
+                    machineObj: machine,
+                    tasks: []
                 };
-            } else if (activeTask) {
+            } else if (tasksForThisMachine.length > 0) {
                 // İşin detaylı durumunu belirle (Çalışıyor, Duraklatıldı, Ayar Yapılıyor)
+                const workingTask = tasksForThisMachine.find(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+                const primaryTask = workingTask || tasksForThisMachine[0];
+
                 let mode = 'WORKING';
                 let text = 'ÇALIŞIYOR';
                 let colorClass = 'bg-gradient-to-br from-green-500 to-green-600 text-white animate-pulse-slow';
                 let tvStyle = 'bg-green-900 border-4 border-green-600 shadow-[0_0_30px_rgba(22,163,74,0.4)]';
-                let time = activeTask.productionStartTime || activeTask.setupStartTime || activeTask.startDate;
+                let time = primaryTask.productionStartTime || primaryTask.setupStartTime || primaryTask.startDate;
 
-                if (activeTask.status === OPERATION_STATUS.PAUSED) {
+                if (!workingTask) {
                     mode = 'PAUSED';
                     text = 'DURAKLATILDI';
                     colorClass = 'bg-gradient-to-br from-orange-500 to-orange-600 text-white';
                     tvStyle = 'bg-orange-900 border-4 border-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.4)]';
-                    time = activeTask.lastPausedAt || time;
-                } else if (activeTask.setupStartTime && !activeTask.productionStartTime) {
+                    time = primaryTask.lastPausedAt || time;
+                } else if (workingTask.setupStartTime && !workingTask.productionStartTime) {
                     mode = 'SETUP';
                     text = 'AYAR YAPILIYOR';
                     colorClass = 'bg-gradient-to-br from-yellow-500 to-yellow-600 text-black';
                     tvStyle = 'bg-yellow-800 border-4 border-yellow-500';
-                    time = activeTask.setupStartTime || time;
+                    time = workingTask.setupStartTime || time;
                 }
 
                 map[machine.name] = { 
@@ -245,7 +258,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     colorClass: colorClass, 
                     tvStyle: tvStyle,
                     text: text, 
-                    task: activeTask, 
+                    tasks: tasksForThisMachine, // Tüm parçaları saklıyoruz
                     time: time, 
                     machineObj: machine 
                 };
@@ -256,22 +269,58 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                     tvStyle: 'bg-gray-800 border-4 border-gray-700 opacity-60', 
                     icon: <AlertTriangle className="w-4 h-4 md:w-6 md:h-6 mb-1 text-gray-500" />,
                     text: 'BOŞTA', 
-                    machineObj: machine 
+                    machineObj: machine,
+                    tasks: []
                 };
             }
         });
         return map;
     }, [activeOperations, filteredMachines]);
 
+    // TEZGAHLARIN LİSTE MODU VERİSİ (Aynı tezgaha atanan her aktif iş için ayrı satır oluşturur)
     const machineStatusList = useMemo(() => {
-        return Object.entries(machineStatusMap).map(([name, status]) => ({
-            machineName: name,
-            statusType: status.status,
-            task: status.task || null,
-            detail: status.detail || '',
-            startTime: status.time || null,
-            isIdle: status.status === 'IDLE'
-        })).sort((a, b) => a.machineName.localeCompare(b.machineName));
+        const list = [];
+        Object.entries(machineStatusMap).forEach(([name, status]) => {
+            if (status.tasks && status.tasks.length > 0) {
+                // Her bir aktif iş için ayrı bir liste kaydı oluşturarak alt alta görüntüleme sağlıyoruz
+                status.tasks.forEach(t => {
+                    let itemStatus = status.status;
+                    let itemText = status.text;
+                    let itemTime = t.productionStartTime || t.setupStartTime || t.startDate;
+
+                    if (t.status === OPERATION_STATUS.PAUSED) {
+                        itemStatus = 'PAUSED';
+                        itemText = 'DURAKLATILDI';
+                        itemTime = t.lastPausedAt || itemTime;
+                    } else if (t.setupStartTime && !t.productionStartTime) {
+                        itemStatus = 'SETUP';
+                        itemText = 'AYAR YAPILIYOR';
+                        itemTime = t.setupStartTime || itemTime;
+                    }
+
+                    list.push({
+                        machineName: name,
+                        statusType: itemStatus,
+                        statusText: itemText,
+                        task: t,
+                        detail: status.detail || '',
+                        startTime: itemTime,
+                        isIdle: false
+                    });
+                });
+            } else {
+                list.push({
+                    machineName: name,
+                    statusType: status.status,
+                    statusText: status.text || 'BOŞTA',
+                    task: null,
+                    detail: status.detail || '',
+                    startTime: status.time || null,
+                    isIdle: status.status === 'IDLE'
+                });
+            }
+        });
+        return list.sort((a, b) => a.machineName.localeCompare(b.machineName));
     }, [machineStatusMap]);
 
     const waitingReviewTasks = useMemo(() => {
@@ -354,36 +403,73 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
             const info = machineStatusMap[item.i] || { 
                 tvStyle: 'bg-gray-800 text-gray-500 border-4 border-gray-900', 
                 text: '???', 
-                status: 'UNKNOWN' 
+                status: 'UNKNOWN',
+                tasks: []
             };
+
+            const taskCount = info.tasks ? info.tasks.length : 0;
+            
+            // Eğer birden fazla iş varsa cycleTick'e göre sırayla gösteriyoruz (5 saniyede bir)
+            const currentTaskIndex = taskCount > 0 ? (cycleTick % taskCount) : 0;
+            const activeTask = taskCount > 0 ? info.tasks[currentTaskIndex] : null;
+
+            // Seçilen işe göre statik görünüm özelliklerini dinamikleştiriyoruz
+            let currentStatus = info.status;
+            let currentText = info.text;
+            let currentTime = info.time;
+            let currentTvStyle = info.tvStyle;
+
+            if (activeTask) {
+                if (activeTask.status === OPERATION_STATUS.PAUSED) {
+                    currentStatus = 'PAUSED';
+                    currentText = 'DURAKLATILDI';
+                    currentTvStyle = 'bg-orange-900 border-4 border-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.4)]';
+                    currentTime = activeTask.lastPausedAt || currentTime;
+                } else if (activeTask.setupStartTime && !activeTask.productionStartTime) {
+                    currentStatus = 'SETUP';
+                    currentText = 'AYAR YAPILIYOR';
+                    currentTvStyle = 'bg-yellow-800 border-4 border-yellow-500';
+                    currentTime = activeTask.setupStartTime || currentTime;
+                } else {
+                    currentStatus = 'WORKING';
+                    currentText = 'ÇALIŞIYOR';
+                    currentTvStyle = 'bg-green-900 border-4 border-green-600 shadow-[0_0_30px_rgba(22,163,74,0.4)]';
+                }
+            }
 
             return (
                 <div 
                     key={item.i}
-                    className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 relative ${info.tvStyle}`}
+                    className={`flex flex-col justify-between p-2 rounded-xl overflow-hidden h-full w-full transition-colors duration-500 relative ${currentTvStyle}`}
                 >
-                    <div className="absolute top-0 left-0 bg-black/40 px-1.5 py-0.5 rounded-br-lg backdrop-blur-sm border-b border-r border-white/10 z-10">
+                    {/* Tezgah Adı ve Aktif Parça Sayısı Sayacı */}
+                    <div className="absolute top-0 left-0 bg-black/40 px-1.5 py-0.5 rounded-br-lg backdrop-blur-sm border-b border-r border-white/10 z-10 flex items-center gap-1.5">
                         <span className="text-white font-mono text-xs font-bold tracking-widest">{item.i}</span>
+                        {taskCount > 1 && (
+                            <span className="bg-indigo-600 text-white font-black text-[9px] px-1 rounded animate-pulse">
+                                {currentTaskIndex + 1}/{taskCount}
+                            </span>
+                        )}
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center items-center text-center min-h-0 overflow-hidden px-1 pt-4 pb-1 space-y-0.5">
                         
-                        {activeStatuses.includes(info.status) && info.task ? (
+                        {activeStatuses.includes(currentStatus) && activeTask ? (
                             <>
                                 <div className="w-full">
                                     <div className="text-base md:text-lg lg:text-xl font-black text-white leading-tight">
-                                        <ScrollingText text={info.task.moldName} />
+                                        <ScrollingText text={activeTask.moldName} />
                                     </div>
                                 </div>
                                 <div className="w-full mt-0.5">
                                     <div className="text-sm md:text-base lg:text-lg font-bold text-yellow-400 leading-tight">
-                                        <ScrollingText text={info.task.taskName} />
+                                        <ScrollingText text={activeTask.taskName} />
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-center text-blue-300 text-[10px] md:text-xs font-bold w-full mt-0.5">
                                     <User className="w-3 h-3 mr-1 shrink-0" /> 
                                     <div className="w-full overflow-hidden">
-                                         <ScrollingText text={info.task.assignedOperator} className="text-center" />
+                                         <ScrollingText text={activeTask.assignedOperator} className="text-center" />
                                     </div>
                                 </div>
                             </>
@@ -404,23 +490,28 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                         )}
                     </div>
 
-                    {activeStatuses.includes(info.status) && info.task && (
+                    {activeStatuses.includes(currentStatus) && activeTask && (
                         <div className="mt-auto shrink-0 w-full relative h-5 bg-gray-800 rounded-full overflow-hidden border border-gray-600 shadow-inner">
-                            {info.status === 'WORKING' ? (
+                            {currentStatus === 'WORKING' ? (
                                 <>
                                     <div 
                                         className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-1000 ease-out" 
-                                        style={{ width: `${info.task.progressPercentage || 0}%` }}
+                                        style={{ width: `${activeTask.progressPercentage || 0}%` }}
                                     ></div>
                                     <div className="absolute inset-0 flex justify-between items-center px-2 z-10 text-[9px] font-bold text-white drop-shadow-md">
-                                        <span className="flex items-center"><Clock className="w-2.5 h-2.5 mr-1"/> {formatDuration(info.time)}</span>
-                                        <span>%{info.task.progressPercentage || 0}</span>
+                                        <span className="flex items-center"><Clock className="w-2.5 h-2.5 mr-1"/> {formatDuration(currentTime)}</span>
+                                        <span>%{activeTask.progressPercentage || 0}</span>
                                     </div>
+                                    {taskCount > 1 && (
+                                        <div className="absolute top-0 right-10 bottom-0 flex items-center z-15">
+                                            <span className="text-[8px] bg-black/50 text-white/85 px-1 rounded scale-90 font-mono">DÖNÜŞÜMLÜ</span>
+                                        </div>
+                                    )}
                                 </>
                             ) : (
-                                <div className={`absolute inset-0 flex justify-center items-center z-10 text-[10px] font-black drop-shadow-md tracking-widest uppercase transition-colors ${info.status === 'PAUSED' ? 'bg-orange-600 text-white animate-pulse shadow-inner' : 'bg-yellow-500 text-black shadow-inner'}`}>
-                                    {info.status === 'PAUSED' ? <PauseCircle className="w-3 h-3 mr-1" /> : <Settings className="w-3 h-3 mr-1 animate-spin-slow" />}
-                                    {info.text}
+                                <div className={`absolute inset-0 flex justify-center items-center z-10 text-[10px] font-black drop-shadow-md tracking-widest uppercase transition-colors ${currentStatus === 'PAUSED' ? 'bg-orange-600 text-white animate-pulse shadow-inner' : 'bg-yellow-500 text-black shadow-inner'}`}>
+                                    {currentStatus === 'PAUSED' ? <PauseCircle className="w-3 h-3 mr-1" /> : <Settings className="w-3 h-3 mr-1 animate-spin-slow" />}
+                                    {currentText}
                                 </div>
                             )}
                         </div>
@@ -512,7 +603,7 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                 <div style={{ width: `${MAP_WIDTH}px`, minHeight: '600px' }}>
                     <GridLayout className="layout" layout={savedLayout} width={MAP_WIDTH} cols={24} rowHeight={40} isDraggable={false} isResizable={false} compactType={null} margin={[10, 10]}>
                         {savedLayout.map((item) => {
-                            const info = machineStatusMap[item.i] || { colorClass: 'bg-gray-400', text: '??', status: 'UNKNOWN' };
+                            const info = machineStatusMap[item.i] || { colorClass: 'bg-gray-400', text: '??', status: 'UNKNOWN', tasks: [] };
                             return (
                                 <div key={item.i} onClick={() => openStatusModal(item.i)} className={`group relative rounded-lg shadow-md border border-white/10 flex flex-col items-center justify-center transition-all duration-200 hover:z-50 hover:scale-105 cursor-pointer ${info.colorClass}`}>
                                     <span className="font-black text-xl tracking-wider drop-shadow-md select-none text-center p-1">{item.i}</span>
@@ -520,13 +611,19 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                     <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full mb-2 left-1/2 transform -translate-x-1/2 z-50 w-64 pointer-events-none">
                                         <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 border border-gray-700">
                                             <div className="font-bold text-base mb-1 border-b border-gray-700 pb-1 flex justify-between"><span>{item.i}</span>{info.icon}</div>
-                                            {activeStatuses.includes(info.status) ? (
-                                                <div className="space-y-1">
-                                                    <div className={`font-semibold ${info.status === 'WORKING' ? 'text-green-400' : info.status === 'PAUSED' ? 'text-orange-400' : 'text-yellow-400'}`}>{info.text}</div>
-                                                    <div><span className="text-gray-400">Kalıp:</span> {info.task.moldName}</div>
-                                                    <div><span className="text-gray-400">İş:</span> {info.task.taskName}</div>
-                                                    <div><span className="text-gray-400">Op:</span> {info.task.type} {info.status === 'WORKING' && `(%${info.task.progressPercentage})`}</div>
-                                                    <div className="text-blue-300"><span className="text-gray-400 font-bold">CAM:</span> {info.task.assignedOperator}</div>
+                                            {activeStatuses.includes(info.status) && info.tasks && info.tasks.length > 0 ? (
+                                                <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar">
+                                                    <div className={`font-bold border-b border-gray-700 pb-1 mb-1 ${info.status === 'WORKING' ? 'text-green-400' : info.status === 'PAUSED' ? 'text-orange-400' : 'text-yellow-400'}`}>
+                                                        {info.text} {info.tasks.length > 1 && `(${info.tasks.length} Parça)`}
+                                                    </div>
+                                                    {info.tasks.map((t, idx) => (
+                                                        <div key={t.id} className={idx > 0 ? "border-t border-gray-800 pt-1.5 mt-1.5" : ""}>
+                                                            <div className="text-[11px]"><span className="text-gray-400">Kalıp:</span> {t.moldName}</div>
+                                                            <div className="text-[11px]"><span className="text-gray-400">İş:</span> {t.taskName}</div>
+                                                            <div className="text-[11px]"><span className="text-gray-400">Op:</span> {t.type} {t.status === OPERATION_STATUS.IN_PROGRESS && `(%${t.progressPercentage})`}</div>
+                                                            <div className="text-[11px] text-blue-300"><span className="text-gray-400 font-bold">CAM:</span> {t.assignedOperator}</div>
+                                                        </div>
+                                                    ))}
                                                     <div className="text-xs text-right text-gray-500 mt-1"><Clock className="w-3 h-3 inline mr-1"/> {formatDuration(info.time)}</div>
                                                 </div>
                                             ) : info.status === 'FAULT' || info.status === 'MAINTENANCE' || info.status === 'BUSY' || info.status === 'WAITING' ? (
@@ -591,9 +688,13 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                     if (item.machineName.toLowerCase().includes(lowerSearchTerm)) return true;
                                     if (item.task && item.task.moldName.toLowerCase().includes(lowerSearchTerm)) return true;
                                     return false;
-                                }).map((item) => (
-                                    <tr key={item.machineName} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                        <td className="px-4 py-4 font-bold text-gray-900 dark:text-white border-r dark:border-gray-700">{item.machineName}</td>
+                                }).map((item, index, arr) => {
+                                    const isFirstForMachine = index === 0 || arr[index - 1].machineName !== item.machineName;
+                                    return (
+                                        <tr key={`${item.machineName}-${item.task ? item.task.id : 'idle'}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition border-b border-gray-150 dark:border-gray-700 last:border-0">
+                                            <td className="px-4 py-4 font-bold text-gray-900 dark:text-white border-r dark:border-gray-700">
+                                                {isFirstForMachine ? item.machineName : ""}
+                                            </td>
                                         <td className="px-4 py-4">
                                             {item.statusType === 'IDLE' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">BOŞTA</span>}
                                             {item.statusType === 'WORKING' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">ÇALIŞIYOR</span>}
@@ -624,14 +725,15 @@ const ActiveTasksPage = ({ projects, machines, loggedInUser, personnel, handleUp
                                         <td className="px-4 py-4 text-sm text-gray-700 dark:text-gray-300">
                                             {item.task ? (item.task.machineOperatorName || '---') : '---'}
                                         </td>
-                                        <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">
+                                        <td className="px-4 py-4 text-sm text-gray-650 dark:text-gray-400">
                                             {item.startTime ? formatDate(item.startTime) : '---'}
                                         </td>
                                         <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
                                             {item.startTime ? formatDuration(item.startTime) : '---'}
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
