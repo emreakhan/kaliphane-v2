@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { 
     Clock, Save, Plus, GripVertical, Trash2, 
     MoreVertical, Search, X, Edit2, Calculator, Box, Activity,
-    ArrowUp, ArrowDown, UserCircle, Briefcase, Calendar as CalendarIcon
+    ArrowUp, ArrowDown, UserCircle, Briefcase, Calendar as CalendarIcon, Settings
 } from 'lucide-react';
 import { 
     doc, updateDoc, addDoc, deleteDoc, collection 
@@ -13,14 +13,19 @@ import {
     DESIGN_JOBS_COLLECTION, DESIGN_TASK_TYPES, PERSONNEL_ROLES, DESIGN_JOB_STATUS 
 } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
+import ManageDesignTaskTypesModal from '../components/Modals/ManageDesignTaskTypesModal.js';
 
-const DesignPlanningPage = ({ db, designJobs, personnel, projects, loggedInUser }) => {
+const DesignPlanningPage = ({ db, designJobs, personnel, projects, loggedInUser, taskTypes = [] }) => {
     const [isModalOpen, setIsModalOpen] = useState(false); 
+    const [isTypeManagerOpen, setIsTypeManagerOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState(''); 
     const [showProjectList, setShowProjectList] = useState(false); 
     
     const [selectedProject, setSelectedProject] = useState(null);
-    const [taskType, setTaskType] = useState(DESIGN_TASK_TYPES.CONCEPT);
+    const [taskType, setTaskType] = useState(() => {
+        if (taskTypes.length > 0) return typeof taskTypes[0] === 'string' ? taskTypes[0] : taskTypes[0].name;
+        return 'KALIP TASARIM';
+    });
     const [estimatedHours, setEstimatedHours] = useState('');
     const [managerNote, setManagerNote] = useState('');
     const [deadlineDate, setDeadlineDate] = useState(''); // YENİ EKLENDİ: Termin Tarihi
@@ -381,9 +386,22 @@ const DesignPlanningPage = ({ db, designJobs, personnel, projects, loggedInUser 
                             {selectedProject && (
                                 <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Tasarım İşinin Türü</label>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Tasarım İşinin Türü</label>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setIsTypeManagerOpen(true)}
+                                                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                                                title="Türleri Düzenle / Ekle"
+                                            >
+                                                <Settings className="w-3.5 h-3.5" /> Düzenle
+                                            </button>
+                                        </div>
                                         <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className="w-full p-2.5 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-indigo-500 outline-none font-semibold">
-                                            {Object.values(DESIGN_TASK_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
+                                            {taskTypes.map(t => {
+                                                const val = typeof t === 'string' ? t : t.name;
+                                                return <option key={t.id || val} value={val}>{val}</option>;
+                                            })}
                                         </select>
                                     </div>
 
@@ -421,6 +439,8 @@ const DesignPlanningPage = ({ db, designJobs, personnel, projects, loggedInUser 
                     </div>
                 </div>
             )}
+
+            <ManageDesignTaskTypesModal isOpen={isTypeManagerOpen} onClose={() => setIsTypeManagerOpen(false)} taskTypes={taskTypes} />
         </div>
     );
 };

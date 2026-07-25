@@ -12,6 +12,19 @@ export const PROJECT_COLLECTION = `artifacts/${appId}/public/data/moldProjects`;
 export const DELETED_PROJECT_COLLECTION = `artifacts/${appId}/public/data/deletedMoldProjects`;
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
+export const DESIGN_TASK_TYPES_COLLECTION = `artifacts/${appId}/public/data/designTaskTypes`;
+
+export const DEFAULT_DESIGN_TASK_TYPES = [
+    'KALIP TASARIM',
+    'GRAFİT + TEKNİK RESİM + MALZEME SİPARİŞ',
+    'ANALİZ'
+];
+
+export const DESIGN_TASK_TYPES = {
+    CONCEPT: 'KALIP TASARIM',
+    GRAPHITE_DRAWING_MATERIAL: 'GRAFİT + TEKNİK RESİM + MALZEME SİPARİŞ',
+    ANALYSIS: 'ANALİZ'
+};
 export const MACHINE_TASKS_COLLECTION = `artifacts/${appId}/public/data/machineTasks`;
 
 export const PERSONNEL_COLLECTION = `artifacts/${appId}/public/data/personnel`;
@@ -191,16 +204,6 @@ export const OPERATION_TYPES = {
     MANUAL_LATHING: 'MANUEL TORNA',
     MANUEL_MILLING: 'MANUEL FREZE',
     DRILLING: 'DELİK DELME'
-};
-
-export const DESIGN_TASK_TYPES = {
-    CONCEPT: 'KALIP TASARIM',
-    DETAIL: 'KALIP TASARIM KONTROLÜ',
-    REVISION: 'REVİZYON',
-    ELECTRODE: 'ELEKTROT TASARIMI',
-    DRAWING: 'TEKNİK RESİM',
-    ANALYSIS: 'ANALİZ',
-    OTHER: 'DİĞER'
 };
 
 export const ADDABLE_OPERATION_TYPES = {

@@ -1,11 +1,12 @@
 // src/pages/DesignMyTasks.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PlayCircle, PauseCircle, CheckCircle, Clock, Search, ChevronDown, AlertTriangle, Briefcase, Activity, ListOrdered, CalendarDays, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, ShieldCheck, Timer } from 'lucide-react';
+import { PlayCircle, PauseCircle, CheckCircle, Clock, Search, ChevronDown, AlertTriangle, Briefcase, Activity, ListOrdered, CalendarDays, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, ShieldCheck, Timer, Settings } from 'lucide-react';
 import { doc, updateDoc, addDoc, collection } from '../config/firebase.js';
 import { DESIGN_JOBS_COLLECTION, DESIGN_JOB_STATUS, DESIGN_ACTIVITY_TYPES, DESIGN_TASK_TYPES } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 import Modal from '../components/Modals/Modal.js';
+import ManageDesignTaskTypesModal from '../components/Modals/ManageDesignTaskTypesModal.js';
 
 // --- RESMİ TATİLLER VE MESAİ ALGORİTMASI ---
 const WORK_START_HOUR = 8;
@@ -91,11 +92,25 @@ const getSpentHours = (job, currentTime) => {
     if (!job.workSessions || job.workSessions.length === 0) return 0;
     let totalHours = 0;
     const autoPause = job.autoPause !== false;
+    const isPaused = job.status === DESIGN_JOB_STATUS.PAUSED;
+    const lastPauseTimeStr = isPaused && job.pauseHistory && job.pauseHistory.length > 0 
+        ? job.pauseHistory[job.pauseHistory.length - 1].pausedAt 
+        : null;
 
     job.workSessions.forEach(session => {
         if (!session.startTime) return;
         const start = new Date(session.startTime);
-        const end = session.endTime ? new Date(session.endTime) : currentTime;
+        
+        let end;
+        if (session.endTime) {
+            end = new Date(session.endTime);
+        } else if (isPaused && lastPauseTimeStr) {
+            end = new Date(lastPauseTimeStr);
+        } else if (isPaused) {
+            end = new Date(job.updatedAt || session.startTime);
+        } else {
+            end = currentTime;
+        }
         
         if (start >= end) return;
 
@@ -141,7 +156,7 @@ const SearchableProjectSelect = ({ projects, value, onChange, error }) => {
     );
 };
 
-const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
+const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] }) => {
     const [pauseModalOpen, setPauseModalOpen] = useState(false);
     const [selectedJob, setSelectedJob] = useState(null);
     const [pauseReason, setPauseReason] = useState(DESIGN_ACTIVITY_TYPES.OTHER);
@@ -149,10 +164,21 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const [pauseProjectName, setPauseProjectName] = useState('');
     const [pauseNote, setPauseNote] = useState('');
     
+    // İŞ BİTİRME (TAMAMLAMA) MODALI STATE'LERİ
+    const [completeModalOpen, setCompleteModalOpen] = useState(false);
+    const [completeJob, setCompleteJob] = useState(null);
+    const [completionNote, setCompletionNote] = useState('');
+
+    // DİNAMİK TÜRLER MODALI STATE'İ
+    const [isTypeManagerOpen, setIsTypeManagerOpen] = useState(false);
+    
     const [manualModalOpen, setManualModalOpen] = useState(false);
     const [manualProjectId, setManualProjectId] = useState('');
     const [manualProjectName, setManualProjectName] = useState('');
-    const [manualTaskType, setManualTaskType] = useState(DESIGN_TASK_TYPES.REVISION);
+    const [manualTaskType, setManualTaskType] = useState(() => {
+        if (taskTypes.length > 0) return typeof taskTypes[0] === 'string' ? taskTypes[0] : taskTypes[0].name;
+        return 'KALIP TASARIM';
+    });
     const [manualEstimatedHours, setManualEstimatedHours] = useState('');
     const [manualNote, setManualNote] = useState('');
 
@@ -359,7 +385,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
 
     const openPauseModal = (job) => {
         setSelectedJob(job); 
-        setPauseReason(DESIGN_ACTIVITY_TYPES.OTHER); 
+        setPauseReason(''); 
         setPauseProjectId(''); 
         setPauseProjectName(''); 
         setPauseNote(''); 
@@ -369,13 +395,55 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
     const closePauseModal = () => { setPauseModalOpen(false); setSelectedJob(null); };
     
     const submitPause = () => {
-        // ZORUNLULUK KALDIRILDI: Proje ID, Not veya Neden seçimi zorunlu değil.
+        if (!pauseReason || pauseReason.trim() === '' || pauseReason === 'Belirtilmedi') {
+            alert("Lütfen işi duraklatma nedenini seçiniz! (Duraklatma nedeni girilmesi zorunludur)");
+            return;
+        }
         handleAction(selectedJob, 'PAUSE', { 
-            reason: pauseReason || 'Belirtilmedi', 
+            reason: pauseReason, 
             projectId: pauseProjectId || '', 
             projectName: pauseProjectName || '', 
             note: pauseNote || '' 
         });
+    };
+
+    const openCompleteModal = (job) => {
+        setCompleteJob(job);
+        setCompletionNote('');
+        setCompleteModalOpen(true);
+    };
+
+    const closeCompleteModal = () => {
+        setCompleteModalOpen(false);
+        setCompleteJob(null);
+        setCompletionNote('');
+    };
+
+    const submitComplete = async () => {
+        if (!completeJob) return;
+        setIsSaving(true);
+        try {
+            const jobRef = doc(db, DESIGN_JOBS_COLLECTION, completeJob.id);
+            const timeNow = getCurrentDateTimeString();
+            const sessions = completeJob.workSessions ? [...completeJob.workSessions] : [];
+            if (sessions.length > 0 && !sessions[sessions.length - 1].endTime) {
+                sessions[sessions.length - 1].endTime = timeNow;
+            }
+            await updateDoc(jobRef, {
+                status: DESIGN_JOB_STATUS.COMPLETED,
+                workSessions: sessions,
+                completedAt: timeNow,
+                completionNote: completionNote.trim() || ''
+            });
+            setCompleteModalOpen(false);
+            setCompleteJob(null);
+            setCompletionNote('');
+        } catch (error) {
+            console.error("İş tamamlama hatası:", error);
+            alert("İşlem kaydedilemedi.");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const formatDate = (dateStr) => {
@@ -614,7 +682,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                                         )}
                                     </div>
 
-                                    <div className="flex flex-col gap-2">
+                            <div className="flex flex-col gap-2">
                                         {job.status === DESIGN_JOB_STATUS.ASSIGNED || job.status === DESIGN_JOB_STATUS.POOL ? (
                                             <button onClick={() => handleAction(job, 'START')} disabled={isSaving} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
                                                 <PlayCircle className="w-4 h-4 mr-2" /> İşe Başla
@@ -625,7 +693,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                                                 <button onClick={() => openPauseModal(job)} disabled={isSaving} className="w-full py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
                                                     <PauseCircle className="w-4 h-4 mr-2" /> Duraklat
                                                 </button>
-                                                <button onClick={() => handleAction(job, 'COMPLETE')} disabled={isSaving} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
+                                                <button onClick={() => openCompleteModal(job)} disabled={isSaving} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
                                                     <CheckCircle className="w-4 h-4 mr-2" /> İşi Bitir
                                                 </button>
                                             </>
@@ -643,17 +711,19 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                 </div>
             )}
 
-            {/* DURAKLATMA MODALI */}
+            {/* DURAKLATMA MODALI (SEBEP SEÇİMİ ZORUNLU) */}
             {pauseModalOpen && selectedJob && (
                 <Modal isOpen={pauseModalOpen} onClose={closePauseModal} title="İşi Duraklat / Bölünme Bildir">
                     <div className="space-y-5">
                         <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-100 dark:border-orange-800">
-                            <p className="text-sm text-orange-800 dark:text-orange-300"><strong>{selectedJob.projectName}</strong> işini duraklatıyorsunuz. Hızlıca duraklatabilir veya araya giren işin detayını belirtebilirsiniz.</p>
+                            <p className="text-sm text-orange-800 dark:text-orange-300"><strong>{selectedJob.projectName}</strong> işini duraklatıyorsunuz. Lütfen işi duraklatma nedenini belirtiniz.</p>
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Bölünme Nedeni <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span></label>
+                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                                Bölünme Nedeni <span className="text-red-500 font-bold ml-1">* (Zorunlu)</span>
+                            </label>
                             <select value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 font-semibold">
-                                <option value="">Belirtilmedi</option>
+                                <option value="">-- Lütfen Nedeni Seçiniz --</option>
                                 {Object.values(DESIGN_ACTIVITY_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
                             </select>
                         </div>
@@ -670,10 +740,42 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Açıklama / Detay <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span></label>
                             <textarea value={pauseNote} onChange={(e) => setPauseNote(e.target.value)} placeholder="Örn: T0 baskısı için preshaneye iniyorum..." className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 resize-none h-24 text-sm" />
                         </div>
-                        <div className="pt-4 flex justify-end gap-3">
+                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
                             <button onClick={closePauseModal} className="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-medium transition">İptal</button>
-                            <button onClick={submitPause} disabled={isSaving} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
+                            <button onClick={submitPause} disabled={isSaving || !pauseReason} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
                                 <PauseCircle className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'Duraklat'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* İŞİ BİTİRME (TAMAMLAMA) MODALI (İSTEĞE BAĞLI AÇIKLAMA) */}
+            {completeModalOpen && completeJob && (
+                <Modal isOpen={completeModalOpen} onClose={closeCompleteModal} title="Tasarım Görevini Tamamla">
+                    <div className="space-y-4">
+                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-100 dark:border-green-800">
+                            <p className="text-sm text-green-800 dark:text-green-300">
+                                <strong>{completeJob.projectName}</strong> ({completeJob.taskType}) işini tamamlamak üzeresiniz. İsteğe bağlı olarak tamamlama notu ekleyebilirsiniz.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                                Tamamlama Notu / Açıklama <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>
+                            </label>
+                            <textarea 
+                                value={completionNote}
+                                onChange={(e) => setCompletionNote(e.target.value)}
+                                placeholder="Örn: Tasarım tamamen bitti, imalat için montaj paftaları teslim edildi..."
+                                className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-green-500 resize-none h-28 text-sm"
+                            />
+                        </div>
+
+                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
+                            <button onClick={closeCompleteModal} className="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-medium transition">İptal</button>
+                            <button onClick={submitComplete} disabled={isSaving} className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
+                                <CheckCircle className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'İşi Tamamla'}
                             </button>
                         </div>
                     </div>
@@ -693,15 +795,28 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                         <div>
                             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
                                 Hangi Kalıp / Proje İçin?
-                                {(manualTaskType === DESIGN_TASK_TYPES.OTHER || manualTaskType === DESIGN_TASK_TYPES.ANALYSIS) && <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>}
+                                <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>
                             </label>
                             <SearchableProjectSelect projects={projects} value={manualProjectId} onChange={(id, name) => { setManualProjectId(id); setManualProjectName(name); }} />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Tasarım İşinin Türü</label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Tasarım İşinin Türü</label>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsTypeManagerOpen(true)}
+                                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                                    title="Türleri Düzenle / Ekle"
+                                >
+                                    <Settings className="w-3.5 h-3.5" /> Düzenle
+                                </button>
+                            </div>
                             <select value={manualTaskType} onChange={(e) => setManualTaskType(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
-                                {Object.values(DESIGN_TASK_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
+                                {taskTypes.map(t => {
+                                    const val = typeof t === 'string' ? t : t.name;
+                                    return <option key={t.id || val} value={val}>{val}</option>;
+                                })}
                             </select>
                         </div>
 
@@ -727,6 +842,8 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser }) => {
                     </div>
                 </Modal>
             )}
+
+            <ManageDesignTaskTypesModal isOpen={isTypeManagerOpen} onClose={() => setIsTypeManagerOpen(false)} taskTypes={taskTypes} />
         </div>
     );
 };

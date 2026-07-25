@@ -84,8 +84,8 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
         ).sort((a, b) => safeParseDate(b.completedAt) - safeParseDate(a.completedAt));
 
         let totalScore = 0;
+        let evaluatedPlannedCount = 0;
         let perfectCount = 0;
-        let halfPointCount = 0;
         let failCount = 0;
 
         const evaluatedJobs = completedJobs.map(job => {
@@ -103,6 +103,7 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
 
             const estimated = parseFloat(job.estimatedHours) || 0;
             const isHoursOk = actualHours <= estimated + 0.1; 
+            const isUnplanned = !!job.isUnplanned || (job.managerNote && (job.managerNote.includes('Kendisi Ekledi') || job.managerNote.includes('Plan Dışı')));
 
             let isDeadlineOk = true;
             if (job.deadlineDate && job.completedAt) {
@@ -117,36 +118,37 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
             let statusText = '';
             let statusColor = '';
 
-            if (isHoursOk && isDeadlineOk) {
-                score = 100; perfectCount++;
-                statusText = 'Kusursuz (Süre ve Termin Tuttu)';
+            // PERFORMANS DEĞERLENDİRMESİ SADECE SAAT ÜZERİNDEN YAPILIR
+            if (isHoursOk) {
+                score = 100;
+                statusText = 'Kusursuz (Süre Hedefi Tuttu)';
                 statusColor = 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-            } else if (isHoursOk && !isDeadlineOk) {
-                score = 50; halfPointCount++;
-                statusText = 'Yarım Puan (Süre Tuttu, Termin Kaçtı)';
-                statusColor = 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800';
-            } else if (!isHoursOk && isDeadlineOk) {
-                score = 50; halfPointCount++;
-                statusText = 'Yarım Puan (Termin Tuttu, Süre Aşıldı)';
-                statusColor = 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
             } else {
-                score = 0; failCount++;
-                statusText = 'Başarısız (Süre ve Termin Aşıldı)';
+                score = estimated > 0 ? Math.max(0, Math.round((estimated / actualHours) * 100)) : 0;
+                statusText = `Süre Aşıldı (%${score} Uyum)`;
                 statusColor = 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800';
             }
 
-            totalScore += score;
+            if (isUnplanned) {
+                statusText = 'Plan Dışı İş (Performans Ortalamasına Etki Etmez)';
+                statusColor = 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800';
+            } else {
+                totalScore += score;
+                evaluatedPlannedCount++;
+                if (isHoursOk) perfectCount++;
+                else failCount++;
+            }
 
             return {
-                ...job, actualHours, isHoursOk, isDeadlineOk, score, statusText, statusColor
+                ...job, actualHours, isHoursOk, isDeadlineOk, isUnplanned, score, statusText, statusColor
             };
         });
 
-        const avgScore = completedJobs.length > 0 ? Math.round(totalScore / completedJobs.length) : 0;
+        const avgScore = evaluatedPlannedCount > 0 ? Math.round(totalScore / evaluatedPlannedCount) : 0;
 
         return {
             jobs: evaluatedJobs,
-            stats: { totalCount: completedJobs.length, avgScore, perfectCount, halfPointCount, failCount }
+            stats: { totalCount: completedJobs.length, evaluatedPlannedCount, avgScore, perfectCount, failCount }
         };
 
     }, [designJobs, selectedDesigner]);
@@ -185,32 +187,25 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
                 </div>
             ) : stats ? (
                 <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col justify-center items-center text-center relative overflow-hidden">
                             <div className={`absolute inset-0 opacity-10 ${stats.avgScore >= 80 ? 'bg-green-500' : stats.avgScore >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-                            <span className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-1 z-10">Genel Performans</span>
+                            <span className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-1 z-10">Ortalama Süre Uyumu</span>
                             <div className="flex items-end justify-center z-10">
                                 <span className={`text-5xl font-black ${stats.avgScore >= 80 ? 'text-green-600 dark:text-green-400' : stats.avgScore >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                                    {stats.avgScore}
+                                    %{stats.avgScore}
                                 </span>
-                                <span className="text-lg font-bold text-gray-400 mb-1 ml-1">/100</span>
                             </div>
-                            <div className="mt-2 text-xs font-semibold text-gray-500 dark:text-gray-400 z-10">Toplam {stats.totalCount} İş Değerlendirildi</div>
+                            <div className="mt-2 text-xs font-semibold text-gray-500 dark:text-gray-400 z-10">
+                                Toplam {stats.evaluatedPlannedCount} Planlı İş Değerlendirildi {stats.totalCount > stats.evaluatedPlannedCount && `(${stats.totalCount - stats.evaluatedPlannedCount} Plan Dışı İş Muaf)`}
+                            </div>
                         </div>
 
                         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex items-center">
                             <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 dark:text-green-400 mr-4"><Star className="w-6 h-6 fill-current" /></div>
                             <div>
                                 <p className="text-2xl font-black text-gray-800 dark:text-white">{stats.perfectCount}</p>
-                                <p className="text-xs font-bold text-gray-500 uppercase">Kusursuz İş (100 Puan)</p>
-                            </div>
-                        </div>
-
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex items-center">
-                            <div className="w-12 h-12 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 dark:text-orange-400 mr-4"><AlertTriangle className="w-6 h-6" /></div>
-                            <div>
-                                <p className="text-2xl font-black text-gray-800 dark:text-white">{stats.halfPointCount}</p>
-                                <p className="text-xs font-bold text-gray-500 uppercase">Gecikmeli (50 Puan)</p>
+                                <p className="text-xs font-bold text-gray-500 uppercase">Süre Hedefine Uyan İşler</p>
                             </div>
                         </div>
 
@@ -218,7 +213,7 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
                             <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400 mr-4"><XCircle className="w-6 h-6" /></div>
                             <div>
                                 <p className="text-2xl font-black text-gray-800 dark:text-white">{stats.failCount}</p>
-                                <p className="text-xs font-bold text-gray-500 uppercase">Başarısız (0 Puan)</p>
+                                <p className="text-xs font-bold text-gray-500 uppercase">Süre Hedefi Aşılan İşler</p>
                             </div>
                         </div>
                     </div>
@@ -231,19 +226,28 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
                             {performanceData.jobs.map(job => (
                                 <div key={job.id} className="p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition flex flex-col lg:flex-row gap-4 lg:items-center">
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
+                                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                             <h4 className="text-base font-bold text-gray-900 dark:text-white truncate">{job.projectName}</h4>
                                             <span className="text-[10px] font-bold px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
                                                 {job.taskType}
                                             </span>
-                                            {/* EĞER BU İŞTE CHECKBOX TİKSİZSE (MESAİ KORUMASI KAPALIYSA) ETİKET GÖSTER */}
+                                            {job.isUnplanned && (
+                                                <span className="text-[10px] font-extrabold px-2.5 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
+                                                    PLAN DIŞI İŞ
+                                                </span>
+                                            )}
                                             {job.autoPause === false && (
                                                 <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded border border-indigo-200">Fazla Mesai</span>
                                             )}
                                         </div>
                                         <div className={`inline-flex px-2 py-1 rounded border text-[10px] font-black uppercase tracking-wider ${job.statusColor}`}>
-                                            {job.statusText} • {job.score} Puan
+                                            {job.statusText} {!job.isUnplanned && `• %${job.score} Uyum`}
                                         </div>
+                                        {job.completionNote && (
+                                            <div className="mt-2 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-2.5 rounded border border-gray-200 dark:border-gray-700 font-medium">
+                                                <strong className="text-green-600 dark:text-green-400">Tamamlama Notu:</strong> {job.completionNote}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex flex-wrap lg:flex-nowrap gap-6 lg:gap-8 bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-100 dark:border-gray-700 lg:w-[450px]">
@@ -253,9 +257,9 @@ const DesignPerformancePage = ({ designJobs, personnel }) => {
                                             <div className="flex justify-between text-sm mt-0.5"><span className="text-gray-600 dark:text-gray-300">Net Harcanan:</span><span className={`font-bold ${job.isHoursOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{formatHours(job.actualHours)}</span></div>
                                         </div>
                                         <div className="flex-1 border-t lg:border-t-0 lg:border-l border-gray-200 dark:border-gray-700 pt-3 lg:pt-0 lg:pl-6">
-                                            <div className="flex items-center text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase"><CalendarIcon className="w-3.5 h-3.5 mr-1" /> Termin Hedefi</div>
+                                            <div className="flex items-center text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase"><CalendarIcon className="w-3.5 h-3.5 mr-1" /> Termin (Bilgi)</div>
                                             <div className="flex justify-between text-sm"><span className="text-gray-600 dark:text-gray-300">Termin:</span><span className="font-bold text-gray-800 dark:text-gray-200">{job.deadlineDate ? safeParseDate(job.deadlineDate).toLocaleDateString('tr-TR') : 'Belirtilmedi'}</span></div>
-                                            <div className="flex justify-between text-sm mt-0.5"><span className="text-gray-600 dark:text-gray-300">Bitiş:</span><span className={`font-bold ${job.isDeadlineOk ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{safeParseDate(job.completedAt)?.toLocaleDateString('tr-TR')}</span></div>
+                                            <div className="flex justify-between text-sm mt-0.5"><span className="text-gray-600 dark:text-gray-300">Bitiş:</span><span className={`font-bold ${job.isDeadlineOk ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}`}>{safeParseDate(job.completedAt)?.toLocaleDateString('tr-TR')}</span></div>
                                         </div>
                                     </div>
                                 </div>
