@@ -4,15 +4,14 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 // İkonlar
-import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink, Monitor, Search, Settings, CheckCircle, Trash2, PlusCircle, X, CheckSquare } from 'lucide-react'; 
+import { Edit2, PlayCircle, ChevronDown, ChevronUp, Box, Layers, Clock, Users, ExternalLink, Monitor, Search, Settings, CheckCircle, Trash2, PlusCircle, X, CheckSquare, Wrench, Truck } from 'lucide-react'; 
 
 // Sabitler
-import { OPERATION_STATUS } from '../config/constants.js';
-import { PROJECT_COLLECTION } from '../config/constants.js';
-import { db, doc, updateDoc, getDoc } from '../config/firebase.js';
+import { OPERATION_STATUS, PROJECT_COLLECTION, LOGISTICS_COLLECTION, LOGISTICS_STATUS } from '../config/constants.js';
+import { db, doc, updateDoc, getDoc, collection, addDoc, getDocs, query, where } from '../config/firebase.js';
 
 // Yardımcı Fonksiyonlar
-import { formatDateTime } from '../utils/dateUtils.js';
+import { formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 import { getStatusClasses } from '../utils/styleUtils.js';
 
 // Modallar
@@ -21,6 +20,7 @@ import CamReviewMachineOpModal from '../components/Modals/CamReviewMachineOpModa
 import AssignOperationModal from '../components/Modals/AssignOperationModal.js'; 
 import ChangeOperatorModal from '../components/Modals/ChangeOperatorModal.js';
 import CamPreparationModal from './CamPreparationModal.js';
+import ViewToolRequestModal from '../components/Modals/ViewToolRequestModal.js';
 
 const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAddOperation, handleChangeMachineOperator, personnel, machines }) => {
     const [modalState, setModalState] = useState({ isOpen: false, type: null, data: null });
@@ -29,10 +29,14 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
     const [groupMode, setGroupMode] = useState('mold'); // 'mold' veya 'machine'
     
     // --- CAM ÖN HAZIRLIK STATE'LERİ ---
+    const [prepSubTab, setPrepSubTab] = useState('todo'); // 'todo' | 'completed'
     const [prepSearchTerm, setPrepSearchTerm] = useState('');
+    const [prepMachineFilter, setPrepMachineFilter] = useState('');
     const [selectedPrepMold, setSelectedPrepMold] = useState(null);
     const [isCamPrepModalOpen, setIsCamPrepModalOpen] = useState(false);
     const [prepTask, setPrepTask] = useState(null);
+    const [prepOperation, setPrepOperation] = useState(null);
+    const [toolReqModal, setToolReqModal] = useState({ isOpen: false, moldId: null, taskId: null, moldName: '', taskName: '' });
 
     // --- TEZGAHA İLAVE PARÇA (MULTI-PART) STATE'LERİ ---
     const [multiPartModal, setMultiPartModal] = useState({ isOpen: false, machineName: '', machineOperatorName: '' });
@@ -40,18 +44,22 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
     const [mpSelectedMold, setMpSelectedMold] = useState('');
     const [mpSelectedTasks, setMpSelectedTasks] = useState([]); // Çoklu parça seçimi için Dizi (Array)
 
-    const allPreparedTasks = useMemo(() => {
-        if (!projects || !loggedInUser?.name) return [];
+    const activePreparedTasks = useMemo(() => {
+        if (!projects) return [];
         return projects.flatMap(p => 
-            (p.tasks || []).filter(t => t.camPreparation && t.camPreparation.status === 'HAZIRLANDI' && t.camPreparation.preparedBy === loggedInUser.name)
-            .map(t => ({
+            (p.tasks || []).filter(t => {
+                if (!t.camPreparation || t.camPreparation.status !== 'HAZIRLANDI') return false;
+                // Eğer parçanın tüm imalat operasyonları tamamlanmış ise (işleme bitti ise) listede gösterme
+                const hasActiveOps = (t.operations || []).length === 0 || t.operations.some(op => op.status !== OPERATION_STATUS.COMPLETED);
+                return hasActiveOps;
+            }).map(t => ({
                 ...t,
                 moldId: p.id,
                 moldName: p.moldName,
                 customer: p.customer
             }))
         );
-    }, [projects, loggedInUser?.name]);
+    }, [projects]);
 
     const groupedActiveWork = useMemo(() => {
         const groups = {};
@@ -221,14 +229,123 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
         handleCloseModal();
     };
 
-    const handleSaveCamPrep = async (moldId, taskId, camPrepData) => {
+    const handleSaveCamPrep = async (moldId, taskId, camPrepData, targetOpId = null) => {
         try {
             const moldRef = doc(db, PROJECT_COLLECTION, moldId);
             const moldToUpdate = projects.find(p => p.id === moldId);
             if (!moldToUpdate) return;
-            const updatedTasks = moldToUpdate.tasks.map(t => t.id === taskId ? { ...t, camPreparation: camPrepData } : t);
+            
+            const taskToUpdate = moldToUpdate.tasks?.find(t => t.id === taskId);
+            if (!taskToUpdate) return;
+
+            const updatedOps = taskToUpdate.operations?.map(op => {
+                if (targetOpId && op.id === targetOpId) {
+                    return {
+                        ...op,
+                        machineName: camPrepData.targetMachineName || op.machineName,
+                        camPreparation: camPrepData
+                    };
+                }
+                return op;
+            }) || [];
+
+            const updatedTasks = moldToUpdate.tasks.map(t => {
+                if (t.id === taskId) {
+                    return {
+                        ...t,
+                        camPreparation: camPrepData,
+                        operations: updatedOps.length > 0 ? updatedOps : t.operations
+                    };
+                }
+                return t;
+            });
+
             await updateDoc(moldRef, { tasks: updatedTasks });
-            alert("CAM Ön Hazırlık başarıyla kaydedildi!");
+
+            // 1. FORKLİFT OPERATÖRÜ PANELİNE GÖREV DÜŞÜRME (LOGISTICS_COLLECTION)
+            try {
+                const logisticsColRef = collection(db, LOGISTICS_COLLECTION);
+                const qLogistics = query(logisticsColRef, where("moldId", "==", moldId), where("referenceId", "==", taskId));
+                const snapLogistics = await getDocs(qLogistics);
+
+                if (!snapLogistics.empty) {
+                    const existingLogDoc = snapLogistics.docs[0];
+                    await updateDoc(doc(db, LOGISTICS_COLLECTION, existingLogDoc.id), {
+                        toLocation: camPrepData.targetMachineName,
+                        status: LOGISTICS_STATUS.PENDING,
+                        updatedAt: getCurrentDateTimeString()
+                    });
+                } else {
+                    await addDoc(logisticsColRef, {
+                        type: 'CAM_PREPARATION',
+                        moldId: moldId,
+                        moldName: moldToUpdate.moldName,
+                        referenceId: taskId,
+                        itemName: `${taskToUpdate.taskName} (${moldToUpdate.moldName})`,
+                        fromLocation: 'CAM Ön Hazırlık',
+                        toLocation: camPrepData.targetMachineName,
+                        status: LOGISTICS_STATUS.PENDING,
+                        createdAt: getCurrentDateTimeString(),
+                        qrCode: taskId,
+                        requestedBy: loggedInUser?.name || 'CAM Operatörü'
+                    });
+                }
+            } catch (forkliftErr) {
+                console.error("Forklift görevi oluşturulurken hata:", forkliftErr);
+            }
+
+            // 2. TAKIMHANEYE TAKIM TALEBİ GÖNDERME (artifacts/default-app-id/public/data/toolRequests)
+            try {
+                if (camPrepData.requiredTools && camPrepData.requiredTools.length > 0) {
+                    const toolRequestsColRef = collection(db, 'artifacts/default-app-id/public/data/toolRequests');
+                    const qToolReq = query(toolRequestsColRef, where("moldId", "==", moldId), where("taskId", "==", taskId));
+                    const snapToolReq = await getDocs(qToolReq);
+
+                    const formattedTools = camPrepData.requiredTools.map(t => ({
+                        id: t.toolId || t.id || Date.now().toString(),
+                        toolName: (t.name || t.toolName || '').trim(),
+                        holderType: (t.holderType || '').trim() || null,
+                        length: (t.length || '').trim() || null,
+                        shrinkLength: (t.shrinkLength || '').trim() || null,
+                        isShrink: !!t.isShrink,
+                        condition: t.condition || 'ANY',
+                        status: 'PENDING',
+                        notes: (t.notes || '').trim() || null
+                    }));
+
+                    if (!snapToolReq.empty) {
+                        const existingReqDoc = snapToolReq.docs[0];
+                        await updateDoc(doc(db, 'artifacts/default-app-id/public/data/toolRequests', existingReqDoc.id), {
+                            machineName: camPrepData.targetMachineName,
+                            status: 'EDITED',
+                            notes: camPrepData.instructions || '',
+                            tools: formattedTools,
+                            updatedAt: new Date().toISOString()
+                        });
+                    } else {
+                        const newToolRequest = {
+                            requesterName: loggedInUser?.name || 'CAM Operatörü',
+                            requesterRole: loggedInUser?.role || 'CAM Operatörü',
+                            machineName: camPrepData.targetMachineName,
+                            moldId: moldId,
+                            moldName: moldToUpdate.moldName,
+                            taskId: taskId,
+                            taskName: taskToUpdate.taskName,
+                            status: 'PENDING',
+                            notes: camPrepData.instructions || '',
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                            tools: formattedTools,
+                            messages: []
+                        };
+                        await addDoc(toolRequestsColRef, newToolRequest);
+                    }
+                }
+            } catch (toolReqErr) {
+                console.error("Takımhane talebi iletilirken hata:", toolReqErr);
+            }
+
+            alert("CAM Ön Hazırlık başarıyla kaydedildi! Forklift taşıma görevi ve Takımhane takım talebi otomatik oluşturuldu.");
             setSelectedPrepMold({ ...moldToUpdate, tasks: updatedTasks });
             setIsCamPrepModalOpen(false);
         } catch (error) {
@@ -470,10 +587,12 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                                     <button onClick={() => handleProgressClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm">
                                                                         <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
                                                                     </button>
+                                                                    <button onClick={() => setToolReqModal({ isOpen: true, moldId: op.moldId, taskId: op.taskId, moldName: op.moldName, taskName: op.taskName })} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
+                                                                        <Wrench className="w-4 h-4 mr-1"/> Takım Talebi
+                                                                    </button>
                                                                     <button onClick={() => handleChangeOperatorClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition flex items-center justify-center shadow-sm">
                                                                         <Users className="w-4 h-4 mr-1"/> Operatör Değiştir
                                                                     </button>
-                                                                    {/* YENİ: BU TEZGAHA ÇOKLU PARÇA İLAVE ET BUTONU */}
                                                                     <button onClick={() => setMultiPartModal({ isOpen: true, machineName: op.machineName, machineOperatorName: op.machineOperatorName })} className="w-full px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition flex items-center justify-center shadow-sm border border-indigo-500">
                                                                         <PlusCircle className="w-4 h-4 mr-1"/> Bu Tezgaha Parça Ekle
                                                                     </button>
@@ -481,9 +600,14 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                             )}
 
                                                             {op.status === OPERATION_STATUS.PAUSED && (
-                                                                <button onClick={() => handleResumeClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm">
-                                                                    <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
-                                                                </button>
+                                                                <div className="w-full flex flex-col gap-2">
+                                                                    <button onClick={() => handleResumeClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm">
+                                                                        <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
+                                                                    </button>
+                                                                    <button onClick={() => setToolReqModal({ isOpen: true, moldId: op.moldId, taskId: op.taskId, moldName: op.moldName, taskName: op.taskName })} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
+                                                                        <Wrench className="w-4 h-4 mr-1"/> Takım Talebi
+                                                                    </button>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     </div>
@@ -575,96 +699,309 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                     )
                 ) : (
                     <div className="space-y-6 animate-in fade-in h-full flex flex-col min-h-0">
-                        <div className="relative max-w-2xl mx-auto mt-4 shrink-0 w-full">
-                            <Search className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                            <input type="text" placeholder="Hazırlık yapılacak kalıbın adını yazın..." value={prepSearchTerm} onChange={(e) => { setPrepSearchTerm(e.target.value); setSelectedPrepMold(null); }} className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-green-500 outline-none transition-all shadow-sm font-bold" />
-                            {prepSearchTerm && !selectedPrepMold && (
-                                <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-60 overflow-y-auto">
-                                    {projects.filter(p => p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase()) && p.status !== 'TAMAMLANDI').map(mold => (
-                                        <button key={mold.id} onClick={() => { setSelectedPrepMold(mold); setPrepSearchTerm(''); }} className="w-full text-left px-4 py-3 hover:bg-green-50 dark:hover:bg-gray-700 border-b last:border-0 border-gray-100 dark:border-gray-700 transition-colors">
-                                            <span className="font-bold text-gray-800 dark:text-white">{mold.moldName}</span>
-                                            <span className="text-xs text-gray-500 block">{mold.customer}</span>
-                                        </button>
-                                    ))}
-                                    {projects.filter(p => p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase()) && p.status !== 'TAMAMLANDI').length === 0 && (
-                                        <div className="p-4 text-center text-gray-500 font-bold">Aradığınız kriterlere uygun kalıp bulunamadı.</div>
-                                    )}
-                                </div>
-                            )}
+                        {/* ÖN HAZIRLIK İÇİ ALT SEKME BARU */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-200 dark:border-gray-700 pb-3 shrink-0">
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setPrepSubTab('todo')}
+                                    className={`px-4 py-2.5 rounded-xl font-black text-sm transition flex items-center gap-2 ${prepSubTab === 'todo' ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`}
+                                >
+                                    <Edit2 className="w-4 h-4" /> Hazırlık Yapılacak İşler
+                                </button>
+                                <button 
+                                    onClick={() => setPrepSubTab('completed')}
+                                    className={`px-4 py-2.5 rounded-xl font-black text-sm transition flex items-center gap-2 ${prepSubTab === 'completed' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`}
+                                >
+                                    <CheckCircle className="w-4 h-4" /> Yapılan Hazırlıklar Listesi ({activePreparedTasks.length})
+                                </button>
+                            </div>
                         </div>
 
-                        {selectedPrepMold ? (
-                            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-in slide-in-from-bottom-4 flex-1 flex flex-col min-h-0">
-                                <div className="flex justify-between items-center mb-6 border-b dark:border-gray-700 pb-4 shrink-0">
-                                    <div>
-                                        <h3 className="text-2xl font-black text-gray-900 dark:text-white">{selectedPrepMold.moldName}</h3>
-                                        <p className="text-sm text-gray-500 font-bold mt-1">Müşteri: {selectedPrepMold.customer}</p>
-                                    </div>
-                                    <button onClick={() => {setSelectedPrepMold(null); setPrepSearchTerm('');}} className="text-sm px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 font-bold transition">Vazgeç / Kapat</button>
-                                </div>
-                                <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 flex-1 min-h-0">
-                                    {selectedPrepMold.tasks?.map(task => {
-                                        const isPrepared = task.camPreparation?.status === 'HAZIRLANDI';
-                                        const isPreparedByOthers = isPrepared && task.camPreparation.preparedBy !== loggedInUser?.name;
-                                        return (
-                                            <div key={task.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 md:p-5 rounded-xl border-2 transition-all ${isPrepared ? (isPreparedByOthers ? 'border-gray-200 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700 opacity-60' : 'border-green-500 bg-green-50 dark:bg-green-900/10 dark:border-green-800') : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-300'}`}>
-                                                <div className="mb-3 sm:mb-0">
-                                                    <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
-                                                    {isPrepared ? (
-                                                        <div className={`text-xs mt-1 font-bold flex items-center ${isPreparedByOthers ? 'text-gray-500 dark:text-gray-400' : 'text-green-700 dark:text-green-400'}`}>
-                                                            <span className={`w-2 h-2 rounded-full mr-2 ${isPreparedByOthers ? 'bg-gray-400' : 'bg-green-500'}`}></span> 
-                                                            {isPreparedByOthers 
-                                                                ? `Hazırlandı (Hazırlayan: ${task.camPreparation.preparedBy})` 
-                                                                : `Hazırlandı (Hedef Tezgah: ${task.camPreparation.targetMachineName})`
-                                                            }
+                        {/* ALT SEKME 1: HAZIRLIK YAPILACAK İŞLER */}
+                        {prepSubTab === 'todo' ? (
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                {/* FİLTRELEME ALANI (Kalıp Arama & Tezgah Filtresi) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
+                                    {/* YAZARAK ARAMA DROPDOWN GİRDİSİ */}
+                                    <div className="relative">
+                                        <Search className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                                        <input 
+                                            type="text" 
+                                            placeholder="Kalıp adına göre arayın..." 
+                                            value={prepSearchTerm} 
+                                            onChange={(e) => { setPrepSearchTerm(e.target.value); setSelectedPrepMold(null); }} 
+                                            className="w-full pl-10 pr-4 py-2.5 border-2 border-indigo-200 dark:border-indigo-900/60 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-extrabold text-sm outline-none focus:border-indigo-600 shadow-sm" 
+                                        />
+                                        {/* ARAMA SONUÇLARI DROPDOWN */}
+                                        {prepSearchTerm && !selectedPrepMold && (
+                                            <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto">
+                                                {projects.filter(p => p.status !== 'TAMAMLANDI' && p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase().trim())).map(mold => (
+                                                    <button 
+                                                        key={mold.id} 
+                                                        onClick={() => { setSelectedPrepMold(mold); setPrepSearchTerm(''); }} 
+                                                        className="w-full text-left px-4 py-3 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border-b last:border-0 border-gray-100 dark:border-gray-700 transition-colors flex justify-between items-center"
+                                                    >
+                                                        <div>
+                                                            <span className="font-black text-gray-900 dark:text-white block text-sm">{mold.moldName}</span>
+                                                            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 block mt-0.5">{mold.customer}</span>
                                                         </div>
-                                                    ) : (
-                                                        <div className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-bold flex items-center">
-                                                            <span className="w-2 h-2 rounded-full bg-orange-500 mr-2 animate-pulse"></span> Hazırlık Bekliyor
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                {!isPreparedByOthers ? (
-                                                    <button onClick={() => { setPrepTask(task); setIsCamPrepModalOpen(true); }} className={`w-full sm:w-auto px-6 py-2.5 rounded-lg font-black shadow-sm transition-all active:scale-95 ${isPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                                                        {isPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
+                                                        <span className="text-xs font-black bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 px-2.5 py-1 rounded-full shrink-0">
+                                                            {(mold.tasks || []).length} Parça
+                                                        </span>
                                                     </button>
-                                                ) : (
-                                                    <span className="text-xs font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700">Düzenlenemez</span>
+                                                ))}
+                                                {projects.filter(p => p.status !== 'TAMAMLANDI' && p.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase().trim())).length === 0 && (
+                                                    <div className="p-4 text-center text-gray-500 font-bold text-sm">Aradığınız kalıp bulunamadı.</div>
                                                 )}
                                             </div>
-                                        )
-                                    })}
-                                    {(!selectedPrepMold.tasks || selectedPrepMold.tasks.length === 0) && (
-                                        <div className="text-center py-10 text-gray-500 font-bold border-2 border-dashed rounded-xl">Bu kalıba ait henüz bir parça tanımlanmamış.</div>
+                                        )}
+                                    </div>
+
+                                    {/* TEZGAH FİLTRESİ */}
+                                    <div className="relative">
+                                        <select 
+                                            value={prepMachineFilter} 
+                                            onChange={(e) => setPrepMachineFilter(e.target.value)}
+                                            className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold text-sm outline-none focus:border-indigo-500 shadow-sm"
+                                        >
+                                            <option value="">Tüm Hedef Tezgahlar (Filtresiz)</option>
+                                            {machines?.map(m => (
+                                                <option key={m.id} value={m.name}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* SEÇİLEN KALIP VEYA BOŞ DURUM GÖRÜNÜMÜ */}
+                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 min-h-0">
+                                    {selectedPrepMold ? (
+                                        /* SEÇİLEN KALIP DETAY VE PARÇA LİSTESİ */
+                                        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden animate-in fade-in">
+                                            {/* NET VE YÜKSEK KONTRASTLI BAŞLIK */}
+                                            <div className="bg-slate-900 dark:bg-slate-950 text-white p-4 border-b border-slate-800 flex justify-between items-center">
+                                                <div>
+                                                    <h3 className="text-xl font-black text-white flex items-center gap-2">
+                                                        <Box className="w-5 h-5 text-indigo-400" /> {selectedPrepMold.moldName}
+                                                    </h3>
+                                                    <span className="text-xs font-bold text-slate-300 block mt-0.5">Müşteri: {selectedPrepMold.customer}</span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => { setSelectedPrepMold(null); setPrepSearchTerm(''); }} 
+                                                    className="text-xs px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded-lg font-extrabold transition flex items-center gap-1 active:scale-95 shadow-sm"
+                                                >
+                                                    <X className="w-4 h-4 text-red-400" /> Vazgeç / Başka Kalıp Seç
+                                                </button>
+                                            </div>
+
+                                            {/* PARÇA LİSTESİ */}
+                                            <div className="p-4 space-y-3">
+                                                {(selectedPrepMold.tasks || []).filter(task => {
+                                                    if (!prepMachineFilter) return true;
+                                                    const targetMachine = task.camPreparation?.targetMachineName || task.plannedMachine || task.machineName;
+                                                    return targetMachine === prepMachineFilter;
+                                                }).map(task => {
+                                                    const isPrepared = task.camPreparation?.status === 'HAZIRLANDI';
+                                                    const isPreparedByOthers = isPrepared && task.camPreparation.preparedBy !== loggedInUser?.name;
+                                                    
+                                                    // Parçanın canlı imalat durumları (Kalıp Detay Listesindeki gibi)
+                                                    const isAllCompleted = task.status === 'COMPLETED' || (task.operations?.length > 0 && task.operations.every(op => op.status === OPERATION_STATUS.COMPLETED));
+                                                    const isRunning = task.operations?.some(op => op.status === OPERATION_STATUS.IN_PROGRESS);
+                                                    const isPaused = task.operations?.some(op => op.status === OPERATION_STATUS.PAUSED);
+
+                                                    return (
+                                                        <div key={task.id} className={`p-4 rounded-xl border-2 transition-all flex flex-col justify-between items-start gap-3 ${isPrepared ? 'border-green-500/50 bg-green-50/20 dark:bg-green-900/10' : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'}`}>
+                                                            {/* PARÇA BAŞLIĞI VE GENEL DURUMU */}
+                                                            <div className="w-full flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <h4 className="font-black text-base text-gray-900 dark:text-white">{task.taskName}</h4>
+                                                                    
+                                                                    {/* Parça Durum Badge'leri */}
+                                                                    {isAllCompleted ? (
+                                                                        <span className="text-[10px] font-black bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                                                            <CheckCircle className="w-3 h-3" /> TAMAMLANDI
+                                                                        </span>
+                                                                    ) : isRunning ? (
+                                                                        <span className="text-[10px] font-black bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 px-2.5 py-0.5 rounded-full animate-pulse flex items-center gap-1">
+                                                                            <Clock className="w-3 h-3" /> İŞLENİYOR
+                                                                        </span>
+                                                                    ) : isPaused ? (
+                                                                        <span className="text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2.5 py-0.5 rounded-full">
+                                                                            DURAKLATILDI
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-black bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 px-2.5 py-0.5 rounded-full">
+                                                                            BEKLİYOR
+                                                                        </span>
+                                                                    )}
+
+                                                                    {/* Hazırlık Durumu */}
+                                                                    {isPrepared && (
+                                                                        <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-0.5 rounded-full">
+                                                                            ÖN HAZIRLIK TAMAM ({task.camPreparation.targetMachineName})
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                {(!task.operations || task.operations.length === 0) && (
+                                                                    <button 
+                                                                        onClick={() => { setPrepTask(task); setPrepOperation(null); setIsCamPrepModalOpen(true); }}
+                                                                        className={`px-5 py-2.5 rounded-xl font-extrabold text-xs shadow-sm transition active:scale-95 shrink-0 ${isPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                                                                    >
+                                                                        {isPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+
+                                                            {/* PARÇA OPERASYON LİSTESİ VE HER OPERASYONA ÖZEL HAZIRLIK BUTONU */}
+                                                            {task.operations && task.operations.length > 0 && (
+                                                                <div className="mt-3 w-full space-y-2 border-t border-gray-100 dark:border-gray-700/60 pt-3">
+                                                                    <div className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1 flex items-center justify-between">
+                                                                        <span>Parça Operasyonları ({task.operations.length})</span>
+                                                                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 normal-case font-bold">Hazırlık yapacağınız ek operasyonu seçebilirsiniz</span>
+                                                                    </div>
+                                                                    {task.operations.map(op => {
+                                                                        const isOpPrepared = op.camPreparation?.status === 'HAZIRLANDI' || (task.camPreparation?.status === 'HAZIRLANDI' && op.machineName === task.camPreparation?.targetMachineName);
+                                                                        return (
+                                                                            <div key={op.id} className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 hover:border-indigo-300 transition-colors">
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <span className="font-black text-xs text-gray-900 dark:text-white bg-slate-200 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2.5 py-1 rounded-md shadow-xs">
+                                                                                        {op.type}
+                                                                                    </span>
+                                                                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                                                                                        Tezgah: <strong className="text-indigo-600 dark:text-indigo-400 font-black">{op.machineName || 'Atanmadı'}</strong>
+                                                                                    </span>
+                                                                                    
+                                                                                    {op.status === OPERATION_STATUS.COMPLETED ? (
+                                                                                        <span className="text-[10px] font-black bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                                                            <CheckCircle className="w-3 h-3" /> TAMAMLANDI
+                                                                                        </span>
+                                                                                    ) : op.status === OPERATION_STATUS.IN_PROGRESS ? (
+                                                                                        <span className="text-[10px] font-black bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full animate-pulse flex items-center gap-1">
+                                                                                            <Clock className="w-3 h-3" /> İŞLENİYOR
+                                                                                        </span>
+                                                                                    ) : op.status === OPERATION_STATUS.PAUSED ? (
+                                                                                        <span className="text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-full">
+                                                                                            DURAKLATILDI
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="text-[10px] font-black bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                                                                                            BEKLİYOR
+                                                                                        </span>
+                                                                                    )}
+
+                                                                                    {isOpPrepared && (
+                                                                                        <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-0.5 rounded-full">
+                                                                                            HAZIRLIK TAMAM ({op.camPreparation?.targetMachineName || task.camPreparation?.targetMachineName})
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+
+                                                                                <button 
+                                                                                    onClick={() => { setPrepTask(task); setPrepOperation(op); setIsCamPrepModalOpen(true); }}
+                                                                                    className={`px-4 py-1.5 rounded-lg font-extrabold text-xs shadow-sm transition active:scale-95 shrink-0 ${isOpPrepared ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                                                                                >
+                                                                                    {isOpPrepared ? 'Hazırlığı Düzenle' : 'Hazırlık Yap'}
+                                                                                </button>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                {(!selectedPrepMold.tasks || selectedPrepMold.tasks.length === 0) && (
+                                                    <div className="text-center py-10 text-gray-500 font-bold border-2 border-dashed rounded-xl">Bu kalıba ait tanımlı parça bulunamadı.</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* HİÇBİR KALIP SEÇİLMEDİĞİNDEKİ BOŞ DURUM PROMPT'U */
+                                        <div className="text-center py-16 px-4 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 my-auto">
+                                            <Search className="w-14 h-14 mx-auto mb-3 text-indigo-400 opacity-80 animate-bounce" />
+                                            <h4 className="text-lg font-black text-gray-800 dark:text-gray-200 mb-1">Kalıp Arayın ve Seçin</h4>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium max-w-md mx-auto">
+                                                Ön hazırlık yapmak istediğiniz kalıbı yukarıdaki arama kutusuna yazıp listeden seçerek parçalarına ulaşabilirsiniz.
+                                            </p>
+                                        </div>
                                     )}
                                 </div>
                             </div>
                         ) : (
-                            <div className="mt-8 flex-1 min-h-0 flex flex-col">
-                                {allPreparedTasks.length > 0 ? (
-                                    <div className="flex-1 flex flex-col min-h-0">
-                                        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center border-b dark:border-gray-700 pb-2 shrink-0"><CheckCircle className="w-5 h-5 mr-2 text-green-500" /> Ön Hazırlığı Tamamlanmış İşler</h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto custom-scrollbar pr-2 flex-1 min-h-0 content-start">
-                                            {allPreparedTasks.map(task => (
-                                                <div key={task.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col hover:border-green-300 transition-colors">
-                                                    <div className="mb-3">
-                                                        <div className="text-xs font-bold text-gray-500 uppercase">{task.moldName}</div>
-                                                        <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
-                                                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Hedef Tezgah: <strong>{task.camPreparation.targetMachineName}</strong></div>
-                                                        <div className="text-[10px] text-gray-400 mt-1">{task.camPreparation.preparedBy} • {new Date(task.camPreparation.preparedAt).toLocaleDateString('tr-TR')}</div>
+                            /* ALT SEKME 2: YAPILAN HAZIRLIKLAR LİSTESİ (İşleme Bitenler Otomatik Gizlenir) */
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                {/* FİLTRELEME */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
+                                    <div className="relative">
+                                        <Search className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                                        <input 
+                                            type="text" 
+                                            placeholder="Hazırlığı yapılan kalıp adına göre ara..." 
+                                            value={prepSearchTerm} 
+                                            onChange={(e) => setPrepSearchTerm(e.target.value)} 
+                                            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold text-sm outline-none focus:border-green-500 shadow-sm" 
+                                        />
+                                    </div>
+                                    <div className="relative">
+                                        <select 
+                                            value={prepMachineFilter} 
+                                            onChange={(e) => setPrepMachineFilter(e.target.value)}
+                                            className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold text-sm outline-none focus:border-green-500 shadow-sm"
+                                        >
+                                            <option value="">Tüm Hedef Tezgahlar</option>
+                                            {machines?.map(m => (
+                                                <option key={m.id} value={m.name}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {activePreparedTasks.filter(t => 
+                                    (!prepSearchTerm.trim() || t.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase().trim())) &&
+                                    (!prepMachineFilter || t.camPreparation?.targetMachineName === prepMachineFilter)
+                                ).length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto custom-scrollbar pr-2 flex-1 min-h-0 content-start">
+                                        {activePreparedTasks.filter(t => 
+                                            (!prepSearchTerm.trim() || t.moldName.toLowerCase().includes(prepSearchTerm.toLowerCase().trim())) &&
+                                            (!prepMachineFilter || t.camPreparation?.targetMachineName === prepMachineFilter)
+                                        ).map(task => (
+                                            <div key={task.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col hover:border-green-300 transition-colors">
+                                                <div className="mb-3">
+                                                    <div className="text-xs font-bold text-gray-500 uppercase">{task.moldName}</div>
+                                                    <h4 className="font-bold text-lg text-gray-900 dark:text-white">{task.taskName}</h4>
+                                                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Hedef Tezgah: <strong>{task.camPreparation.targetMachineName}</strong></div>
+                                                    <div className="text-[10px] text-gray-400 mt-1">{task.camPreparation.preparedBy} • {new Date(task.camPreparation.preparedAt).toLocaleDateString('tr-TR')}</div>
+                                                    <div className="flex gap-1.5 flex-wrap mt-2">
+                                                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                            <Truck className="w-3 h-3" /> Forklift Görevi
+                                                        </span>
+                                                        {task.camPreparation.requiredTools && task.camPreparation.requiredTools.length > 0 && (
+                                                            <span className="text-[10px] font-bold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                                <Wrench className="w-3 h-3" /> {task.camPreparation.requiredTools.length} Takım Talebi
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    <div className="mt-auto pt-3 border-t dark:border-gray-700 flex gap-2">
+                                                </div>
+                                                <div className="mt-auto pt-3 border-t dark:border-gray-700 flex flex-col gap-2">
+                                                    <button 
+                                                        onClick={() => setToolReqModal({ isOpen: true, moldId: task.moldId, taskId: task.id, moldName: task.moldName, taskName: task.taskName })} 
+                                                        className="w-full py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300 rounded-lg text-xs font-bold transition flex items-center justify-center border border-orange-200 dark:border-orange-800"
+                                                    >
+                                                        <Wrench className="w-3.5 h-3.5 mr-1 text-orange-500" /> Takım Talebini Görüntüle / Takip Et
+                                                    </button>
+                                                    <div className="flex gap-2">
                                                         <button onClick={() => { const proj = projects.find(p => p.id === task.moldId); setSelectedPrepMold(proj); setPrepTask(task); setIsCamPrepModalOpen(true); }} className="flex-1 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-bold transition flex items-center justify-center"><Edit2 className="w-3 h-3 mr-1" /> Düzenle</button>
                                                         <button onClick={() => handleDeleteCamPrep(task.moldId, task.id)} className="flex-1 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center justify-center"><Trash2 className="w-3 h-3 mr-1" /> Sil</button>
                                                     </div>
                                                 </div>
-                                            ))}
-                                        </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 ) : (
                                     <div className="text-center py-20 opacity-60">
-                                        <Settings className="w-20 h-20 mx-auto mb-4 text-gray-400" />
-                                        <p className="text-xl font-bold text-gray-500">Hazırlık yapmak için bir kalıp arayın veya seçin.</p>
+                                        <Settings className="w-16 h-16 mx-auto mb-3 text-gray-400" />
+                                        <p className="text-lg font-bold text-gray-500">Aktif olarak ön hazırlığı yapılmış ve işlenen parça bulunamadı.</p>
                                     </div>
                                 )}
                             </div>
@@ -678,7 +1015,27 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
             {isOpen && type === 'cam_review' && <CamReviewMachineOpModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} onSubmit={handleUpdateOperation} />}
             {isOpen && type === 'resume' && <AssignOperationModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} loggedInUser={loggedInUser} onSubmit={handleUpdateOperation} projects={projects} personnel={personnel} machines={machines} />}
             {isOpen && type === 'change_operator' && <ChangeOperatorModal isOpen={isOpen} onClose={handleCloseModal} mold={mold} task={task} operation={operation} personnel={personnel} onSubmit={handleSubmitChangeOperator} />}
-            <CamPreparationModal isOpen={isCamPrepModalOpen} onClose={() => setIsCamPrepModalOpen(false)} mold={selectedPrepMold} task={prepTask} machines={machines} loggedInUser={loggedInUser} onSave={handleSaveCamPrep} />
+            <CamPreparationModal isOpen={isCamPrepModalOpen} onClose={() => { setIsCamPrepModalOpen(false); setPrepOperation(null); }} mold={selectedPrepMold} task={prepTask} operation={prepOperation} machines={machines} loggedInUser={loggedInUser} onSave={handleSaveCamPrep} />
+            
+            {/* TAKIMHANE TALEBİ CANLI TAKİP MODALI */}
+            <ViewToolRequestModal 
+                isOpen={toolReqModal.isOpen} 
+                onClose={() => setToolReqModal({ isOpen: false, moldId: null, taskId: null, moldName: '', taskName: '' })} 
+                moldId={toolReqModal.moldId} 
+                taskId={toolReqModal.taskId} 
+                moldName={toolReqModal.moldName} 
+                taskName={toolReqModal.taskName} 
+                loggedInUser={loggedInUser} 
+                onCreateRequest={(mId, tId) => {
+                    const foundMold = projects.find(p => p.id === mId);
+                    const foundTask = foundMold?.tasks?.find(t => t.id === tId);
+                    if (foundMold && foundTask) {
+                        setSelectedPrepMold(foundMold);
+                        setPrepTask(foundTask);
+                        setIsCamPrepModalOpen(true);
+                    }
+                }}
+            />
             
             {/* YENİ VE BÜYÜTÜLMÜŞ: TEZGAHA İLAVE ÇOKLU PARÇA MODALI (SPLIT SCREEN) */}
             {multiPartModal.isOpen && (

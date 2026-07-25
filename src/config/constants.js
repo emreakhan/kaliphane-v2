@@ -153,6 +153,7 @@ export const LOGISTICS_STATUS = {
     IN_TRANSIT: 'TAŞINIYOR',
     COMPLETED: 'TESLİM EDİLDİ',
     CANCELLED: 'İPTAL EDİLDİ',
+    MALZEME_YOK: 'MALZEME YOK',
 };
 
 // ============================================================
