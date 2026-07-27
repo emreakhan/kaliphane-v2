@@ -47,6 +47,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/cnc-torna-history', label: 'Torna Geçmiş İşler', iconName: 'Archive' },
     { path: '/tool-requests', label: 'Takım Hazırlama Talepleri', iconName: 'ClipboardCheck' },
     { path: '/technical-drawings', label: 'Teknik Resimler', iconName: 'FileText' },
+    { path: '/tool-trials', label: 'CNC Takım Deneme & F/P Analizi', iconName: 'Activity' },
 ];
 
 export const getDefaultPermissions = (role) => {
@@ -126,6 +127,7 @@ export const getDefaultPermissions = (role) => {
     if (canSeeTools.includes(role)) permissions['/tool-analysis'] = { view: true, edit: false };
     if (canSeeTools.includes(role)) permissions['/tool-lifecycle'] = { view: true, edit: false };
     if ([...canSeeTools, ROLES.ADMIN, ROLES.SUPERVISOR].includes(role)) permissions['/mold-tool-tracking'] = { view: true, edit: false };
+    if ([...canSeeTools, ROLES.ADMIN].includes(role)) permissions['/tool-trials'] = { view: true, edit: true };
     if ([ROLES.CAM_OPERATOR, 'CAM Sorumlusu'].includes(role)) permissions['/cam'] = { view: true, edit: false };
     if ([ROLES.CAM_OPERATOR, 'CAM Sorumlusu'].includes(role)) permissions['/cam-job-entry'] = { view: true, edit: false };
     if ([ROLES.ADMIN, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI].includes(role)) permissions['/cam-operator-dashboard'] = { view: true, edit: false };

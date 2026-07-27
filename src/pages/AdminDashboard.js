@@ -759,7 +759,7 @@ const MenuLayoutManagement = ({ db }) => {
         {
             id: "cat-2",
             title: "Depo & Stok Yönetimi",
-            pagePaths: ["/tool-inventory", "/tool-assignment", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
+            pagePaths: ["/tool-inventory", "/tool-assignment", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking", "/tool-trials"]
         },
         {
             id: "cat-3",

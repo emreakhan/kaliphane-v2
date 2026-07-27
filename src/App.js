@@ -83,6 +83,7 @@ import MachineMaintenancePage from './pages/MachineMaintenancePage.js';
 import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
 import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
 import TechnicalDrawingsPage from './pages/TechnicalDrawingsPage.js';
+import ToolTrialPage from './pages/ToolTrialPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -717,7 +718,7 @@ const App = () => {
         {
             id: "cat-2",
             title: "Depo & Stok Yönetimi",
-            pagePaths: ["/tool-inventory", "/tool-assignment", "/tool-requests", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking"]
+            pagePaths: ["/tool-inventory", "/tool-assignment", "/tool-requests", "/mold-material-debits", "/tool-history", "/tool-analysis", "/tool-lifecycle", "/mold-tool-tracking", "/tool-trials"]
         },
         {
             id: "cat-3",
@@ -1158,6 +1159,12 @@ const App = () => {
                         <Route path="/mold-tool-tracking" element={
                             activeUserPermissions['/mold-tool-tracking']?.view
                             ? <MoldBasedToolTracking db={db} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/tool-trials" element={
+                            activeUserPermissions['/tool-trials']?.view
+                            ? <ToolTrialPage db={db} loggedInUser={loggedInUser} />
                             : <Navigate to="/" replace />
                         } />
 
