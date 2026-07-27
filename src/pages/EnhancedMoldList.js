@@ -7,15 +7,36 @@ import { useNavigate } from 'react-router-dom';
 import { 
     RefreshCw, Settings, List, CheckCircle, 
     PlayCircle, Zap, Sparkles, HardHat, Edit2, Cpu, Filter, Search,
-    LayoutGrid, ArrowRight, Layers
+    LayoutGrid, ArrowRight, Layers, Tag
 } from 'lucide-react';
 
 // Sabitler
-import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG } from '../config/constants.js';
+import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG, MOLD_STATUSES_COLLECTION, DEFAULT_MOLD_STATUSES } from '../config/constants.js';
+
+// Firebase
+import { db, collection, onSnapshot } from '../config/firebase.js';
 
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
 import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff } from '../utils/dateUtils.js';
+
+const ICON_MAP = {
+    RefreshCw, Edit2, Cpu, Zap, Sparkles, HardHat, Settings, Layers, CheckCircle, Tag, Filter, PlayCircle
+};
+
+const COLOR_STYLE_MAP = {
+    yellow: 'border-yellow-500 bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-700',
+    purple: 'border-purple-500 bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-700',
+    blue: 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-700',
+    amber: 'border-amber-500 bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700',
+    cyan: 'border-cyan-500 bg-cyan-50 text-cyan-600 dark:bg-cyan-900/20 dark:text-cyan-400 dark:border-cyan-700',
+    indigo: 'border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-700',
+    orange: 'border-orange-500 bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-700',
+    teal: 'border-teal-500 bg-teal-50 text-teal-600 dark:bg-teal-900/20 dark:text-teal-400 dark:border-teal-700',
+    green: 'border-green-500 bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400 dark:border-green-700',
+    red: 'border-red-500 bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 dark:border-red-700',
+    gray: 'border-gray-500 bg-gray-50 text-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600'
+};
 
 // --- GÜNCELLENMİŞ: GELİŞMİŞ KALIP LİSTESİ ---
 const EnhancedMoldList = ({ projects }) => {
@@ -31,6 +52,24 @@ const EnhancedMoldList = ({ projects }) => {
     const [viewMode, setViewMode] = useState(() => {
         return localStorage.getItem('moldListViewMode') || 'card';
     });
+
+    const [moldStatuses, setMoldStatuses] = useState(DEFAULT_MOLD_STATUSES);
+
+    useEffect(() => {
+        if (!db) return;
+        const colRef = collection(db, MOLD_STATUSES_COLLECTION);
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+            if (!snapshot.empty) {
+                const list = snapshot.docs.map(docSnap => ({
+                    id: docSnap.id,
+                    ...docSnap.data()
+                })).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                setMoldStatuses(list);
+            }
+        }, (err) => console.error("Kalıp durumları dinleme hatası:", err));
+
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         localStorage.setItem('moldListActiveFilter', activeFilter);
@@ -57,15 +96,13 @@ const EnhancedMoldList = ({ projects }) => {
     const navigate = useNavigate();
     
     // --- 0. ADIM: VERİ TEMİZLİĞİ VE AYRIŞTIRMA ---
-    // CNC Torna işlerini veya bozuk kayıtları (Kalıp Adı olmayanları) listeden tamamen çıkarıyoruz.
-    // Bu işlem sayesinde 'localeCompare' hatası ve veri karışıklığı engellenir.
     const cleanProjects = useMemo(() => {
         if (!projects || !Array.isArray(projects)) return [];
         return projects.filter(p => 
             p && 
-            p.moldName && // Kalıp Adı Olmalı
-            typeof p.moldName === 'string' && // Metin olmalı
-            p.moldName.trim() !== '' // Boş olmamalı
+            p.moldName && 
+            typeof p.moldName === 'string' && 
+            p.moldName.trim() !== '' 
         );
     }, [projects]);
 
@@ -82,14 +119,19 @@ const EnhancedMoldList = ({ projects }) => {
         return PROJECT_TYPE_CONFIG[typeKey] || PROJECT_TYPE_CONFIG[PROJECT_TYPES.NEW_MOLD];
     };
 
+    const activeStatusNames = useMemo(() => {
+        return moldStatuses
+            .filter(s => s.name !== 'TAMAMLANDI' && s.name !== 'COMPLETED')
+            .map(s => s.name);
+    }, [moldStatuses]);
+
     const filteredProjects = useMemo(() => {
-        // cleanProjects kullanarak başlıyoruz (Hata riskini sıfıra indirir)
         let filtered = cleanProjects;
 
         if (activeFilter !== 'all') {
             if (activeFilter === 'ACTIVE_OVERVIEW') {
                 filtered = filtered.filter(project => 
-                    MOLD_STATUS_ACTIVE_LIST.includes(project.status)
+                    activeStatusNames.includes(project.status)
                 );
             } else {
                 filtered = filtered.filter(project => 
@@ -110,48 +152,39 @@ const EnhancedMoldList = ({ projects }) => {
             const priorityA = a.priority;
             const priorityB = b.priority;
 
-            if (priorityA && priorityB) {
-                return priorityA - priorityB;
-            }
-            if (priorityA && !priorityB) {
-                return -1;
-            }
-            if (!priorityA && priorityB) {
-                return 1;
-            }
-            // Güvenli sıralama (cleanProjects sayesinde moldName varlığı garanti ama yine de önlem)
+            if (priorityA && priorityB) return priorityA - priorityB;
+            if (priorityA && !priorityB) return -1;
+            if (!priorityA && priorityB) return 1;
             return (a.moldName || '').localeCompare(b.moldName || '');
         });
         
         return filtered;
-    }, [cleanProjects, activeFilter, searchTerm]); // projects yerine cleanProjects bağımlılığı
+    }, [cleanProjects, activeFilter, searchTerm, activeStatusNames]);
 
-    // İstatistikler de sadece temiz veriye göre hesaplanır
+    // İstatistikler dinamik durum listesine göre hesaplanır
     const stats = useMemo(() => {
         const counts = {
             total: cleanProjects.length,
-            waiting: 0,
-            completed: 0,
             activeOverview: 0,
         };
-  
-        Object.values(MOLD_STATUS).forEach(status => {
-            counts[status] = 0;
+
+        moldStatuses.forEach(s => {
+            counts[s.name] = 0;
         });
-        
+
         for (const project of cleanProjects) {
-            const status = project.status || MOLD_STATUS.WAITING;
+            const status = project.status || (moldStatuses[0]?.name || 'BEKLEMEDE');
             if (counts[status] !== undefined) {
                 counts[status]++;
+            } else {
+                counts[status] = (counts[status] || 0) + 1;
             }
-            if (MOLD_STATUS_ACTIVE_LIST.includes(status)) {
+            if (status !== 'TAMAMLANDI' && status !== 'COMPLETED') {
                 counts.activeOverview++;
             }
         }
-        counts.waiting = counts[MOLD_STATUS.WAITING];
-        counts.completed = counts[MOLD_STATUS.COMPLETED];
         return counts;
-    }, [cleanProjects]);
+    }, [cleanProjects, moldStatuses]);
 
     const FilterCard = ({ filterKey, title, count, icon: Icon, colorClass }) => {
         const isActive = activeFilter === filterKey;
@@ -178,41 +211,29 @@ const EnhancedMoldList = ({ projects }) => {
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl">
             <div className="flex flex-wrap gap-4 mb-6">
-                {/* Her zaman gösterilecek olanlar */}
-                <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50"/>
-                <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
+                {/* Her zaman gösterilecek genel filtreler */}
+                <FilterCard filterKey="all" title="Tüm Kalıplar" count={stats.total} icon={Filter} colorClass="border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-700"/>
+                <FilterCard filterKey="ACTIVE_OVERVIEW" title="Aktif Çalışan" count={stats.activeOverview} icon={PlayCircle} colorClass="border-green-500 bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400 dark:border-green-700"/>
                 
-                {/* Yalnızca sayısı 0'dan büyükse gösterilecek olanlar */}
-                {stats.waiting > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.WAITING} title="Beklemede" count={stats.waiting} icon={RefreshCw} colorClass="border-yellow-500 bg-yellow-50 text-yellow-500"/>
-                )}
-                {stats[MOLD_STATUS.TASARIM] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.TASARIM} title="Tasarım" count={stats[MOLD_STATUS.TASARIM]} icon={Edit2} colorClass="border-purple-500 bg-purple-50 text-purple-500"/>
-                )}
-                {stats[MOLD_STATUS.CNC] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.CNC} title="CNC" count={stats[MOLD_STATUS.CNC]} icon={Cpu} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.EREZYON] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.EREZYON} title="Erezyon" count={stats[MOLD_STATUS.EREZYON]} icon={Zap} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.POLISAJ] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.POLISAJ} title="Polisaj" count={stats[MOLD_STATUS.POLISAJ]} icon={Sparkles} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.DESEN] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.DESEN} title="Desen" count={stats[MOLD_STATUS.DESEN]} icon={Edit2} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.MOLD_ASSEMBLY] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.MOLD_ASSEMBLY} title="Kalıp Montaj" count={stats[MOLD_STATUS.MOLD_ASSEMBLY]} icon={HardHat} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.TRIAL] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.TRIAL} title="Deneme'de" count={stats[MOLD_STATUS.TRIAL]} icon={Settings} colorClass="border-blue-500 bg-blue-50 text-blue-500"/>
-                )}
-                {stats[MOLD_STATUS.PENDING_PRODUCTION] > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.PENDING_PRODUCTION} title="İmalat Bekleyen Kalıplar" count={stats[MOLD_STATUS.PENDING_PRODUCTION]} icon={Layers} colorClass="border-orange-500 bg-orange-50 text-orange-500"/>
-                )}
-                {stats.completed > 0 && (
-                    <FilterCard filterKey={MOLD_STATUS.COMPLETED} title="Tamamlanan" count={stats.completed} icon={CheckCircle} colorClass="border-green-500 bg-green-50 text-green-500"/>
-                )}
+                {/* Dinamik Kalıp Durumları Filtre Kartları (Sayısı > 0 olanlar veya aktif seçili olan) */}
+                {moldStatuses.map(s => {
+                    const count = stats[s.name] || 0;
+                    if (count === 0 && activeFilter !== s.name) return null;
+
+                    const IconComp = ICON_MAP[s.icon] || Tag;
+                    const colorStyle = COLOR_STYLE_MAP[s.color] || COLOR_STYLE_MAP.blue;
+
+                    return (
+                        <FilterCard 
+                            key={s.id || s.name} 
+                            filterKey={s.name} 
+                            title={s.name} 
+                            count={count} 
+                            icon={IconComp} 
+                            colorClass={colorStyle}
+                        />
+                    );
+                })}
             </div>
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">

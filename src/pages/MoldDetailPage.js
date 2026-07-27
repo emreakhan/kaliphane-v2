@@ -13,14 +13,15 @@ import {
 import { 
     MOLD_STATUS, ROLES, OPERATION_STATUS, TASK_STATUS, 
     PERSONNEL_ROLES, PROJECT_TYPES,
-    PROJECT_COLLECTION, MOLD_NOTES_COLLECTION, MOLD_STATUS_ACTIVE_LIST
+    PROJECT_COLLECTION, MOLD_NOTES_COLLECTION, MOLD_STATUS_ACTIVE_LIST,
+    MOLD_STATUSES_COLLECTION, DEFAULT_MOLD_STATUSES
 } from '../config/constants.js';
 
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
 
 import { 
-    db, doc, onSnapshot, setDoc, updateDoc, 
+    db, doc, onSnapshot, setDoc, updateDoc, collection,
     storage, ref, uploadBytes, getDownloadURL 
 } from '../config/firebase.js';
 
@@ -219,6 +220,32 @@ const MoldDetailPage = ({
     const navigate = useNavigate();
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
+    
+    const [moldStatuses, setMoldStatuses] = useState(DEFAULT_MOLD_STATUSES);
+
+    useEffect(() => {
+        if (!db) return;
+        const colRef = collection(db, MOLD_STATUSES_COLLECTION);
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+            if (!snapshot.empty) {
+                const list = snapshot.docs.map(docSnap => ({
+                    id: docSnap.id,
+                    ...docSnap.data()
+                })).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                setMoldStatuses(list);
+            }
+        }, (err) => console.error("Kalıp durumları yükleme hatası:", err));
+
+        return () => unsubscribe();
+    }, [db]);
+
+    const statusOptions = useMemo(() => {
+        const list = moldStatuses.map(s => s.name);
+        if (mold?.status && !list.includes(mold.status)) {
+            list.push(mold.status);
+        }
+        return list;
+    }, [moldStatuses, mold?.status]);
     
     const cleanProjects = useMemo(() => {
         if (!projects || !Array.isArray(projects)) return [];
@@ -944,8 +971,8 @@ const MoldDetailPage = ({
                     <div>
                         <span>Müşteri: <span className="font-bold text-gray-800 dark:text-gray-200">{mold.customer}</span> | Durum:</span>
                         {isAdmin ? (
-                            <select value={mold.status || MOLD_STATUS.WAITING} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
-                               {Object.values(MOLD_STATUS).map(status => <option key={status} value={status}>{status}</option>)}
+                            <select value={mold.status || (statusOptions[0] || 'BEKLEMEDE')} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(mold.status || 'BEKLEMEDE')}`}>
+                               {statusOptions.map(status => <option key={status} value={status}>{status}</option>)}
                             </select>
                         ) : (
                             <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>

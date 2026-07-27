@@ -13,6 +13,22 @@ export const DELETED_PROJECT_COLLECTION = `artifacts/${appId}/public/data/delete
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
 export const DESIGN_TASK_TYPES_COLLECTION = `artifacts/${appId}/public/data/designTaskTypes`;
+export const MOLD_STATUSES_COLLECTION = `artifacts/${appId}/public/data/moldStatuses`;
+
+export const DEFAULT_MOLD_STATUSES = [
+    { name: 'BEKLEMEDE', color: 'yellow', icon: 'RefreshCw', orderIndex: 1 },
+    { name: 'TASARIM', color: 'purple', icon: 'Edit2', orderIndex: 2 },
+    { name: 'CNC', color: 'blue', icon: 'Cpu', orderIndex: 3 },
+    { name: 'EREZYON', color: 'amber', icon: 'Zap', orderIndex: 4 },
+    { name: 'POLİSAJ', color: 'cyan', icon: 'Sparkles', orderIndex: 5 },
+    { name: 'DESEN', color: 'indigo', icon: 'Edit2', orderIndex: 6 },
+    { name: 'KALIP MONTAJ', color: 'orange', icon: 'HardHat', orderIndex: 7 },
+    { name: 'DENEME\'DE', color: 'teal', icon: 'Settings', orderIndex: 8 },
+    { name: 'MONTAJDA', color: 'blue', icon: 'HardHat', orderIndex: 9 },
+    { name: 'DENEMEDE', color: 'green', icon: 'Settings', orderIndex: 10 },
+    { name: 'İMALAT BEKLEYEN KALIPLAR', color: 'orange', icon: 'Layers', orderIndex: 11 },
+    { name: 'TAMAMLANDI', color: 'green', icon: 'CheckCircle', orderIndex: 12, isCompleted: true }
+];
 
 export const DEFAULT_DESIGN_TASK_TYPES = [
     'KALIP TASARIM',

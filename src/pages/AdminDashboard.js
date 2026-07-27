@@ -1,7 +1,7 @@
 // src/pages/AdminDashboard.js
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings, ChevronUp, ChevronDown, ListOrdered } from 'lucide-react';
+import { Users, Plus, List, AlertTriangle, Database, Edit, Trash2, Search, Save, Briefcase, RefreshCw, Tool, Settings, ChevronUp, ChevronDown, ListOrdered, Tag } from 'lucide-react';
 // ROLES eklendi
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, ROLES, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc, collection, query, onSnapshot, deleteDoc } from '../config/firebase.js'; 
@@ -11,6 +11,7 @@ import { ALL_SYSTEM_PAGES, getDefaultPermissions } from '../config/permissionsCo
 import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
+import MoldStatusManagement from '../components/Admin/MoldStatusManagement.js';
 
 // --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
 const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) => {
@@ -712,6 +713,10 @@ const AdminDashboard = ({
                 return (
                     <MenuLayoutManagement db={db} />
                 );
+            case 'mold_statuses':
+                return (
+                    <MoldStatusManagement db={db} />
+                );
             default:
                 return null;
         }
@@ -731,6 +736,8 @@ const AdminDashboard = ({
 
                     <button onClick={() => setActiveTab('mold_management')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_management' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Database className="w-4 h-4 inline mr-2" /> Kalıp Yönetimi</button>
                     
+                    <button onClick={() => setActiveTab('mold_statuses')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'mold_statuses' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Tag className="w-4 h-4 inline mr-2" /> Kalıp Durumları</button>
+
                     <button onClick={() => setActiveTab('permissions')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'permissions' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><Settings className="w-4 h-4 inline mr-2" /> Sayfa Yetkileri</button>
 
                     <button onClick={() => setActiveTab('menu_layout')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'menu_layout' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}><List className="w-4 h-4 inline mr-2" /> Menü Düzeni</button>
