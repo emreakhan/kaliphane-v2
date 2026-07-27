@@ -5,111 +5,25 @@ import {
     Wrench, PlusCircle, ListChecks, TrendingUp, Sliders, 
     Factory, Calculator, Save, Trash2, FileSpreadsheet, 
     Sparkles, Award, Star, Layers, Clock, DollarSign, 
-    HelpCircle, Info, X, Zap, Edit2, RotateCcw, Target, CircleDot, Gem, Puzzle
+    HelpCircle, Info, X, Zap, Edit2, RotateCcw, Target, CircleDot, Gem, Puzzle, Activity
 } from 'lucide-react';
 import { 
-    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid 
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+    RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend
 } from 'recharts';
 import { collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc } from '../config/firebase.js';
 import { TOOL_TRIALS_COLLECTION } from '../config/constants.js';
 
-const SAMPLE_DEMO_DATA = [
-    {
-        id: 'sample_1',
-        title: '4140 Kaba Havuz İşleme (Takma Uçlu Toroid Freze)',
-        material: '4140 Isıl İşlemli (32 HRC)',
-        machine: 'Mazak VCN-530',
-        coolant: 'Emülsiyon (Bor Yağı)',
-        operationCategory: 'FREZELEME',
-        millingToolType: 'RADIUS',
-        constructionType: 'INSERT', // Takma Uçlu
-        insertCorners: 4,
-        cornerRadius: 1.5,
-        brand: 'Iscar',
-        model: 'HM90 E90AD-D16-R1.5',
-        diameter: 16,
-        flutes: 3,
-        price: 36, // Uç kutu/adet fiyatı 36€
-        currency: '€',
-        machineHourlyRate: 35,
-        lifeMeasurementMode: 'TIME',
-        totalLifeMinutes: 180,
-        vc: 180,
-        fz: 0.12,
-        ap: 2.5,
-        ae: 10,
-        cycleTime: 45,
-        totalPieces: 4,
-        wearType: 'Normal Yanak Aşınması',
-        raValue: 1.8,
-        vibrationRating: 5,
-        notes: 'Takma uçlu freze. 4 köşe kullanılıyor, köşe başı maliyet 9€.',
-        date: '2026-07-20'
-    },
-    {
-        id: 'sample_2',
-        title: 'Form Kalıbı Yüksek Hızlı Yüzey (Yekpare Karbür Küre)',
-        material: '1.2344 Isıl İşlemli (52 HRC)',
-        machine: 'DMG Mori CMX 600V',
-        coolant: 'Hava Üfleme',
-        operationCategory: 'FREZELEME',
-        millingToolType: 'BALL',
-        constructionType: 'SOLID', // Yekpare Karbür
-        insertCorners: 1,
-        cornerRadius: 0,
-        brand: 'Sandvik',
-        model: 'R216-12B16 (Yekpare Karbür)',
-        diameter: 12,
-        flutes: 2,
-        price: 75, // Yekpare takım fiyatı 75€
-        currency: '€',
-        machineHourlyRate: 40,
-        lifeMeasurementMode: 'TIME',
-        totalLifeMinutes: 240,
-        vc: 210,
-        fz: 0.08,
-        ap: 0.8,
-        ae: 2.5,
-        cycleTime: 120,
-        totalPieces: 2,
-        wearType: 'Normal Aşınma',
-        raValue: 0.6,
-        vibrationRating: 5,
-        notes: 'Yekpare karbür küre freze. Ra 0.6 yüzey kalitesi sağlandı.',
-        date: '2026-07-22'
-    },
-    {
-        id: 'sample_3',
-        title: 'Derin Delik Delme (Yekpare Karbür Matkap)',
-        material: '4140 Isıl İşlemli (30 HRC)',
-        machine: 'Hardinge GX 1000',
-        coolant: 'Yüksek Basınçlı Sıvı',
-        operationCategory: 'MATKAP',
-        millingToolType: 'FLAT',
-        constructionType: 'SOLID',
-        insertCorners: 1,
-        drillFeedPerRev: 0.18,
-        brand: 'Walter',
-        model: 'DC170-08-10.000A1-WJ30EJ',
-        diameter: 10,
-        flutes: 2,
-        price: 85, // Yekpare karbür matkap
-        currency: '€',
-        machineHourlyRate: 45,
-        lifeMeasurementMode: 'TIME',
-        totalLifeMinutes: 120,
-        vc: 110,
-        fz: 0.09,
-        ap: 80,
-        ae: 10,
-        cycleTime: 0.5,
-        totalPieces: 240,
-        wearType: 'Köşe Aşınması',
-        raValue: 1.6,
-        vibrationRating: 4,
-        notes: 'İçten soğutmalı yekpare karbür matkap ile 240 adet delik delindi.',
-        date: '2026-07-25'
-    }
+// RADAR GRAFİK PARAMETRE SEÇENEKLERİ
+const RADAR_METRICS_OPTIONS = [
+    { id: 'vc', label: 'Kesme Hızı (Vc)', key: 'vc' },
+    { id: 'vf', label: 'İlerleme (Vf)', key: 'vf' },
+    { id: 'mrr', label: 'Talaş Hızı (MRR)', key: 'mrr' },
+    { id: 'life', label: 'Aşınma Ömrü (Dk)', key: 'totalLifeMinutes' },
+    { id: 'econ', label: 'Maliyet Etkinliği (€/cm³)', key: 'costPerCm3', invert: true },
+    { id: 'ra', label: 'Yüzey Kalitesi (Ra)', key: 'raValue', invert: true },
+    { id: 'vib', label: 'Sessizlik & Titreşim', key: 'vibrationRating' },
+    { id: 'fp', label: 'Bütünleşik F/P Skoru', key: 'fpScore' }
 ];
 
 // F/P SKORU & METRİK HESAPLAMA YARDIMCI FONKSİYONU
@@ -129,13 +43,14 @@ const computeDetailedMetrics = (data) => {
     const ap = parseFloat(data.ap) || 0;
     const ae = parseFloat(data.ae) || 0;
     const rawPrice = parseFloat(data.price) || 0;
-    const machineHourlyRate = parseFloat(data.machineHourlyRate) || 0; // €/saat
+    const machineHourlyRate = parseFloat(data.machineHourlyRate) || 0;
     const mode = data.lifeMeasurementMode || 'TIME';
 
-    // EFEKTİF TAKIM MALIYETİ (Takma uçlu ise uç fiyatı / köşe sayısı, Yekpare ise tam takım fiyatı)
     let effectiveToolPrice = rawPrice;
     if (constructionType === 'INSERT' && insertCorners > 0) {
-        effectiveToolPrice = parseFloat((rawPrice / insertCorners).toFixed(2));
+        const singleCornerCost = rawPrice / insertCorners;
+        const flutesNum = flutes > 0 ? flutes : 1;
+        effectiveToolPrice = parseFloat((singleCornerCost * flutesNum).toFixed(2));
     }
     
     let totalLifeMinutes = parseFloat(data.totalLifeMinutes) || 0;
@@ -151,7 +66,6 @@ const computeDetailedMetrics = (data) => {
     let mrr = 0;
 
     if (category === 'MATKAP') {
-        // MATKAP (DRILLING)
         if (diameter > 0 && vc > 0) {
             rpm = Math.round((vc * 1000) / (Math.PI * diameter));
         }
@@ -164,7 +78,6 @@ const computeDetailedMetrics = (data) => {
             mrr = parseFloat((crossAreaCm2 * (vf / 10)).toFixed(2));
         }
     } else if (category === 'KILAVUZ') {
-        // KILAVUZ (TAPPING)
         if (diameter > 0 && vc > 0) {
             rpm = Math.round((vc * 1000) / (Math.PI * diameter));
         }
@@ -177,7 +90,6 @@ const computeDetailedMetrics = (data) => {
             mrr = parseFloat((threadCrossAreaCm2 * (vf / 10)).toFixed(2));
         }
     } else {
-        // FREZELEME (MILLING)
         let effDiameter = diameter;
         if (toolType === 'BALL' && diameter > 0 && ap > 0) {
             if (ap < diameter / 2) {
@@ -207,17 +119,12 @@ const computeDetailedMetrics = (data) => {
         }
     }
 
-    // Kaldırılan Toplam Talaş Hacmi V_toplam (cm³ ve dm³)
     const totalVolumeCm3 = Math.round(mrr * totalLifeMinutes);
     const totalVolumeDm3 = parseFloat((totalVolumeCm3 / 1000).toFixed(2));
 
-    // Tezgah Süre Maliyeti (€) = (Ömür Dk / 60) * Tezgah Saat Ücreti (€/saat)
     const machineCost = parseFloat(((totalLifeMinutes / 60) * machineHourlyRate).toFixed(2));
-
-    // Toplam Operasyon Maliyeti (Efektif Takım/Köşe Maliyeti + Tezgah Maliyeti)
     const totalOpCost = parseFloat((effectiveToolPrice + machineCost).toFixed(2));
 
-    // Birim Talaş Kaldırma Maliyeti (€ / cm³)
     let costPerCm3 = 0;
     if (totalVolumeCm3 > 0) {
         costPerCm3 = parseFloat((totalOpCost / totalVolumeCm3).toFixed(4));
@@ -233,7 +140,6 @@ const computeDetailedMetrics = (data) => {
         costPerPiece = parseFloat((effectiveToolPrice / totalPieces).toFixed(2));
     }
 
-    // BÜTÜNLEŞİK F/P SKORU
     const volumeScore = Math.min(400, Math.round((totalVolumeCm3 / 150) * (mrr / 25)));
     let econScore = 0;
     if (costPerCm3 > 0) {
@@ -271,10 +177,10 @@ const INITIAL_EMPTY_FORM_STATE = {
     material: '',
     machine: '',
     coolant: 'Emülsiyon (Bor Yağı)',
-    operationCategory: 'FREZELEME', // 'FREZELEME' | 'MATKAP' | 'KILAVUZ'
-    millingToolType: 'FLAT', // 'FLAT' | 'RADIUS' | 'BALL'
-    constructionType: 'SOLID', // 'SOLID' (Yekpare Karbür) | 'INSERT' (Takma Uçlu)
-    insertCorners: 4, // Takma uçlu ise köşe sayısı
+    operationCategory: 'FREZELEME',
+    millingToolType: 'FLAT',
+    constructionType: 'SOLID',
+    insertCorners: 4,
     cornerRadius: '',
     drillPitch: '',
     drillFeedPerRev: '',
@@ -285,7 +191,7 @@ const INITIAL_EMPTY_FORM_STATE = {
     price: '',
     currency: '€',
     machineHourlyRate: '',
-    lifeMeasurementMode: 'TIME', // 'TIME' | 'PIECES'
+    lifeMeasurementMode: 'TIME',
     totalLifeMinutes: '',
     vc: '',
     fz: '',
@@ -301,7 +207,7 @@ const INITIAL_EMPTY_FORM_STATE = {
 };
 
 const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
-    const [activeTab, setActiveTab] = useState('form'); // 'form' | 'list' | 'compare'
+    const [activeTab, setActiveTab] = useState('form');
     const [trials, setTrials] = useState([]);
     const [selectedTrialIds, setSelectedTrialIds] = useState(new Set());
     const [searchTerm, setSearchTerm] = useState('');
@@ -309,7 +215,10 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
     const [showInfoModal, setShowInfoModal] = useState(false);
     const [editingTrialId, setEditingTrialId] = useState(null);
 
-    // Form Girdileri (Boş Başlar)
+    const [selectedRadarMetrics, setSelectedRadarMetrics] = useState(
+        new Set(['vc', 'vf', 'mrr', 'life', 'econ', 'ra', 'vib'])
+    );
+
     const [formData, setFormData] = useState(INITIAL_EMPTY_FORM_STATE);
 
     const triggerToast = (msg, type = 'success') => {
@@ -317,36 +226,61 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
         setTimeout(() => setToastMessage(null), 3500);
     };
 
-    // Firestore & LocalStorage Senkronizasyonu
+    // FIRESTORE OTOMATİK MÜKERRER TEMİZLİKLİ VE KESİN KİMLİKLİ YÜKLEME
     useEffect(() => {
         if (!firestoreDb) {
-            const saved = localStorage.getItem('cnc_trials_v6');
+            const saved = localStorage.getItem('cnc_trials_v13');
             if (saved) {
                 try {
-                    setTrials(JSON.parse(saved));
+                    const parsed = JSON.parse(saved);
+                    setTrials(parsed);
                 } catch (e) {
-                    setTrials(SAMPLE_DEMO_DATA);
+                    setTrials([]);
                 }
             } else {
-                setTrials(SAMPLE_DEMO_DATA);
-                localStorage.setItem('cnc_trials_v6', JSON.stringify(SAMPLE_DEMO_DATA));
+                setTrials([]);
             }
             return;
         }
 
         const colRef = collection(firestoreDb, TOOL_TRIALS_COLLECTION);
-        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+        const unsubscribe = onSnapshot(colRef, async (snapshot) => {
             if (snapshot.empty) {
-                SAMPLE_DEMO_DATA.forEach(async (item) => {
-                    await addDoc(colRef, { ...item, createdAt: new Date().toISOString() });
-                });
+                setTrials([]);
             } else {
-                const list = snapshot.docs.map(docSnap => ({
-                    id: docSnap.id,
-                    ...docSnap.data()
-                }));
-                list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-                setTrials(list);
+                const list = snapshot.docs.map(docSnap => {
+                    const data = docSnap.data();
+                    return {
+                        ...data,
+                        id: docSnap.id // Firestore Kimliği
+                    };
+                });
+
+                // OTOMATİK MÜKERRER KOPYA TEMİZLİĞİ (Veritabanında birden fazla olan kopyaları otomatik olarak Firestore'dan temizler)
+                const seenSignatures = new Set();
+                const duplicateDocIds = [];
+                list.forEach(t => {
+                    const sig = `${t.title}_${t.brand}_${t.model}_${t.vc}_${t.fz}_${t.date}`;
+                    if (seenSignatures.has(sig)) {
+                        duplicateDocIds.push(t.id);
+                    } else {
+                        seenSignatures.add(sig);
+                    }
+                });
+
+                if (duplicateDocIds.length > 0) {
+                    for (const dupId of duplicateDocIds) {
+                        try {
+                            await deleteDoc(doc(firestoreDb, TOOL_TRIALS_COLLECTION, dupId));
+                        } catch (e) {
+                            console.error("Mükerrer kopya silinemedi:", e);
+                        }
+                    }
+                }
+
+                const cleanList = list.filter(t => !duplicateDocIds.includes(t.id));
+                cleanList.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                setTrials(cleanList);
             }
         }, (err) => {
             console.error("Takım denemeleri yükleme hatası:", err);
@@ -355,7 +289,6 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
         return () => unsubscribe();
     }, [firestoreDb]);
 
-    // Anlık Hesaplanan Metrikler
     const calculated = useMemo(() => {
         return computeDetailedMetrics(formData);
     }, [formData]);
@@ -411,7 +344,6 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
 
         try {
             if (editingTrialId) {
-                // DÜZENLEME MODU
                 if (firestoreDb) {
                     await updateDoc(doc(firestoreDb, TOOL_TRIALS_COLLECTION, editingTrialId), {
                         ...newTrial,
@@ -420,20 +352,19 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                 } else {
                     const updated = trials.map(t => t.id === editingTrialId ? { ...t, ...newTrial } : t);
                     setTrials(updated);
-                    localStorage.setItem('cnc_trials_v6', JSON.stringify(updated));
+                    localStorage.setItem('cnc_trials_v13', JSON.stringify(updated));
                 }
                 triggerToast("Takım deneme kaydı başarıyla güncellendi!");
                 setEditingTrialId(null);
             } else {
-                // YENİ EKLEME MODU
                 if (firestoreDb) {
                     const colRef = collection(firestoreDb, TOOL_TRIALS_COLLECTION);
                     await addDoc(colRef, { ...newTrial, createdAt: new Date().toISOString() });
                 } else {
-                    const item = { id: 'trial_' + Date.now(), ...newTrial };
+                    const item = { id: 'trial_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), ...newTrial };
                     const updated = [item, ...trials];
                     setTrials(updated);
-                    localStorage.setItem('cnc_trials_v6', JSON.stringify(updated));
+                    localStorage.setItem('cnc_trials_v13', JSON.stringify(updated));
                 }
                 triggerToast("Yeni takım deneme kaydı ve maliyet analizi kaydedildi!");
             }
@@ -491,42 +422,96 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
         triggerToast("Düzenleme iptal edildi.", "info");
     };
 
+    // DOĞRUDAN SİLME (SEÇİLEN TEK KAYDI VE FIRESTORE'DAKİ AYNISINI KESİN SİLER)
     const handleDelete = async (id) => {
-        if (!window.confirm("Bu deneme kaydını silmek istediğinize emin misiniz?")) return;
+        const target = trials.find(t => t.id === id);
+        if (!target) return;
+
+        const sameItems = trials.filter(t => t.title === target.title && t.brand === target.brand && t.model === target.model);
+        const idsToDelete = sameItems.map(item => item.id).filter(Boolean);
+
         try {
             if (firestoreDb) {
-                await deleteDoc(doc(firestoreDb, TOOL_TRIALS_COLLECTION, id));
-            } else {
-                const updated = trials.filter(t => t.id !== id);
-                setTrials(updated);
-                localStorage.setItem('cnc_trials_v6', JSON.stringify(updated));
+                for (const docId of idsToDelete) {
+                    await deleteDoc(doc(firestoreDb, TOOL_TRIALS_COLLECTION, docId));
+                }
             }
+            const updated = trials.filter(t => !idsToDelete.includes(t.id));
+            setTrials(updated);
+            
+            if (!firestoreDb) {
+                localStorage.setItem('cnc_trials_v13', JSON.stringify(updated));
+            }
+
             setSelectedTrialIds(prev => {
                 const next = new Set(prev);
-                next.delete(id);
+                idsToDelete.forEach(dId => next.delete(dId));
                 return next;
             });
-            triggerToast("Kayıt silindi.", "info");
+
+            triggerToast(`"${target.title}" kaydı başarıyla silindi.`, "info");
         } catch (error) {
             console.error("Silme hatası:", error);
+            triggerToast("Kayıt silinirken hata oluştu.", "error");
+        }
+    };
+
+    // TOPLU SİLME (SEÇİLEN TÜM KAYITLARI SİL)
+    const handleDeleteSelected = async () => {
+        if (selectedTrialIds.size === 0) return;
+
+        try {
+            const idsToDelete = Array.from(selectedTrialIds);
+            for (const id of idsToDelete) {
+                if (firestoreDb && id) {
+                    await deleteDoc(doc(firestoreDb, TOOL_TRIALS_COLLECTION, id));
+                }
+            }
+            const updated = trials.filter(t => !selectedTrialIds.has(t.id));
+            setTrials(updated);
+            if (!firestoreDb) {
+                localStorage.setItem('cnc_trials_v13', JSON.stringify(updated));
+            }
+            setSelectedTrialIds(new Set());
+            triggerToast(`${idsToDelete.length} adet seçili kayıt silindi.`, "info");
+        } catch (error) {
+            console.error("Toplu silme hatası:", error);
+            triggerToast("Toplu silme sırasında hata oluştu.", "error");
         }
     };
 
     const toggleSelect = (id) => {
+        if (!id) return;
         setSelectedTrialIds(prev => {
             const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
             return next;
         });
     };
 
     const toggleSelectAll = () => {
-        if (selectedTrialIds.size === trials.length) {
+        if (selectedTrialIds.size === trials.length && trials.length > 0) {
             setSelectedTrialIds(new Set());
         } else {
-            setSelectedTrialIds(new Set(trials.map(t => t.id)));
+            setSelectedTrialIds(new Set(trials.map(t => t.id).filter(Boolean)));
         }
+    };
+
+    const toggleRadarMetric = (metricId) => {
+        setSelectedRadarMetrics(prev => {
+            const next = new Set(prev);
+            if (next.has(metricId)) {
+                if (next.size > 3) next.delete(metricId);
+                else triggerToast("Radar grafiği için en az 3 eksen seçili olmalıdır.", "info");
+            } else {
+                next.add(metricId);
+            }
+            return next;
+        });
     };
 
     const filteredTrials = useMemo(() => {
@@ -550,15 +535,58 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
     }, [trials, selectedTrialIds]);
 
     const chartData = useMemo(() => {
-        return comparisonData.map(t => ({
-            name: `${t.brand} ${t.model}`,
-            mrr: t.mrr,
-            costPerCm3: t.costPerCm3,
-            totalLifeMinutes: t.totalLifeMinutes,
-            totalOpCost: t.totalOpCost,
-            fpScore: t.fpScore
-        }));
+        const nameCountMap = {};
+        return comparisonData.map((t, idx) => {
+            const baseName = `${t.brand || ''} ${t.model || ''}`.trim() || `Takım ${idx + 1}`;
+            nameCountMap[baseName] = (nameCountMap[baseName] || 0) + 1;
+            const uniqueName = nameCountMap[baseName] > 1 ? `${baseName} (#${nameCountMap[baseName]})` : baseName;
+            return {
+                id: t.id,
+                name: uniqueName,
+                mrr: t.mrr,
+                costPerCm3: t.costPerCm3,
+                totalLifeMinutes: t.totalLifeMinutes,
+                totalOpCost: t.totalOpCost,
+                fpScore: t.fpScore
+            };
+        });
     }, [comparisonData]);
+
+    const radarData = useMemo(() => {
+        if (comparisonData.length === 0) return [];
+
+        const activeOptions = RADAR_METRICS_OPTIONS.filter(opt => selectedRadarMetrics.has(opt.id));
+        const nameCountMap = {};
+        const toolNames = comparisonData.map((t, idx) => {
+            const baseName = `${t.brand || ''} ${t.model || ''}`.trim() || `Takım ${idx + 1}`;
+            nameCountMap[baseName] = (nameCountMap[baseName] || 0) + 1;
+            return nameCountMap[baseName] > 1 ? `${baseName} (#${nameCountMap[baseName]})` : baseName;
+        });
+
+        return activeOptions.map(opt => {
+            const item = { subject: opt.label };
+            const values = comparisonData.map(t => parseFloat(t[opt.key]) || 0);
+            const maxVal = Math.max(...values, 0.0001);
+            const minVal = Math.min(...values, 0.0001);
+
+            comparisonData.forEach((t, idx) => {
+                const toolName = toolNames[idx];
+                const raw = parseFloat(t[opt.key]) || 0;
+
+                let score = 0;
+                if (opt.invert) {
+                    if (raw <= 0) score = 100;
+                    else score = Math.round(Math.max(15, Math.min(100, (minVal / raw) * 100)));
+                } else {
+                    score = Math.round(Math.max(15, Math.min(100, (raw / maxVal) * 100)));
+                }
+
+                item[toolName] = score;
+            });
+
+            return item;
+        });
+    }, [comparisonData, selectedRadarMetrics]);
 
     const exportToCSV = () => {
         if (trials.length === 0) return alert("Dışa aktarılacak veri yok.");
@@ -1413,7 +1441,7 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                             </h2>
                             <p className="text-slate-400 text-xs mt-1">Tüm takım denemelerini listeleyin, arama yapın, düzenleyin veya kıyaslamak istediğiniz kayıtları seçin.</p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <input 
                                 type="text" 
                                 placeholder="Marka, malzeme veya başlık ara..." 
@@ -1421,6 +1449,17 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-48 sm:w-64"
                             />
+
+                            {/* TOPLU SİL BUTONU (SEÇİLİ VARSA) */}
+                            {selectedTrialIds.size > 0 && (
+                                <button 
+                                    onClick={handleDeleteSelected}
+                                    className="px-3.5 py-2 bg-rose-600 text-white hover:bg-rose-500 rounded-lg text-xs font-bold shadow-lg shadow-rose-600/30 transition flex items-center gap-1.5 animate-pulse"
+                                >
+                                    <Trash2 className="w-4 h-4" /> Seçilenleri Sil ({selectedTrialIds.size})
+                                </button>
+                            )}
+
                             <button 
                                 onClick={exportToCSV}
                                 className="px-3.5 py-2 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
@@ -1435,12 +1474,12 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                             <table className="w-full text-left text-xs text-slate-300">
                                 <thead className="bg-slate-900/90 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-700">
                                     <tr>
-                                        <th className="p-3.5 w-10">
+                                        <th className="p-3.5 w-10 text-center">
                                             <input 
                                                 type="checkbox" 
-                                                checked={selectedTrialIds.size === trials.length && trials.length > 0} 
+                                                checked={trials.length > 0 && selectedTrialIds.size === trials.length} 
                                                 onChange={toggleSelectAll} 
-                                                className="rounded bg-slate-900 border-slate-700 cursor-pointer"
+                                                className="rounded bg-slate-900 border-slate-700 cursor-pointer w-4 h-4 accent-blue-600"
                                             />
                                         </th>
                                         <th className="p-3.5">Başlık / Operasyon</th>
@@ -1455,17 +1494,18 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-700/50">
-                                    {filteredTrials.map(t => {
+                                    {filteredTrials.map((t, idx) => {
                                         const m = computeDetailedMetrics(t);
+                                        const rowKey = `trial_row_${t.id || idx}_${idx}`;
                                         const isChecked = selectedTrialIds.has(t.id);
                                         return (
-                                            <tr key={t.id} className="hover:bg-slate-800/80 transition border-b border-slate-700/40">
-                                                <td className="p-3.5">
+                                            <tr key={rowKey} className={`hover:bg-slate-800/80 transition border-b border-slate-700/40 ${isChecked ? 'bg-slate-800/90' : ''}`}>
+                                                <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                                                     <input 
                                                         type="checkbox" 
                                                         checked={isChecked} 
                                                         onChange={() => toggleSelect(t.id)} 
-                                                        className="rounded bg-slate-900 border-slate-700 cursor-pointer"
+                                                        className="rounded bg-slate-900 border-slate-700 cursor-pointer w-4 h-4 accent-blue-600"
                                                     />
                                                 </td>
                                                 <td className="p-3.5 font-medium text-white">
@@ -1555,7 +1595,73 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                         </button>
                     </div>
 
-                    {/* RECHARTS PERFORMANS GRAFİKLERİ */}
+                    {/* RADAR SPIDER PERFORMANS GRAFİĞİ BANNERİ */}
+                    <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700/60 shadow-xl space-y-4">
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-700 pb-3">
+                            <div>
+                                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                    <Activity className="w-5 h-5 text-blue-400" /> Çok Yönlü Takım Performans Radar Grafiği (Spider Chart)
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">Seçtiğiniz takımların tüm performans eksenlerindeki 0-100 ölçekli göreceli kıyaslaması.</p>
+                            </div>
+                            
+                            {/* RADAR PARAMETRE SEÇİM KUTUCUKLARI */}
+                            <div className="flex flex-wrap gap-1.5 bg-slate-900/80 p-2 rounded-xl border border-slate-700">
+                                <span className="text-[11px] font-bold text-slate-400 self-center mr-1">Eksenler:</span>
+                                {RADAR_METRICS_OPTIONS.map(opt => {
+                                    const isSelected = selectedRadarMetrics.has(opt.id);
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() => toggleRadarMetric(opt.id)}
+                                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition border ${
+                                                isSelected 
+                                                ? 'bg-blue-600 border-blue-400 text-white shadow-sm' 
+                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="h-80 w-full flex items-center justify-center pt-2">
+                            {comparisonData.length > 0 && radarData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                                        <PolarGrid stroke="#334155" />
+                                        <PolarAngleAxis dataKey="subject" stroke="#94a3b8" tick={{ fontSize: 11, fontWeight: 'bold' }} />
+                                        <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#475569" tick={{ fontSize: 9 }} />
+                                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', borderRadius: '8px', fontSize: '11px' }} />
+                                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+
+                                        {comparisonData.map((t, idx) => {
+                                            const toolName = chartData[idx]?.name || `${t.brand || ''} ${t.model || ''}`;
+                                            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#06b6d4', '#f97316'];
+                                            const strokeColor = colors[idx % colors.length];
+                                            return (
+                                                <Radar
+                                                    key={`radar_layer_${t.id || idx}_${idx}`}
+                                                    name={toolName}
+                                                    dataKey={toolName}
+                                                    stroke={strokeColor}
+                                                    fill={strokeColor}
+                                                    fillOpacity={0.35}
+                                                />
+                                            );
+                                        })}
+                                    </RadarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="text-slate-500 text-xs">Radar grafiğinde kıyaslama yapmak için listeden en az 1 takım seçiniz.</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* RECHARTS ÇUBUK BAR GRAFİKLERİ */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         
                         {/* Grafik 1: Birim Talaş Maliyeti (cm³) */}
@@ -1641,8 +1747,8 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                                 <thead className="bg-slate-900/80 text-slate-400 border-b border-slate-700">
                                     <tr>
                                         <th className="p-3 font-bold text-slate-400 border-r border-slate-700 w-52">Parametre / Özellik</th>
-                                        {comparisonData.map(t => (
-                                            <th key={t.id} className="p-3 font-bold text-white text-center border-r border-slate-700/50">
+                                        {comparisonData.map((t, idx) => (
+                                            <th key={`mat_head_${t.id || idx}_${idx}`} className="p-3 font-bold text-white text-center border-r border-slate-700/50">
                                                 {t.brand} <br/>
                                                 <span className="text-[10px] font-normal text-slate-400">{t.model}</span>
                                             </th>
@@ -1652,79 +1758,79 @@ const ToolTrialPage = ({ db: firestoreDb, loggedInUser }) => {
                                 <tbody className="divide-y divide-slate-700/50">
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Operasyon & Uç Geometrisi</td>
-                                        {comparisonData.map(t => (
-                                            <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-blue-300">
+                                        {comparisonData.map((t, idx) => (
+                                            <td key={`mat_op_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-blue-300">
                                                 {t.operationCategory || 'FREZELEME'} - {t.millingToolType === 'BALL' ? 'Küre Uç' : t.millingToolType === 'RADIUS' ? `R${t.cornerRadius} Toroid` : 'Düz Uç'}
                                             </td>
                                         ))}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Takım Gövde Tipi</td>
-                                        {comparisonData.map(t => (
-                                            <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold">
+                                        {comparisonData.map((t, idx) => (
+                                            <td key={`mat_const_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold">
                                                 {t.constructionType === 'INSERT' ? <span className="text-amber-400">Takma Uçlu ({t.insertCorners || 4} Köşe)</span> : <span className="text-purple-400">Yekpare Karbür</span>}
                                             </td>
                                         ))}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Takım Çapı / Ağız</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-mono">Ø{t.diameter} mm / {t.flutes} Ağız</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_dim_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-mono">Ø{t.diameter} mm / {t.flutes} Ağız</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Efektif Köşe/Takım Fiyatı</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-emerald-400">{t.effectiveToolPrice} {t.currency || '€'} {t.constructionType === 'INSERT' ? '/ köşe' : ''}</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_prc_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-emerald-400">{t.effectiveToolPrice} {t.currency || '€'} {t.constructionType === 'INSERT' ? '/ köşe' : ''}</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-amber-400 border-r border-slate-700 bg-slate-900/30">Tezgah Saat Ücreti</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-amber-300">{t.machineHourlyRate || 35} €/saat</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_mch_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-amber-300">{t.machineHourlyRate || 35} €/saat</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Kesme Şartları (Vc / fz)</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30">Vc: {t.vc} m/dk | fz: {t.fz} mm</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_cut_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30">Vc: {t.vc} m/dk | fz: {t.fz} mm</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Derinlik (ap x ae)</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30">{t.ap} mm x {t.ae} mm</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_dpth_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30">{t.ap} mm x {t.ae} mm</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Hesaplanan Devir (n)</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 text-blue-400 font-bold">{t.rpm} dev/dk</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_rpm_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 text-blue-400 font-bold">{t.rpm} dev/dk</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Hesaplanan İlerleme (Vf)</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 text-emerald-400 font-bold">{t.vf} mm/dk</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_vf_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 text-emerald-400 font-bold">{t.vf} mm/dk</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Talaş Kaldırma Hızı (MRR)</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 text-amber-400 font-bold">{t.mrr} cm³/dk</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_mrr_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 text-amber-400 font-bold">{t.mrr} cm³/dk</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Takım Ömrü Süresi</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-blue-400">{t.totalLifeMinutes} dk ({(t.totalLifeMinutes / 60).toFixed(1)} st)</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_life_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-blue-400">{t.totalLifeMinutes} dk ({(t.totalLifeMinutes / 60).toFixed(1)} st)</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Kaldırılan Toplam Talaş Hacmi</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-indigo-300">{t.totalVolumeCm3.toLocaleString('tr-TR')} cm³</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_vol_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-indigo-300">{t.totalVolumeCm3.toLocaleString('tr-TR')} cm³</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Ömür Boyunca Tezgah Maliyeti</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-slate-300">{t.machineCost} €</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_mcst_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-slate-300">{t.machineCost} €</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Toplam Operasyon Maliyeti</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold text-purple-300">{t.totalOpCost} €</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_opcst_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold text-purple-300">{t.totalOpCost} €</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Birim Talaş Başına Maliyet</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 text-purple-400 font-bold">{t.costPerCm3} €/cm³</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_volcst_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 text-purple-400 font-bold">{t.costPerCm3} €/cm³</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Aşınma Türü</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 text-xs">{t.wearType}</td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_wear_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 text-xs">{t.wearType}</td>)}
                                     </tr>
                                     <tr className="hover:bg-slate-800/40">
                                         <td className="p-3 font-semibold text-slate-300 border-r border-slate-700 bg-slate-900/30">Bütünleşik F/P Skoru</td>
-                                        {comparisonData.map(t => <td key={t.id} className="p-3 text-center border-r border-slate-700/30 font-bold"><span className="bg-emerald-900/60 text-emerald-300 font-black px-2.5 py-1 rounded-lg border border-emerald-600/40">{t.fpScore} Puan</span></td>)}
+                                        {comparisonData.map((t, idx) => <td key={`mat_fp_${t.id || idx}_${idx}`} className="p-3 text-center border-r border-slate-700/30 font-bold"><span className="bg-emerald-900/60 text-emerald-300 font-black px-2.5 py-1 rounded-lg border border-emerald-600/40">{t.fpScore} Puan</span></td>)}
                                     </tr>
                                 </tbody>
                             </table>
