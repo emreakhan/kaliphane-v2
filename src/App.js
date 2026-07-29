@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight
+    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight, Sparkles
 } from 'lucide-react';
 
 // Sayfalar
@@ -84,6 +84,7 @@ import MoldBasedToolTracking from './pages/MoldBasedToolTracking.js';
 import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
 import TechnicalDrawingsPage from './pages/TechnicalDrawingsPage.js';
 import ToolTrialPage from './pages/ToolTrialPage.js';
+import ProcessImprovementPage from './pages/ProcessImprovementPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -768,7 +769,8 @@ const App = () => {
             Box: Box,
             FileOutput: FileOutput,
             Users: Users,
-            Archive: Archive
+            Archive: Archive,
+            Sparkles: Sparkles
         };
 
         // 1. Build a lookup map of all pages that the active user is allowed to view
@@ -1237,6 +1239,12 @@ const App = () => {
                         <Route path="/cnc-lathe-calendar" element={
                             activeUserPermissions['/cnc-lathe-calendar']?.view
                             ? <CncLatheCalendarPage cncJobs={cncJobs} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/process-improvement" element={
+                            activeUserPermissions['/process-improvement']?.view
+                            ? <ProcessImprovementPage db={db} loggedInUser={loggedInUser} personnel={personnel} />
                             : <Navigate to="/" replace />
                         } />
 

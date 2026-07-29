@@ -48,6 +48,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/tool-requests', label: 'Takım Hazırlama Talepleri', iconName: 'ClipboardCheck' },
     { path: '/technical-drawings', label: 'Teknik Resimler', iconName: 'FileText' },
     { path: '/tool-trials', label: 'CNC Takım Deneme & F/P Analizi', iconName: 'Activity' },
+    { path: '/process-improvement', label: 'Süreç & İyileştirme', iconName: 'Sparkles' },
 ];
 
 export const getDefaultPermissions = (role) => {
@@ -144,6 +145,9 @@ export const getDefaultPermissions = (role) => {
     if ([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.TAKIMHANE_SORUMLUSU, ROLES.CAM_OPERATOR, 'CAM Sorumlusu', ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU].includes(role)) {
         permissions['/tool-requests'] = { view: true, edit: true };
     }
+
+    // Süreç & İyileştirme Portalı tüm kullanıcılara açıktır
+    permissions['/process-improvement'] = { view: true, edit: true };
 
     // Edit permission default logic based on role authority
     const isEditUser = [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.PROJE_SORUMLUSU, 'CAM Sorumlusu'].includes(role);

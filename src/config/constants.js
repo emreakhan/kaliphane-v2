@@ -15,6 +15,8 @@ export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs
 export const DESIGN_TASK_TYPES_COLLECTION = `artifacts/${appId}/public/data/designTaskTypes`;
 export const MOLD_STATUSES_COLLECTION = `artifacts/${appId}/public/data/moldStatuses`;
 export const TOOL_TRIALS_COLLECTION = `artifacts/${appId}/public/data/toolTrials`;
+export const IMPROVEMENT_REQUESTS_COLLECTION = `artifacts/${appId}/public/data/improvementRequests`;
+export const PROCESS_INSTRUCTIONS_COLLECTION = `artifacts/${appId}/public/data/processInstructions`;
 
 export const DEFAULT_MOLD_STATUSES = [
     { name: 'BEKLEMEDE', color: 'yellow', icon: 'RefreshCw', orderIndex: 1 },
