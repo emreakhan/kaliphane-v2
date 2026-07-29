@@ -9,9 +9,6 @@ import Modal from '../components/Modals/Modal.js';
 import ManageDesignTaskTypesModal from '../components/Modals/ManageDesignTaskTypesModal.js';
 
 // --- RESMİ TATİLLER VE MESAİ ALGORİTMASI ---
-const WORK_START_HOUR = 8;
-const WORK_END_HOUR = 18;
-
 const PUBLIC_HOLIDAYS = ["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-29"];
 const RELIGIOUS_HOLIDAYS_2026 = ["2026-03-20", "2026-03-21", "2026-03-22", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30"];
 
@@ -23,27 +20,30 @@ const isHoliday = (date) => {
 
 const TASK_COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-teal-500', 'bg-cyan-600', 'bg-indigo-500'];
 
-const addWorkingHours = (startDate, hoursToAdd, autoPause = true) => {
+const addWorkingHours = (startDate, hoursToAdd, autoPause = true, designConfig = {}) => {
+    const workStart = designConfig.workStartHour ?? 8;
+    const workEnd = designConfig.workEndHour ?? 18;
+
     if (!autoPause) {
         return new Date(startDate.getTime() + hoursToAdd * 60 * 60 * 1000);
     }
     let currentDate = new Date(startDate.getTime());
     let remainingMinutes = hoursToAdd * 60;
     
-    if (currentDate.getHours() < WORK_START_HOUR) currentDate.setHours(WORK_START_HOUR, 0, 0, 0);
-    else if (currentDate.getHours() >= WORK_END_HOUR) { currentDate.setDate(currentDate.getDate() + 1); currentDate.setHours(WORK_START_HOUR, 0, 0, 0); }
+    if (currentDate.getHours() < workStart) currentDate.setHours(workStart, 0, 0, 0);
+    else if (currentDate.getHours() >= workEnd) { currentDate.setDate(currentDate.getDate() + 1); currentDate.setHours(workStart, 0, 0, 0); }
     
     const skipNonWorkingDays = () => {
         while (currentDate.getDay() === 0 || currentDate.getDay() === 6 || isHoliday(currentDate)) { 
             currentDate.setDate(currentDate.getDate() + 1); 
-            currentDate.setHours(WORK_START_HOUR, 0, 0, 0); 
+            currentDate.setHours(workStart, 0, 0, 0); 
         }
     };
 
     skipNonWorkingDays();
 
     while (remainingMinutes > 0) {
-        let minutesToEOD = (WORK_END_HOUR * 60) - (currentDate.getHours() * 60 + currentDate.getMinutes());
+        let minutesToEOD = (workEnd * 60) - (currentDate.getHours() * 60 + currentDate.getMinutes());
         if (remainingMinutes <= minutesToEOD) { 
             currentDate.setMinutes(currentDate.getMinutes() + remainingMinutes); 
             remainingMinutes = 0; 
@@ -51,17 +51,31 @@ const addWorkingHours = (startDate, hoursToAdd, autoPause = true) => {
         else {
             remainingMinutes -= minutesToEOD; 
             currentDate.setDate(currentDate.getDate() + 1); 
-            currentDate.setHours(WORK_START_HOUR, 0, 0, 0);
+            currentDate.setHours(workStart, 0, 0, 0);
             skipNonWorkingDays();
         }
     }
     return currentDate;
 };
 
-const getWorkingHoursBetween = (startD, endD) => {
+const getWorkingHoursBetween = (startD, endD, designConfig = {}) => {
+    const workStart = designConfig.workStartHour ?? 8;
+    const workEnd = designConfig.workEndHour ?? 18;
+
+    let activeBreaks = [];
+    if (designConfig.breaks && Array.isArray(designConfig.breaks)) {
+        activeBreaks = designConfig.breaks.filter(b => b.enabled !== false);
+    } else if (designConfig.lunchBreakEnabled !== false) {
+        activeBreaks = [{
+            name: 'Yemek Molası',
+            start: designConfig.lunchBreakStart || "12:00",
+            end: designConfig.lunchBreakEnd || "13:00"
+        }];
+    }
+
     let totalHours = 0;
     let current = new Date(startD);
-    
+
     while (current < endD) {
         if (current.getDay() === 0 || current.getDay() === 6 || isHoliday(current)) {
             current.setDate(current.getDate() + 1);
@@ -69,26 +83,48 @@ const getWorkingHoursBetween = (startD, endD) => {
             continue;
         }
         let h = current.getHours();
-        if (h < WORK_START_HOUR) {
-            current.setHours(WORK_START_HOUR, 0, 0, 0);
+        if (h < workStart) {
+            current.setHours(workStart, 0, 0, 0);
             continue;
         }
-        if (h >= WORK_END_HOUR) {
+        if (h >= workEnd) {
             current.setDate(current.getDate() + 1);
             current.setHours(0, 0, 0, 0);
             continue;
         }
-        
+
         let eod = new Date(current);
-        eod.setHours(WORK_END_HOUR, 0, 0, 0);
+        eod.setHours(workEnd, 0, 0, 0);
         let targetEnd = (eod < endD) ? eod : endD;
-        totalHours += (targetEnd - current) / (1000 * 60 * 60);
+
+        let intervalHours = (targetEnd - current) / (1000 * 60 * 60);
+
+        // TÜM DİNAMİK MOLALARIN KESİNTİSİ (Çay molaları, yemek molası vb.)
+        activeBreaks.forEach(b => {
+            const [bStartH, bStartM] = (b.start || "12:00").split(':').map(Number);
+            const [bEndH, bEndM] = (b.end || "13:00").split(':').map(Number);
+
+            const bStartObj = new Date(current);
+            bStartObj.setHours(bStartH || 0, bStartM || 0, 0, 0);
+            const bEndObj = new Date(current);
+            bEndObj.setHours(bEndH || 0, bEndM || 0, 0, 0);
+
+            const overlapStart = new Date(Math.max(current.getTime(), bStartObj.getTime()));
+            const overlapEnd = new Date(Math.min(targetEnd.getTime(), bEndObj.getTime()));
+
+            if (overlapStart < overlapEnd) {
+                const bOverlapHours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+                intervalHours -= bOverlapHours;
+            }
+        });
+
+        totalHours += Math.max(0, intervalHours);
         current = new Date(targetEnd);
     }
     return totalHours;
 };
 
-const getSpentHours = (job, currentTime) => {
+const getSpentHours = (job, currentTime, designConfig = {}) => {
     if (!job.workSessions || job.workSessions.length === 0) return 0;
     let totalHours = 0;
     const autoPause = job.autoPause !== false;
@@ -117,7 +153,7 @@ const getSpentHours = (job, currentTime) => {
         if (!autoPause) {
             totalHours += (end - start) / (1000 * 60 * 60); 
         } else {
-            totalHours += getWorkingHoursBetween(start, end); 
+            totalHours += getWorkingHoursBetween(start, end, designConfig); 
         }
     });
     return totalHours;
@@ -156,7 +192,10 @@ const SearchableProjectSelect = ({ projects, value, onChange, error }) => {
     );
 };
 
-const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] }) => {
+const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [], designConfig = {} }) => {
+    const workStart = designConfig.workStartHour ?? 8;
+    const workEnd = designConfig.workEndHour ?? 18;
+
     const [pauseModalOpen, setPauseModalOpen] = useState(false);
     const [selectedJob, setSelectedJob] = useState(null);
     const [pauseReason, setPauseReason] = useState(DESIGN_ACTIVITY_TYPES.OTHER);
@@ -223,8 +262,8 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] 
 
     const timelineData = useMemo(() => {
         let currentPointer = new Date(now); 
-        if (currentPointer.getHours() < WORK_START_HOUR) currentPointer.setHours(WORK_START_HOUR, 0, 0, 0);
-        if (currentPointer.getHours() >= WORK_END_HOUR) { currentPointer.setDate(currentPointer.getDate() + 1); currentPointer.setHours(WORK_START_HOUR, 0, 0, 0); }
+        if (currentPointer.getHours() < workStart) currentPointer.setHours(workStart, 0, 0, 0);
+        if (currentPointer.getHours() >= workEnd) { currentPointer.setDate(currentPointer.getDate() + 1); currentPointer.setHours(workStart, 0, 0, 0); }
 
         const mappedJobs = [];
         let colorIndex = 0;
@@ -237,17 +276,18 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] 
             if (job.status === DESIGN_JOB_STATUS.IN_PROGRESS) {
                 const firstSession = job.workSessions?.[0]?.startTime;
                 start = firstSession ? new Date(firstSession) : new Date(currentPointer);
-                end = addWorkingHours(start, estimatedHours, autoPause);
+                end = addWorkingHours(start, estimatedHours, autoPause, designConfig);
                 currentPointer = new Date(Math.max(now.getTime(), end.getTime()));
             } else {
                 start = new Date(currentPointer);
-                end = addWorkingHours(start, estimatedHours, autoPause);
+                end = addWorkingHours(start, estimatedHours, autoPause, designConfig);
                 currentPointer = new Date(end); 
             }
 
             if (end.getTime() > timelineStartMs && start.getTime() < timelineEndMs) {
                 const leftPx = ((start.getTime() - timelineStartMs) / (1000 * 60 * 60 * 24)) * MINI_DAY_WIDTH;
                 const widthPx = ((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) * MINI_DAY_WIDTH;
+
                 mappedJobs.push({
                     ...job, drawStart: start, drawEnd: end,
                     leftPx: Math.max(0, leftPx),
@@ -258,7 +298,7 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] 
             }
         });
         return mappedJobs;
-    }, [myJobs, miniBaseDate, timelineStartMs, timelineEndMs, now]);
+    }, [myJobs, miniBaseDate, timelineStartMs, timelineEndMs, now, workStart, workEnd, designConfig]);
 
     const miniPrevWeek = () => { const d = new Date(miniBaseDate); d.setDate(d.getDate() - 7); setMiniBaseDate(d); };
     const miniNextWeek = () => { const d = new Date(miniBaseDate); d.setDate(d.getDate() + 7); setMiniBaseDate(d); };
@@ -348,6 +388,32 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] 
 
         try {
             if (actionType === 'START' || actionType === 'RESUME') {
+                // TEK AKTİF İŞ KURALI: Tasarımcının diğer açık işlerini otomatik duraklat
+                const otherActiveJobs = myJobs.filter(j => j.id !== job.id && j.status === DESIGN_JOB_STATUS.IN_PROGRESS);
+                for (const activeJob of otherActiveJobs) {
+                    try {
+                        const aRef = doc(db, DESIGN_JOBS_COLLECTION, activeJob.id);
+                        const aSessions = activeJob.workSessions ? [...activeJob.workSessions] : [];
+                        if (aSessions.length > 0 && !aSessions[aSessions.length - 1].endTime) {
+                            aSessions[aSessions.length - 1].endTime = timeNow;
+                        }
+                        const aPauses = activeJob.pauseHistory ? [...activeJob.pauseHistory] : [];
+                        aPauses.push({
+                            pausedAt: timeNow,
+                            resumedAt: null,
+                            reason: 'Yeni İşe Geçildi (Otomatik Duraklatma)',
+                            note: `"${job.projectName || 'Yeni İş'} (${job.taskType || ''})"`
+                        });
+                        await updateDoc(aRef, {
+                            status: DESIGN_JOB_STATUS.PAUSED,
+                            workSessions: aSessions,
+                            pauseHistory: aPauses
+                        });
+                    } catch (err) {
+                        console.error("Önceki aktif iş otomatik duraklatılamadı:", err);
+                    }
+                }
+
                 updates.status = DESIGN_JOB_STATUS.IN_PROGRESS;
                 const sessions = job.workSessions ? [...job.workSessions] : [];
                 sessions.push({ startTime: timeNow, endTime: null });
@@ -498,352 +564,278 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [] 
                                     <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">Şu an çizelgede iş yok.</div>
                                 ) : (
                                     timelineData.map((job, idx) => (
-                                        <div 
-                                            key={job.id}
-                                            className={`absolute h-8 rounded-md shadow-sm border border-white/20 dark:border-gray-800/50 flex flex-col justify-center px-2 overflow-hidden hover:z-10 hover:shadow-md transition-shadow cursor-default text-white ${job.color}`}
-                                            style={{ top: `${idx * 40}px`, left: `${job.leftPx}px`, width: `${job.widthPx}px`, minWidth: '40px' }}
-                                            title={`${job.projectName}\nBaşlangıç: ${job.drawStart.toLocaleString('tr-TR')}\nBitiş: ${job.drawEnd.toLocaleString('tr-TR')}\nSüre: ${job.estimatedHours} Saat`}
-                                        >
-                                            <div className="font-bold text-[10px] truncate leading-tight">{job.projectName}</div>
+                                        <div key={job.id} className="absolute flex items-center h-8 transition-all" style={{ left: `${job.leftPx}px`, width: `${Math.max(job.widthPx, 30)}px`, top: `${idx * 40}px` }}>
+                                            <div className={`w-full h-full rounded-lg ${job.color} text-white text-[11px] font-bold px-2 flex items-center justify-between shadow-sm overflow-hidden border border-white/20`} title={`${job.projectName} (${job.taskType}) - ${job.estimatedHours} st`}>
+                                                <span className="truncate">{job.projectName}</span>
+                                                <span className="text-[9px] opacity-80 font-mono ml-1">{job.estimatedHours}h</span>
+                                            </div>
                                         </div>
                                     ))
                                 )}
-
-                                {(() => {
-                                    if (now.getTime() >= timelineStartMs && now.getTime() <= timelineEndMs) {
-                                        const nowLeft = ((now.getTime() - timelineStartMs) / (1000 * 60 * 60 * 24)) * MINI_DAY_WIDTH;
-                                        return (
-                                            <div className="absolute top-0 bottom-0 border-l-2 border-red-500 z-10 pointer-events-none transition-all duration-1000" style={{ left: `${nowLeft}px` }}>
-                                                <div className="absolute top-0 -left-2 bg-red-500 text-white text-[8px] font-bold px-1 rounded">ŞU AN</div>
-                                            </div>
-                                        );
-                                    }
-                                    return null;
-                                })()}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[340px]">
-                    <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
-                        <button onClick={prevMonth} className="p-2 bg-white dark:bg-gray-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm transition"><ChevronLeft className="w-5 h-5" /></button>
-                        <h3 className="font-bold text-gray-800 dark:text-white flex items-center text-sm capitalize">
-                            <CalendarDays className="w-5 h-5 mr-2 text-red-500" /> 
-                            {currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 flex flex-col h-[340px]">
+                    <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100 dark:border-gray-700">
+                        <h3 className="font-bold text-gray-800 dark:text-white flex items-center text-sm">
+                            <CalendarDays className="w-4 h-4 mr-2 text-indigo-500" /> Takvim & Terminler
                         </h3>
-                        <button onClick={nextMonth} className="p-2 bg-white dark:bg-gray-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm transition"><ChevronRight className="w-5 h-5" /></button>
-                    </div>
-                    <div className="p-4 flex-1 flex flex-col">
-                        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-gray-400 mb-2">
-                            <div>Pzt</div><div>Sal</div><div>Çar</div><div>Per</div><div>Cum</div><div>Cmt</div><div>Paz</div>
+                        <div className="flex items-center gap-1 text-xs">
+                            <button onClick={prevMonth} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"><ChevronLeft className="w-4 h-4" /></button>
+                            <span className="font-bold text-gray-700 dark:text-gray-300">{currentDate.toLocaleDateString('tr-TR', { month: 'short', year: 'numeric' })}</span>
+                            <button onClick={nextMonth} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"><ChevronRight className="w-4 h-4" /></button>
                         </div>
-                        <div className="grid grid-cols-7 gap-1 flex-1 content-start">
-                            {calendarDays.map((item, idx) => {
-                                if (!item) return <div key={idx} className="h-10"></div>;
-                                
-                                const hasDeadline = item.jobs.length > 0;
-                                const isToday = item.dateStr === now.toISOString().split('T')[0];
-                                const hol = isHoliday(item.dateObj);
-                                const isWknd = item.dateObj.getDay() === 0 || item.dateObj.getDay() === 6;
+                    </div>
 
-                                return (
-                                    <div key={idx} className="relative flex justify-center items-center h-10 group cursor-default">
-                                        <div className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition
-                                            ${hasDeadline ? 'bg-red-500 text-white shadow-md shadow-red-200 dark:shadow-none transform scale-110 z-10' : ''}
-                                            ${!hasDeadline && (hol || isWknd) ? 'text-red-400 bg-red-50 dark:bg-red-900/20' : ''}
-                                            ${!hasDeadline && !(hol || isWknd) && isToday ? 'bg-blue-100 text-blue-700 border border-blue-300 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700' : ''}
-                                            ${!hasDeadline && !(hol || isWknd) && !isToday ? 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700' : ''}
-                                        `}>
-                                            {item.day}
+                    <div className="grid grid-cols-7 gap-1 text-center font-bold text-[10px] text-gray-400 mb-1">
+                        <span>PZT</span><span>SAL</span><span>ÇAR</span><span>PER</span><span>CUM</span><span className="text-red-400">CTS</span><span className="text-red-400">PZR</span>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1 flex-1 text-xs">
+                        {calendarDays.map((d, idx) => {
+                            if (!d) return <div key={idx} className="bg-transparent" />;
+                            const isToday = d.dateObj.toDateString() === now.toDateString();
+                            const hasJobs = d.jobs.length > 0;
+                            return (
+                                <div key={idx} className={`p-1 border rounded-lg flex flex-col justify-between transition ${isToday ? 'bg-indigo-50 border-indigo-300 dark:bg-indigo-900/30 font-black' : 'bg-gray-50/50 dark:bg-gray-900/30 border-gray-100 dark:border-gray-700/50'} ${hasJobs ? 'border-amber-300 dark:border-amber-700 bg-amber-50/30' : ''}`}>
+                                    <span className={`text-[10px] ${isToday ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-gray-500'}`}>{d.day}</span>
+                                    {hasJobs && (
+                                        <div className="flex items-center justify-center bg-amber-500 text-white text-[9px] font-bold rounded px-1 py-0.5" title={d.jobs.map(j => j.projectName).join(', ')}>
+                                            {d.jobs.length} İş
                                         </div>
-                                        
-                                        {(hasDeadline || hol) && (
-                                            <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 w-48 bg-gray-900 text-white text-[10px] p-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition z-50 shadow-lg border border-gray-700">
-                                                {hasDeadline && (
-                                                    <>
-                                                        <div className="font-bold text-red-400 mb-1 border-b border-gray-700 pb-1">Teslim Edilecek İşler:</div>
-                                                        {item.jobs.map(j => <div key={j.id} className="truncate">• {j.projectName}</div>)}
-                                                    </>
-                                                )}
-                                                {hol && <div className={`font-bold ${hasDeadline ? 'mt-2 pt-1 border-t border-gray-700' : ''} text-orange-400`}>⭐ Resmi / Dini Tatil</div>}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            <div className="mb-4 mt-6 border-l-4 border-indigo-500 pl-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-800 dark:text-white">İş Kuyruğum</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Sıranızdaki işler. Plan dışı bir iş geldiğinde sağdan ekleyebilirsiniz.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <button 
-                        onClick={() => setManualModalOpen(true)}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm shadow-md transition flex items-center"
-                    >
-                        <Plus className="w-4 h-4 mr-2" /> Plan Dışı İş Ekle
-                    </button>
-                    <div className="hidden sm:block px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 rounded-lg font-bold text-sm border border-indigo-100 dark:border-indigo-800">
-                        Bekleyen: {myJobs.length}
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
-            {myJobs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 text-center px-4">
-                    <Briefcase className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
-                    <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">Harika, iş kalmamış!</h3>
-                    <p className="text-gray-500 dark:text-gray-500">Şu anda sıranızda bekleyen veya devam eden bir tasarım görevi bulunmuyor.</p>
+            {/* İŞ LİSTESİ BANNERİ */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-3">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
+                            <Briefcase className="w-5 h-5 mr-2 text-indigo-500" /> Aktif Tasarım Görevlerim ({myJobs.length})
+                        </h2>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Size atanan tasarım işlerini başlatabilir, duraklatabilir veya tamamlayabilirsiniz.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={() => setManualModalOpen(true)}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition shadow-sm flex items-center gap-1.5"
+                        >
+                            <Plus className="w-4 h-4" /> Kendine Görev Ekle
+                        </button>
+                    </div>
                 </div>
-            ) : (
-                <div className="flex flex-col gap-4">
-                    {myJobs.map((job, idx) => {
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {myJobs.map((job) => {
+                        const spentHours = getSpentHours(job, now, designConfig);
+                        const estHours = parseFloat(job.estimatedHours) || 0;
+                        const progressPct = estHours > 0 ? Math.min(100, Math.round((spentHours / estHours) * 100)) : 0;
                         const isRunning = job.status === DESIGN_JOB_STATUS.IN_PROGRESS;
                         const isPaused = job.status === DESIGN_JOB_STATUS.PAUSED;
-                        const autoPause = job.autoPause !== false; 
-
-                        const estimatedHours = parseFloat(job.estimatedHours) || 0;
-                        const spentHours = getSpentHours(job, now);
-                        const remainingHours = estimatedHours - spentHours;
-
-                        let remainingColor = 'text-green-600 dark:text-green-400';
-                        let remainingText = `${remainingHours.toFixed(1)} Saat`;
-                        
-                        if (remainingHours < 0) {
-                            remainingColor = 'text-red-600 dark:text-red-400 font-black';
-                            remainingText = `-${Math.abs(remainingHours).toFixed(1)} Saat (Süre Aşıldı)`;
-                        } else if (remainingHours <= estimatedHours * 0.2 && estimatedHours > 0) {
-                            remainingColor = 'text-orange-500 font-bold'; 
-                        }
 
                         return (
-                            <div key={job.id} className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border overflow-hidden flex flex-col md:flex-row transition-all duration-200 ${isRunning ? 'border-green-500 ring-2 ring-green-500/20 transform scale-[1.01]' : isPaused ? 'border-orange-400 opacity-90' : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'}`}>
-                                
-                                <div className="p-5 flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-5">
-                                    <div className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center text-xl font-black shadow-inner border-4 ${isRunning ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800' : isPaused ? 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800' : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600'}`}>
-                                        {idx + 1}
+                            <div key={job.id} className={`bg-gray-50 dark:bg-gray-900/60 p-4 rounded-xl border transition-all space-y-3 ${isRunning ? 'border-green-500 shadow-md ring-1 ring-green-500' : isPaused ? 'border-amber-400 dark:border-amber-600' : 'border-gray-200 dark:border-gray-700'}`}>
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                            {job.taskType || 'KALIP TASARIM'}
+                                        </span>
+                                        <h3 className="font-bold text-gray-800 dark:text-white mt-1.5 text-sm leading-snug">{job.projectName}</h3>
+                                        {job.customer && <p className="text-[11px] text-gray-500">{job.customer}</p>}
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-3 mb-1.5 flex-wrap">
-                                            <h3 className="text-lg sm:text-xl font-extrabold text-gray-900 dark:text-white truncate">{job.projectName}</h3>
-                                            <span className="text-[10px] font-bold px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded border border-indigo-100 dark:border-indigo-800">{job.taskType}</span>
-                                            {isRunning && <span className="flex items-center text-[10px] font-bold text-green-700 bg-green-100 px-2.5 py-1 rounded border border-green-200 animate-pulse"><Activity className="w-3 h-3 mr-1" /> ÇALIŞIYOR</span>}
-                                            {isPaused && <span className="flex items-center text-[10px] font-bold text-orange-700 bg-orange-100 px-2.5 py-1 rounded border border-orange-200"><PauseCircle className="w-3 h-3 mr-1" /> DURAKLATILDI</span>}
-                                        </div>
-                                        {job.customer && <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">{job.customer}</p>}
-                                        
-                                        {job.managerNote && (
-                                            <div className={`text-xs text-gray-700 dark:text-gray-300 p-2.5 rounded border flex items-start mt-2 ${job.managerNote.includes('Manuel') ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20' : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20'}`}>
-                                                <AlertTriangle className={`w-4 h-4 mr-2 flex-shrink-0 ${job.managerNote.includes('Manuel') ? 'text-indigo-600' : 'text-yellow-600'}`} />
-                                                <div><span className="font-bold mr-1">{job.managerNote.includes('Manuel') ? 'Tasarımcı Notu:' : 'Yönetici Notu:'}</span><span className="italic">{job.managerNote}</span></div>
-                                            </div>
-                                        )}
-
-                                        <div className="mt-3 inline-flex items-center">
-                                            <label className="flex items-center text-[11px] font-bold text-gray-600 dark:text-gray-400 cursor-pointer hover:text-indigo-600 transition group select-none">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={autoPause} 
-                                                    onChange={(e) => handleToggleAutoPause(job, e.target.checked)}
-                                                    className="mr-2 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700 cursor-pointer"
-                                                />
-                                                <ShieldCheck className={`w-4 h-4 mr-1 ${autoPause ? 'text-green-500' : 'text-gray-400'}`} />
-                                                Akıllı Sayaç (18:00'de ve Hafta Sonu süreyi keser)
-                                            </label>
-                                        </div>
+                                    <div className="flex items-center gap-1">
+                                        {isRunning && <span className="flex h-2.5 w-2.5 rounded-full bg-green-500 animate-ping" title="Süre İşliyor" />}
                                     </div>
                                 </div>
 
-                                <div className="bg-gray-50 dark:bg-gray-900/50 md:w-72 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-700 p-5 flex flex-col justify-center">
+                                <div className="space-y-1.5 text-xs border-t border-gray-200 dark:border-gray-800 pt-2.5">
+                                    <div className="flex justify-between text-gray-600 dark:text-gray-300">
+                                        <span>Tahmini Süre:</span>
+                                        <span className="font-bold">{estHours} Saat</span>
+                                    </div>
+                                    <div className="flex justify-between text-gray-600 dark:text-gray-300">
+                                        <span>Harcanan Süre:</span>
+                                        <span className="font-black text-indigo-600 dark:text-indigo-400">{spentHours.toFixed(1)} Saat</span>
+                                    </div>
                                     
-                                    <div className="flex flex-col gap-2 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center"><Clock className="w-4 h-4 mr-1" /> Hedef Süre</span>
-                                            <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{job.estimatedHours} Saat</span>
-                                        </div>
-                                        
-                                        <div className="flex justify-between items-center mt-0.5">
-                                            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 flex items-center"><Timer className="w-4 h-4 mr-1" /> Kalan Süre</span>
-                                            <span className={`text-base font-black ${remainingColor}`}>{remainingText}</span>
-                                        </div>
-
-                                        {job.deadlineDate && (
-                                            <div className="flex justify-between items-center bg-red-50 dark:bg-red-900/20 p-1.5 rounded border border-red-100 dark:border-red-800/50 mt-1.5">
-                                                <span className="text-[10px] font-bold text-red-600 dark:text-red-400 flex items-center"><CalendarIcon className="w-3 h-3 mr-1" /> Termin</span>
-                                                <span className="text-xs font-bold text-red-700 dark:text-red-300">{formatDate(job.deadlineDate)}</span>
-                                            </div>
-                                        )}
+                                    <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden mt-1">
+                                        <div className={`h-full transition-all ${progressPct > 100 ? 'bg-red-500' : 'bg-indigo-600'}`} style={{ width: `${progressPct}%` }} />
                                     </div>
+                                </div>
 
-                            <div className="flex flex-col gap-2">
-                                        {job.status === DESIGN_JOB_STATUS.ASSIGNED || job.status === DESIGN_JOB_STATUS.POOL ? (
-                                            <button onClick={() => handleAction(job, 'START')} disabled={isSaving} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
-                                                <PlayCircle className="w-4 h-4 mr-2" /> İşe Başla
-                                            </button>
-                                        ) : null}
-                                        {isRunning && (
-                                            <>
-                                                <button onClick={() => openPauseModal(job)} disabled={isSaving} className="w-full py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
-                                                    <PauseCircle className="w-4 h-4 mr-2" /> Duraklat
-                                                </button>
-                                                <button onClick={() => openCompleteModal(job)} disabled={isSaving} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
-                                                    <CheckCircle className="w-4 h-4 mr-2" /> İşi Bitir
-                                                </button>
-                                            </>
-                                        )}
-                                        {isPaused && (
-                                            <button onClick={() => handleAction(job, 'RESUME')} disabled={isSaving} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition flex justify-center items-center shadow-md">
-                                                <PlayCircle className="w-4 h-4 mr-2" /> Devam Et
-                                            </button>
-                                        )}
-                                    </div>
+                                {job.managerNote && (
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-2 rounded border border-gray-100 dark:border-gray-700 italic">
+                                        "{job.managerNote}"
+                                    </p>
+                                )}
+
+                                <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-800 gap-2">
+                                    {isRunning ? (
+                                        <button 
+                                            onClick={() => openPauseModal(job)}
+                                            className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm"
+                                        >
+                                            <PauseCircle className="w-4 h-4" /> Duraklat
+                                        </button>
+                                    ) : (
+                                        <button 
+                                            onClick={() => handleAction(job, isPaused ? 'RESUME' : 'START')}
+                                            className="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm"
+                                        >
+                                            <PlayCircle className="w-4 h-4" /> {isPaused ? 'Devam Et' : 'Başlat'}
+                                        </button>
+                                    )}
+
+                                    <button 
+                                        onClick={() => openCompleteModal(job)}
+                                        className="py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm"
+                                        title="Tamamlandı Olarak İşaretle"
+                                    >
+                                        <CheckCircle className="w-4 h-4" /> Bitir
+                                    </button>
                                 </div>
                             </div>
                         );
                     })}
                 </div>
-            )}
 
-            {/* DURAKLATMA MODALI (SEBEP SEÇİMİ ZORUNLU) */}
+                {myJobs.length === 0 && (
+                    <div className="py-12 text-center text-gray-500">
+                        <Briefcase className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                        <p className="font-bold text-sm">Üzerinizde aktif tasarım görevi bulunmuyor.</p>
+                    </div>
+                )}
+            </div>
+
+            {/* DURAKLATMA MODALI */}
             {pauseModalOpen && selectedJob && (
-                <Modal isOpen={pauseModalOpen} onClose={closePauseModal} title="İşi Duraklat / Bölünme Bildir">
-                    <div className="space-y-5">
-                        <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-100 dark:border-orange-800">
-                            <p className="text-sm text-orange-800 dark:text-orange-300"><strong>{selectedJob.projectName}</strong> işini duraklatıyorsunuz. Lütfen işi duraklatma nedenini belirtiniz.</p>
-                        </div>
+                <Modal isOpen={pauseModalOpen} onClose={closePauseModal} title="⏸️ İşi Duraklat & Nedeni Belirt">
+                    <div className="space-y-4 text-gray-800 dark:text-gray-200 text-xs">
+                        <p className="font-bold text-sm text-indigo-600 dark:text-indigo-400 border-b pb-2">{selectedJob.projectName}</p>
+                        
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                                Bölünme Nedeni <span className="text-red-500 font-bold ml-1">* (Zorunlu)</span>
-                            </label>
-                            <select value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 font-semibold">
-                                <option value="">-- Lütfen Nedeni Seçiniz --</option>
-                                {Object.values(DESIGN_ACTIVITY_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
+                            <label className="block font-bold mb-1">Duraklatma Nedeni (Zorunlu)</label>
+                            <select 
+                                value={pauseReason} 
+                                onChange={(e) => setPauseReason(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-bold text-xs"
+                            >
+                                <option value={DESIGN_ACTIVITY_TYPES.MEETING}>Toplantı</option>
+                                <option value={DESIGN_ACTIVITY_TYPES.REVISION}>Revizyon / Kalıp Değişikliği</option>
+                                <option value={DESIGN_ACTIVITY_TYPES.SUPPORT}>Diğer Tasarımcıya Destek</option>
+                                <option value={DESIGN_ACTIVITY_TYPES.OTHER}>Diğer Bölünme / Kesinti</option>
                             </select>
                         </div>
-                        
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                                Hangi Kalıp / Proje İçin Bölündünüz?
-                                <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>
-                            </label>
-                            <SearchableProjectSelect projects={projects} value={pauseProjectId} onChange={(id, name) => { setPauseProjectId(id); setPauseProjectName(name); }} />
-                        </div>
-                        
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Açıklama / Detay <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span></label>
-                            <textarea value={pauseNote} onChange={(e) => setPauseNote(e.target.value)} placeholder="Örn: T0 baskısı için preshaneye iniyorum..." className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-orange-500 resize-none h-24 text-sm" />
-                        </div>
-                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
-                            <button onClick={closePauseModal} className="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-medium transition">İptal</button>
-                            <button onClick={submitPause} disabled={isSaving || !pauseReason} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
-                                <PauseCircle className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'Duraklat'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
-
-            {/* İŞİ BİTİRME (TAMAMLAMA) MODALI (İSTEĞE BAĞLI AÇIKLAMA) */}
-            {completeModalOpen && completeJob && (
-                <Modal isOpen={completeModalOpen} onClose={closeCompleteModal} title="Tasarım Görevini Tamamla">
-                    <div className="space-y-4">
-                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-100 dark:border-green-800">
-                            <p className="text-sm text-green-800 dark:text-green-300">
-                                <strong>{completeJob.projectName}</strong> ({completeJob.taskType}) işini tamamlamak üzeresiniz. İsteğe bağlı olarak tamamlama notu ekleyebilirsiniz.
-                            </p>
-                        </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                                Tamamlama Notu / Açıklama <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>
-                            </label>
-                            <textarea 
-                                value={completionNote}
-                                onChange={(e) => setCompletionNote(e.target.value)}
-                                placeholder="Örn: Tasarım tamamen bitti, imalat için montaj paftaları teslim edildi..."
-                                className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-green-500 resize-none h-28 text-sm"
+                            <label className="block font-bold mb-1">Açıklama / Detaylı Not</label>
+                            <input 
+                                type="text" 
+                                placeholder="Örn: Müşteri revizyon talebi geldi, grafit kontrolü..." 
+                                value={pauseNote} 
+                                onChange={(e) => setPauseNote(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs"
                             />
                         </div>
 
-                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
-                            <button onClick={closeCompleteModal} className="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-medium transition">İptal</button>
-                            <button onClick={submitComplete} disabled={isSaving} className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
-                                <CheckCircle className="w-5 h-5 mr-2" /> {isSaving ? 'Kaydediliyor...' : 'İşi Tamamla'}
-                            </button>
+                        <div className="flex justify-end gap-2 pt-3">
+                            <button onClick={closePauseModal} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg font-bold">İptal</button>
+                            <button onClick={submitPause} className="px-4 py-2 bg-amber-600 text-white rounded-lg font-bold">İşi Duraklat</button>
                         </div>
                     </div>
                 </Modal>
             )}
 
-            {/* MANUEL İŞ EKLEME MODALI */}
-            {manualModalOpen && (
-                <Modal isOpen={manualModalOpen} onClose={() => setManualModalOpen(false)} title="Kendi Kuyruğuma İş Ekle">
-                    <div className="space-y-4">
-                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800">
-                            <p className="text-sm text-indigo-800 dark:text-indigo-300">
-                                Plan dışı gelişen işlerinizi buradan kendi sıranıza ekleyebilirsiniz.
-                            </p>
-                        </div>
-                        
+            {/* İŞİ BİTİRME MODALI */}
+            {completeModalOpen && completeJob && (
+                <Modal isOpen={completeModalOpen} onClose={closeCompleteModal} title="✅ Tasarım İşini Tamamla">
+                    <div className="space-y-4 text-gray-800 dark:text-gray-200 text-xs">
+                        <p className="font-bold text-sm text-emerald-600 dark:text-emerald-400 border-b pb-2">{completeJob.projectName}</p>
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                                Hangi Kalıp / Proje İçin?
-                                <span className="text-gray-400 font-normal ml-2 text-xs">(İsteğe Bağlı)</span>
-                            </label>
-                            <SearchableProjectSelect projects={projects} value={manualProjectId} onChange={(id, name) => { setManualProjectId(id); setManualProjectName(name); }} />
+                            <label className="block font-bold mb-1">Tamamlama Notu (Opsiyonel)</label>
+                            <textarea 
+                                rows="3"
+                                placeholder="Örn: 3D katı model ve 2D teknik resimler tamamlanıp sunucuya aktarıldı." 
+                                value={completionNote} 
+                                onChange={(e) => setCompletionNote(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs"
+                            />
                         </div>
 
+                        <div className="flex justify-end gap-2 pt-3">
+                            <button onClick={closeCompleteModal} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg font-bold">İptal</button>
+                            <button onClick={submitComplete} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold">Tamamlandı Olarak İşaretle</button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* MANUEL GÖREV EKLEME MODALI */}
+            {manualModalOpen && (
+                <Modal isOpen={manualModalOpen} onClose={() => setManualModalOpen(false)} title="➕ Kendine Bağımsız Görev Ekle">
+                    <div className="space-y-4 text-gray-800 dark:text-gray-200 text-xs">
                         <div>
-                            <div className="flex justify-between items-center mb-2">
-                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Tasarım İşinin Türü</label>
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsTypeManagerOpen(true)}
-                                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                                    title="Türleri Düzenle / Ekle"
-                                >
-                                    <Settings className="w-3.5 h-3.5" /> Düzenle
-                                </button>
-                            </div>
-                            <select value={manualTaskType} onChange={(e) => setManualTaskType(e.target.value)} className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-semibold">
+                            <label className="block font-bold mb-1">İş / Görev Türü</label>
+                            <select 
+                                value={manualTaskType} 
+                                onChange={(e) => setManualTaskType(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-bold text-xs"
+                            >
                                 {taskTypes.map(t => {
                                     const val = typeof t === 'string' ? t : t.name;
-                                    return <option key={t.id || val} value={val}>{val}</option>;
+                                    return <option key={val} value={val}>{val}</option>;
                                 })}
                             </select>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Tahmini Süre (Saat)</label>
-                            <div className="relative">
-                                <input type="number" placeholder="Örn: 2" className="w-full p-3 pl-10 border-2 border-indigo-100 dark:border-gray-600 rounded-lg text-lg font-bold focus:border-indigo-500 outline-none dark:bg-gray-700 dark:text-white" value={manualEstimatedHours} onChange={(e) => setManualEstimatedHours(e.target.value)} />
-                                <Clock className="absolute left-3 top-3.5 text-indigo-400 w-5 h-5" />
-                            </div>
+                            <label className="block font-bold mb-1">İlişkili Kalıp / Proje (Opsiyonel)</label>
+                            <SearchableProjectSelect 
+                                projects={projects} 
+                                value={manualProjectId} 
+                                onChange={(id, name) => { setManualProjectId(id); setManualProjectName(name); }} 
+                            />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Açıklama / Detay</label>
-                            <textarea value={manualNote} onChange={(e) => setManualNote(e.target.value)} placeholder="Örn: Üretimden gelen talep üzerine maça revizyonu..." className="w-full p-3 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-24 text-sm" />
+                            <label className="block font-bold mb-1">Tahmini Süre (Saat)</label>
+                            <input 
+                                type="number" 
+                                step="0.5" 
+                                placeholder="Örn: 4" 
+                                value={manualEstimatedHours} 
+                                onChange={(e) => setManualEstimatedHours(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-bold text-xs"
+                            />
                         </div>
 
-                        <div className="pt-4 flex justify-end gap-3 border-t dark:border-gray-700">
-                            <button onClick={() => setManualModalOpen(false)} className="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg font-medium transition">İptal</button>
-                            <button onClick={handleAddManualTask} disabled={isSaving || !manualEstimatedHours} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition flex items-center disabled:opacity-50">
-                                <Plus className="w-5 h-5 mr-2" /> {isSaving ? 'Ekleniyor...' : 'Sırama Ekle'}
-                            </button>
+                        <div>
+                            <label className="block font-bold mb-1">Açıklama / Detay</label>
+
+                            <input 
+                                type="text" 
+                                placeholder="Örn: Grafit çizimi veya revizyon detayları..." 
+                                value={manualNote} 
+                                onChange={(e) => setManualNote(e.target.value)}
+                                className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs"
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-3">
+                            <button onClick={() => setManualModalOpen(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg font-bold">İptal</button>
+                            <button onClick={handleAddManualTask} disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold">Görevi Ekle</button>
                         </div>
                     </div>
                 </Modal>
             )}
 
-            <ManageDesignTaskTypesModal isOpen={isTypeManagerOpen} onClose={() => setIsTypeManagerOpen(false)} taskTypes={taskTypes} />
         </div>
     );
 };
