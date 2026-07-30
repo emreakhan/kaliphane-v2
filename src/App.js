@@ -31,7 +31,7 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight, Sparkles
+    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight, Sparkles, Share2
 } from 'lucide-react';
 
 // Sayfalar
@@ -85,6 +85,7 @@ import WorkshopSupervisorPage from './pages/WorkshopSupervisorPage.js';
 import TechnicalDrawingsPage from './pages/TechnicalDrawingsPage.js';
 import ToolTrialPage from './pages/ToolTrialPage.js';
 import ProcessImprovementPage from './pages/ProcessImprovementPage.js';
+import WorkflowMindMapPage from './pages/WorkflowMindMapPage.js';
 
 import { initialProjects } from './config/initialData.js';
 
@@ -770,7 +771,8 @@ const App = () => {
             FileOutput: FileOutput,
             Users: Users,
             Archive: Archive,
-            Sparkles: Sparkles
+            Sparkles: Sparkles,
+            Share2: Share2
         };
 
         // 1. Build a lookup map of all pages that the active user is allowed to view
@@ -1245,6 +1247,12 @@ const App = () => {
                         <Route path="/process-improvement" element={
                             activeUserPermissions['/process-improvement']?.view
                             ? <ProcessImprovementPage db={db} loggedInUser={loggedInUser} personnel={personnel} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/workflow-map" element={
+                            activeUserPermissions['/workflow-map']?.view
+                            ? <WorkflowMindMapPage db={db} loggedInUser={loggedInUser} />
                             : <Navigate to="/" replace />
                         } />
 
