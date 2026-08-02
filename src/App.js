@@ -222,7 +222,7 @@ const App = () => {
     // Tezgah Operatörleri için rota sınırlandırma
     useEffect(() => {
         if (loggedInUser && loggedInUser.role === ROLES.MACHINE_OPERATOR) {
-            const allowedPaths = ['/terminal', '/survey-evaluation', '/tool-history', '/tool-assignment'];
+            const allowedPaths = ['/terminal', '/survey-evaluation', '/tool-history', '/tool-assignment', '/continuous-improvement', '/process-improvement'];
             if (!allowedPaths.includes(location.pathname)) {
                 navigate('/terminal', { replace: true });
             }
@@ -1043,7 +1043,11 @@ const App = () => {
                             ? <ShiftPlannerPage db={db} loggedInUser={loggedInUser} personnel={personnel} />
                             : <Navigate to="/" replace />
                         } />
-                        <Route path="/continuous-improvement" element={<ContinuousImprovementPage loggedInUser={loggedInUser} />} />
+                        <Route path="/continuous-improvement" element={
+                            activeUserPermissions['/continuous-improvement']?.view
+                            ? <ContinuousImprovementPage loggedInUser={loggedInUser} />
+                            : <Navigate to={activeUserPermissions['/terminal']?.view ? '/terminal' : '/'} replace />
+                        } />
 
                         {/* ROTALAR VE YETKİLENDİRME KORUMALARI */}
                         <Route path="/" element={

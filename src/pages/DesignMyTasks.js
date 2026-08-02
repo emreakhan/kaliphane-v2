@@ -133,6 +133,8 @@ const getSpentHours = (job, currentTime, designConfig = {}) => {
         ? job.pauseHistory[job.pauseHistory.length - 1].pausedAt 
         : null;
 
+    const workEndH = designConfig.workEndHour ?? 18;
+
     job.workSessions.forEach(session => {
         if (!session.startTime) return;
         const start = new Date(session.startTime);
@@ -150,10 +152,27 @@ const getSpentHours = (job, currentTime, designConfig = {}) => {
         
         if (start >= end) return;
 
+        // HER SEANS SADECE KENDİ BAŞLADIĞI GÜNÜN ÇALIŞMA/MESAİ SAATLERİNİ KAPSAR.
+        // Sabah 08:00'de sayaç otomatik devam etmez; ertesi gün ancak manuel "Devam Et" denirse yeni seans başlar.
+        const sessionDay = new Date(start);
+
         if (!autoPause) {
-            totalHours += (end - start) / (1000 * 60 * 60); 
+            // Mesai modu (18:00'den sonra çalışmaya ve saymaya devam eder)
+            // Seans başladığı günün gece yarısına (23:59:59) kadar kesintisiz işler.
+            const sessionDayEnd = new Date(sessionDay);
+            sessionDayEnd.setHours(23, 59, 59, 999);
+            const cappedEnd = (end > sessionDayEnd) ? sessionDayEnd : end;
+            totalHours += Math.max(0, (cappedEnd - start) / (1000 * 60 * 60));
         } else {
-            totalHours += getWorkingHoursBetween(start, end, designConfig); 
+            // Otomatik duraklatma modu (18:00'de otomatik durur)
+            const sessionShiftEnd = new Date(sessionDay);
+            sessionShiftEnd.setHours(workEndH, 0, 0, 0);
+
+            let cappedEnd = end;
+            if (start < sessionShiftEnd && end > sessionShiftEnd) {
+                cappedEnd = sessionShiftEnd;
+            }
+            totalHours += getWorkingHoursBetween(start, cappedEnd, designConfig);
         }
     });
     return totalHours;
@@ -248,6 +267,52 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [],
                 return (a.orderIndex || 0) - (b.orderIndex || 0);
             });
     }, [designJobs, loggedInUser.name]);
+
+    // GEÇMİŞ GÜNLERDEN AÇIK KALAN SEANSLARI OTOMATİK KAPATMA (SABAH 08:00'DE OTOMATİK BAŞLAMASIN DİYE)
+    useEffect(() => {
+        if (!db || !myJobs || myJobs.length === 0) return;
+        const timeNow = getCurrentDateTimeString();
+        const todayStr = timeNow.split('T')[0];
+
+        myJobs.forEach(async (job) => {
+            if (job.status === DESIGN_JOB_STATUS.IN_PROGRESS && job.workSessions && job.workSessions.length > 0) {
+                const lastSession = job.workSessions[job.workSessions.length - 1];
+                if (lastSession.startTime && !lastSession.endTime) {
+                    const sessionDateStr = lastSession.startTime.split('T')[0];
+                    if (sessionDateStr < todayStr) {
+                        const workEndH = designConfig.workEndHour ?? 18;
+                        const autoPause = job.autoPause !== false;
+                        
+                        const closedTime = autoPause 
+                            ? `${sessionDateStr}T${String(workEndH).padStart(2, '0')}:00:00`
+                            : `${sessionDateStr}T23:59:59`;
+
+                        const updatedSessions = [...job.workSessions];
+                        updatedSessions[updatedSessions.length - 1].endTime = closedTime;
+
+                        const pauses = job.pauseHistory ? [...job.pauseHistory] : [];
+                        pauses.push({
+                            pausedAt: closedTime,
+                            resumedAt: null,
+                            reason: 'Mesai Bitişi (Otomatik Duraklatıldı)',
+                            note: 'Sabah manuel devam ettirilmesi gerekiyor'
+                        });
+
+                        try {
+                            const jobRef = doc(db, DESIGN_JOBS_COLLECTION, job.id);
+                            await updateDoc(jobRef, {
+                                status: DESIGN_JOB_STATUS.PAUSED,
+                                workSessions: updatedSessions,
+                                pauseHistory: pauses
+                            });
+                        } catch (err) {
+                            console.error("Geçmiş gün seansı kapatılamadı:", err);
+                        }
+                    }
+                }
+            }
+        });
+    }, [db, myJobs, designConfig]);
 
     const miniDays = useMemo(() => {
         const arr = [];
@@ -675,6 +740,24 @@ const DesignMyTasks = ({ db, designJobs, projects, loggedInUser, taskTypes = [],
                                         "{job.managerNote}"
                                     </p>
                                 )}
+
+                                {/* 18:00 OTOMATİK DURAKLATMA / MESAİ MODU SEÇENEĞİ */}
+                                <div className="pt-2 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
+                                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-gray-700 dark:text-gray-300 cursor-pointer select-none hover:text-indigo-600 dark:hover:text-indigo-400">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={job.autoPause !== false}
+                                            onChange={(e) => handleToggleAutoPause(job, e.target.checked)}
+                                            className="w-3.5 h-3.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                        <span>18:00'dan Sonra Otomatik Dur</span>
+                                    </label>
+                                    {job.autoPause === false && (
+                                        <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 rounded text-[9px] font-black uppercase">
+                                            ⚡ Mesai Modu
+                                        </span>
+                                    )}
+                                </div>
 
                                 <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-800 gap-2">
                                     {isRunning ? (

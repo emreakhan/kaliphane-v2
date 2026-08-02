@@ -1,9 +1,195 @@
 // src/pages/ImprovementRequestsTab.js
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, Lightbulb, Clock, CheckCircle, XCircle, AlertTriangle, Eye, Image as ImageIcon, UserCircle } from 'lucide-react';
+import { 
+    Plus, Search, Filter, Lightbulb, Clock, CheckCircle, XCircle, 
+    AlertTriangle, Eye, Image as ImageIcon, UserCircle, MessageSquare, 
+    Send, ChevronDown, ChevronUp, Trash2, X 
+} from 'lucide-react';
+import { doc, updateDoc, arrayUnion } from '../config/firebase.js';
+import { IMPROVEMENT_REQUESTS_COLLECTION } from '../config/constants.js';
 import NewImprovementRequestModal from '../components/Modals/NewImprovementRequestModal.js';
 import ReviewImprovementRequestModal from '../components/Modals/ReviewImprovementRequestModal.js';
+
+// YORUM & TARTIŞMA AKIŞI BİLEŞENİ
+const RequestCommentsThread = ({ req, db, loggedInUser, onPreviewImage }) => {
+    const [expanded, setExpanded] = useState(false);
+    const [commentText, setCommentText] = useState('');
+    const [commentImage, setCommentImage] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const comments = req.comments || [];
+
+    const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('Lütfen geçerli bir resim dosyası yükleyiniz.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setCommentImage(reader.result);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleAddComment = async (e) => {
+        e.preventDefault();
+        if (!commentText.trim() && !commentImage) return;
+
+        setIsSubmitting(true);
+        try {
+            const newComment = {
+                id: `comment-${Date.now()}`,
+                userName: loggedInUser?.name || 'Anonim',
+                userRole: loggedInUser?.role || 'Kullanıcı',
+                text: commentText.trim(),
+                imageUrl: commentImage || null,
+                createdAt: new Date().toISOString()
+            };
+
+            const docRef = doc(db, IMPROVEMENT_REQUESTS_COLLECTION, req.id);
+            await updateDoc(docRef, {
+                comments: arrayUnion(newComment)
+            });
+
+            setCommentText('');
+            setCommentImage(null);
+            setExpanded(true);
+        } catch (err) {
+            console.error("Yorum eklenirken hata oluştu:", err);
+            alert("Yorum eklenemedi.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDeleteComment = async (commentId) => {
+        if (!window.confirm("Bu yorumu silmek istediğinize emin misiniz?")) return;
+        try {
+            const updatedComments = comments.filter(c => c.id !== commentId);
+            const docRef = doc(db, IMPROVEMENT_REQUESTS_COLLECTION, req.id);
+            await updateDoc(docRef, {
+                comments: updatedComments
+            });
+        } catch (err) {
+            console.error("Yorum silinirken hata oluştu:", err);
+            alert("Yorum silinemedi.");
+        }
+    };
+
+    return (
+        <div className="mt-3 border-t border-gray-100 dark:border-gray-700/80 pt-3 space-y-3">
+            {/* BAŞLIK VE AÇILIR-KAPANIR BUTON */}
+            <div className="flex items-center justify-between text-xs">
+                <button
+                    type="button"
+                    onClick={() => setExpanded(!expanded)}
+                    className="flex items-center gap-1.5 font-bold text-gray-700 dark:text-gray-300 hover:text-amber-500 dark:hover:text-amber-400 transition"
+                >
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Tartışma & Yorumlar ({comments.length})</span>
+                    {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                {comments.length > 0 && !expanded && (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Son yorum: {comments[comments.length - 1].userName}</span>
+                )}
+            </div>
+
+            {/* YORUM LİSTESİ */}
+            {expanded && (
+                <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                    {comments.length === 0 ? (
+                        <p className="text-[11px] text-gray-400 italic py-1">Henüz yorum yapılmadı. Görüşünüzü ekleyerek tartışmayı başlatın.</p>
+                    ) : (
+                        comments.map((c) => {
+                            const canDelete = loggedInUser?.name === c.userName || loggedInUser?.role === 'ADMIN' || loggedInUser?.role === 'Yönetici';
+                            return (
+                                <div key={c.id} className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-700 space-y-1.5 text-xs">
+                                    <div className="flex items-center justify-between gap-2 text-[10px]">
+                                        <span className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                                            💬 {c.userName} <span className="text-gray-400 font-normal">({c.userRole})</span>
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-gray-400">{new Date(c.createdAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                            {canDelete && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteComment(c.id)}
+                                                    className="text-gray-400 hover:text-red-500 transition"
+                                                    title="Yorumu Sil"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {c.text && (
+                                        <p className="text-gray-800 dark:text-gray-200 text-xs leading-relaxed whitespace-pre-wrap">{c.text}</p>
+                                    )}
+
+                                    {c.imageUrl && (
+                                        <div className="pt-1">
+                                            <img
+                                                src={c.imageUrl}
+                                                alt="Yorum görseli"
+                                                onClick={() => onPreviewImage(c.imageUrl)}
+                                                className="max-h-36 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90 object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            )}
+
+            {/* YORUM VE GÖRSEL EKLEME FORMU */}
+            <form onSubmit={handleAddComment} className="space-y-2 pt-1">
+                <div className="relative">
+                    <textarea
+                        rows="2"
+                        placeholder="Bu talebe yanıt verin, teknik detay veya görsel ekleyin..."
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        className="w-full p-2.5 bg-gray-50 dark:bg-gray-700/80 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                </div>
+
+                {commentImage && (
+                    <div className="relative inline-block">
+                        <img src={commentImage} alt="Yorum görseli önizleme" className="w-16 h-16 rounded-lg border border-amber-400 object-cover" />
+                        <button
+                            type="button"
+                            onClick={() => setCommentImage(null)}
+                            className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0.5 shadow hover:bg-red-700"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                )}
+
+                <div className="flex justify-between items-center gap-2">
+                    <label className="cursor-pointer px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition">
+                        <ImageIcon className="w-3.5 h-3.5 text-amber-500" /> Görsel Ekle
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    </label>
+
+                    <button
+                        type="submit"
+                        disabled={isSubmitting || (!commentText.trim() && !commentImage)}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[11px] font-bold shadow transition flex items-center gap-1 disabled:opacity-40 cursor-pointer"
+                    >
+                        <Send className="w-3 h-3" /> {isSubmitting ? 'Gönderiliyor...' : 'Yorum Yap'}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+};
 
 const ImprovementRequestsTab = ({ db, loggedInUser, improvementRequests = [] }) => {
     const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, APPROVED, REJECTED
@@ -148,6 +334,14 @@ const ImprovementRequestsTab = ({ db, loggedInUser, improvementRequests = [] }) 
                                 <p className="italic">{req.managerResponseNote}</p>
                             </div>
                         )}
+
+                        {/* YORUM & TARTIŞMA AKIŞI PLATFORMU */}
+                        <RequestCommentsThread 
+                            req={req}
+                            db={db}
+                            loggedInUser={loggedInUser}
+                            onPreviewImage={(url) => setSelectedPreviewImage(url)}
+                        />
 
                         <div className="flex justify-between items-center pt-3 border-t border-gray-100 dark:border-gray-700 text-[11px] text-gray-400">
                             <span className="flex items-center gap-1 font-bold">

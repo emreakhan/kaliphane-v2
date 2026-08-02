@@ -86,6 +86,8 @@ export const getDefaultPermissions = (role) => {
         permissions['/tool-assignment'] = { view: true, edit: true };
         permissions['/tool-history'] = { view: true, edit: false };
         permissions['/survey-evaluation'] = { view: true, edit: true };
+        permissions['/continuous-improvement'] = { view: true, edit: true };
+        permissions['/process-improvement'] = { view: true, edit: true };
         return permissions;
     }
 
@@ -93,6 +95,8 @@ export const getDefaultPermissions = (role) => {
         permissions['/cnc-torna'] = { view: true, edit: true };
         permissions['/cnc-torna-history'] = { view: true, edit: false };
         permissions['/survey-evaluation'] = { view: true, edit: true };
+        permissions['/continuous-improvement'] = { view: true, edit: true };
+        permissions['/process-improvement'] = { view: true, edit: true };
         return permissions;
     }
 
