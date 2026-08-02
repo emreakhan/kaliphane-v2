@@ -50,6 +50,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/tool-trials', label: 'CNC Takım Deneme & F/P Analizi', iconName: 'Activity' },
     { path: '/process-improvement', label: 'Süreç & İyileştirme', iconName: 'Sparkles' },
     { path: '/workflow-map', label: 'İş Akış Haritası (Serbest)', iconName: 'Share2' },
+    { path: '/product-development', label: 'Ürün Geliştirme Ofisi', iconName: 'Box' },
 ];
 
 export const getDefaultPermissions = (role) => {
@@ -157,6 +158,11 @@ export const getDefaultPermissions = (role) => {
     // İş Akış Haritası SADECE YÖNETİCİLERE AÇIKTIR
     if ([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, 'CAM Sorumlusu', 'Yönetici'].includes(role)) {
         permissions['/workflow-map'] = { view: true, edit: true };
+    }
+
+    // Ürün Geliştirme Ofisi Yetkisi
+    if ([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.URUN_GELISTIRME_SORUMLUSU, ROLES.URUN_GELISTIRME_YONETICISI, 'Ürün Geliştirme Sorumlusu', 'Ürün Geliştirme Yöneticisi'].includes(role)) {
+        permissions['/product-development'] = { view: true, edit: true };
     }
 
     // Edit permission default logic based on role authority

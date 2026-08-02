@@ -18,6 +18,7 @@ import {
     PROJECT_COLLECTION, DELETED_PROJECT_COLLECTION,
     CNC_LATHE_JOBS_COLLECTION, 
     DESIGN_JOBS_COLLECTION,  
+    PRODUCT_DEV_JOBS_COLLECTION,
     PERSONNEL_COLLECTION,
     MACHINES_COLLECTION,
     MOLD_NOTES_COLLECTION,
@@ -36,6 +37,7 @@ import {
 
 // Sayfalar
 import DesignOfficePage from './pages/DesignOfficePage.js'; 
+import ProductDevOfficePage from './pages/ProductDevOfficePage.js'; 
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
 import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
@@ -118,6 +120,7 @@ const App = () => {
     const [projects, setProjects] = useState([]); 
     const [cncJobs, setCncJobs] = useState([]);   
     const [designJobs, setDesignJobs] = useState([]); 
+    const [productDevJobs, setProductDevJobs] = useState([]); 
     
     const [personnel, setPersonnel] = useState([]);
     const [machines, setMachines] = useState([]);
@@ -380,10 +383,15 @@ const App = () => {
             setDesignJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
+        const unsubscribeProductDevJobs = onSnapshot(query(collection(db, PRODUCT_DEV_JOBS_COLLECTION)), (snapshot) => {
+            setProductDevJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         return () => {
             unsubscribeProjects();
             unsubscribeCncJobs();
             unsubscribeDesignJobs(); 
+            unsubscribeProductDevJobs();
         };
     }, [userId, loggedInUser]);
 
@@ -715,7 +723,7 @@ const App = () => {
         {
             id: "cat-1",
             title: "Kalıphane Planlama & İzleme",
-            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/technical-drawings", "/project-management", "/design-office", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
+            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/technical-drawings", "/project-management", "/design-office", "/product-development", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
         },
         {
             id: "cat-2",
@@ -1107,6 +1115,12 @@ const App = () => {
                         <Route path="/design-office" element={
                             activeUserPermissions['/design-office']?.view
                             ? <DesignOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={designJobs} canEdit={activeUserPermissions['/design-office']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/product-development" element={
+                            activeUserPermissions['/product-development']?.view
+                            ? <ProductDevOfficePage projects={projects} personnel={personnel} loggedInUser={loggedInUser} db={db} designJobs={productDevJobs} canEdit={activeUserPermissions['/product-development']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 

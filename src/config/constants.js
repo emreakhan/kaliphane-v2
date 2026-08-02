@@ -13,6 +13,8 @@ export const DELETED_PROJECT_COLLECTION = `artifacts/${appId}/public/data/delete
 export const CNC_LATHE_JOBS_COLLECTION = `artifacts/${appId}/public/data/cncLatheJobs`;
 export const DESIGN_JOBS_COLLECTION = `artifacts/${appId}/public/data/designJobs`;
 export const DESIGN_TASK_TYPES_COLLECTION = `artifacts/${appId}/public/data/designTaskTypes`;
+export const PRODUCT_DEV_JOBS_COLLECTION = `artifacts/${appId}/public/data/productDevJobs`;
+export const PRODUCT_DEV_TASK_TYPES_COLLECTION = `artifacts/${appId}/public/data/productDevTaskTypes`;
 export const MOLD_STATUSES_COLLECTION = `artifacts/${appId}/public/data/moldStatuses`;
 export const TOOL_TRIALS_COLLECTION = `artifacts/${appId}/public/data/toolTrials`;
 export const IMPROVEMENT_REQUESTS_COLLECTION = `artifacts/${appId}/public/data/improvementRequests`;
@@ -38,6 +40,17 @@ export const DEFAULT_DESIGN_TASK_TYPES = [
     'KALIP TASARIM',
     'GRAFİT + TEKNİK RESİM + MALZEME SİPARİŞ',
     'ANALİZ'
+];
+
+export const DEFAULT_PRODUCT_DEV_TASK_TYPES = [
+    'KONSEPT TASARIM',
+    'PROTOTİP GELİŞTİRME',
+    'ÜRÜN TESTİ',
+    'REVİZYON',
+    'MALZEME ANALİZİ',
+    'AMBALAJ VE TASARIM',
+    'MEKANİK / MOLİKÜLER TEST',
+    'DİĞER'
 ];
 
 export const DESIGN_TASK_TYPES = {
@@ -79,6 +92,8 @@ export const ROLES = {
     PROJE_SORUMLUSU: 'Proje Sorumlusu',
     KALIP_TASARIM_SORUMLUSU: 'Kalıp Tasarım Sorumlusu',
     KALIP_TASARIM_YONETICISI: 'Kalıp Tasarım Yöneticisi',
+    URUN_GELISTIRME_SORUMLUSU: 'Ürün Geliştirme Sorumlusu',
+    URUN_GELISTIRME_YONETICISI: 'Ürün Geliştirme Yöneticisi',
     TAKIMHANE_SORUMLUSU: 'Takımhane Sorumlusu',
     MACHINE_OPERATOR: 'Tezgah Operatörü', 
     CNC_TORNA_OPERATORU: 'CNC Torna Operatörü',
