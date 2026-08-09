@@ -289,18 +289,16 @@ const WorkflowMindMapPage = ({ db, loggedInUser }) => {
         }
         if (!window.confirm("Bu düğümü ve altındaki tüm bağlı dalları silmek istediğinize emin misiniz?")) return;
 
-        const idsToDelete = new Set([nodeId]);
-        let changed = true;
-
-        while (changed) {
-            changed = false;
-            activeMap.nodes.forEach(n => {
-                if (n.parentId && idsToDelete.has(n.parentId) && !idsToDelete.has(n.id)) {
-                    idsToDelete.add(n.id);
-                    changed = true;
-                }
+        const getDescendantIds = (parentId, nodes) => {
+            let children = nodes.filter(n => n.parentId === parentId);
+            let ids = [parentId];
+            children.forEach(child => {
+                ids = ids.concat(getDescendantIds(child.id, nodes));
             });
-        }
+            return ids;
+        };
+
+        const idsToDelete = new Set(getDescendantIds(nodeId, activeMap.nodes));
 
         const filteredNodes = activeMap.nodes.filter(n => !idsToDelete.has(n.id));
         setActiveMap({ ...activeMap, nodes: filteredNodes });
@@ -428,20 +426,24 @@ const WorkflowMindMapPage = ({ db, loggedInUser }) => {
                     )}
                 </div>
 
-                {/* DÜZ BAĞLANTI ÇİZGİLERİ (STRAIGHT CONNECTOR LINES) */}
+                {/* YUMUŞAK KAVİSLİ BAĞLANTI ÇİZGİLERİ (CURVED CONNECTOR LINES) */}
                 {hasChildren && !node.collapsed && (
                     <div className="flex items-center relative">
-                        {/* Parent Node'dan Çıkan Düz Yatay Bağlantı Çizgisi */}
-                        <div className="w-8 h-0.5 bg-indigo-500 dark:bg-indigo-400 shrink-0 shadow-sm" />
+                        {/* Parent Node'dan Çıkan Yumuşak Yatay Ana Çizgi */}
+                        <div className="w-8 h-0.5 bg-gradient-to-r from-indigo-600 to-indigo-400 dark:from-indigo-400 dark:to-indigo-300 shrink-0 shadow-sm rounded-full" />
 
-                        {/* Dikey Dal Çizgisi ve Alt Düğümler */}
-                        <div className="flex flex-col border-l-2 border-indigo-500 dark:border-indigo-400 pl-6 space-y-3 relative py-2">
-                            {node.children.map(child => (
+                        {/* Alt Düğümler Konteyneri */}
+                        <div className="flex flex-col pl-6 space-y-3 relative py-2">
+                            {/* Dikey Bağlantı Gövdesi (Vertical Spine) */}
+                            <div className="absolute left-0 top-6 bottom-6 w-0.5 bg-indigo-400/40 dark:bg-indigo-500/40 rounded-full" />
+
+                            {node.children.map((child, idx) => (
                                 <div key={child.id} className="relative flex items-center">
-                                    {/* Dikey Dal Çizgisinden Alt Düğüme Giden Düz Yatay Bağlantı Çizgisi */}
-                                    <div className="absolute -left-6 w-6 h-0.5 bg-indigo-500 dark:bg-indigo-400 shadow-sm" />
-                                    {/* Bağlantı Noktası (Dot) */}
-                                    <div className="absolute -left-6.5 w-1.5 h-1.5 rounded-full bg-indigo-600 dark:bg-indigo-300" />
+                                    {/* Yumuşak Kavisli (Curved) Dirsek Çizgisi */}
+                                    <div className="absolute -left-6 top-0 bottom-1/2 w-6 border-l-2 border-b-2 border-indigo-500 dark:border-indigo-400 rounded-bl-2xl pointer-events-none shadow-sm" />
+                                    
+                                    {/* Bağlantı Noktası (Glow Dot) */}
+                                    <div className="absolute -left-1 w-2 h-2 rounded-full bg-indigo-600 dark:bg-indigo-300 ring-2 ring-indigo-300 dark:ring-indigo-700/50 z-10" />
                                     
                                     <RenderNodeTree node={child} level={level + 1} />
                                 </div>

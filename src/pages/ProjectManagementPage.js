@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
     Plus, Calendar, Image as ImageIcon, ArrowRight, AlertTriangle, 
     Clock, Save, X, Eye, List as ListIcon, BarChart, ZoomIn, Briefcase, User, PenTool,
-    Activity, TrendingUp, AlertCircle, Settings // Settings icon added
+    Activity, TrendingUp, AlertCircle, Settings, Network
 } from 'lucide-react';
 
 // Gantt Kütüphanesi
@@ -15,6 +15,7 @@ import "gantt-task-react/dist/index.css";
 // Bileşenler
 import DetailedProjectModal from '../components/Modals/DetailedProjectModal.js';
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js';
+import WorkflowMapDashboard from '../components/ProjectManagement/WorkflowMapDashboard.js';
 
 // Firebase (Sadece Fonksiyonlar)
 import { db, collection, addDoc, updateDoc, doc } from '../config/firebase.js';
@@ -226,6 +227,41 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
     const [viewType, setViewType] = useState('LIST');
     const [ganttViewMode, setGanttViewMode] = useState(ViewMode.Month);
 
+    // Canlı Akış Haritası Seçili Proje
+    const [selectedProjectForMap, setSelectedProjectForMap] = useState(null);
+
+    useEffect(() => {
+        if (projects && projects.length > 0) {
+            if (!selectedProjectForMap) {
+                setSelectedProjectForMap(projects[0]);
+            } else {
+                const updated = projects.find(p => p.id === selectedProjectForMap.id);
+                if (updated) setSelectedProjectForMap(updated);
+            }
+        }
+    }, [projects]);
+
+    // Süreç Adım Güncelleme (Workflow Step Update)
+    const handleUpdateWorkflowStep = async (projectId, stepId, stepData) => {
+        try {
+            const projectRef = doc(db, PROJECT_COLLECTION, projectId);
+            const currentProject = projects.find(p => p.id === projectId);
+            const existingSteps = currentProject?.workflowSteps || {};
+
+            const updatedSteps = {
+                ...existingSteps,
+                [stepId]: stepData
+            };
+
+            await updateDoc(projectRef, {
+                workflowSteps: updatedSteps
+            });
+        } catch (error) {
+            console.error("Süreç adım güncelleme hatası:", error);
+            alert("Süreç adımı güncellenirken bir hata oluştu.");
+        }
+    };
+
     // Gantt Filtreleme Durumları
     const [ganttHideCompleted, setGanttHideCompleted] = useState(true);
     const [ganttSelectedStatuses, setGanttSelectedStatuses] = useState(() => {
@@ -416,10 +452,46 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
     // --- İŞLEMLER ---
     const handleSaveNewProject = async (formData) => {
         try {
+            const initialStage = formData.initialStage || 'URUN_GELISTIRME';
+            
+            let defaultWorkflowSteps = {};
+            if (initialStage === 'KALIP_TASARIM') {
+                defaultWorkflowSteps = {
+                    productDesign: { status: 'SKIPPED', approvedAt: new Date().toISOString(), approvedBy: loggedInUser.name, note: 'Doğrudan Kalıp Tasarımı ile Başlandı' },
+                    customerApproval: { status: 'SKIPPED', approvedAt: new Date().toISOString(), approvedBy: loggedInUser.name, note: 'Doğrudan Kalıp Tasarımı ile Başlandı' },
+                    moldDesign: { status: 'IN_PROGRESS', startedAt: new Date().toISOString() },
+                    moldDesignApproval: { status: 'PENDING' },
+                    materialOrder: { status: 'PENDING', isOrdered: false },
+                    cncMachining: { status: 'PENDING' },
+                    assembly: { status: 'PENDING' },
+                    t0Trial: { status: 'PENDING' },
+                    t0Polishing: { status: 'PENDING' },
+                    polishing: { status: 'PENDING' },
+                    ppap: { status: 'PENDING' },
+                    massProductionApproval: { status: 'PENDING' }
+                };
+            } else {
+                defaultWorkflowSteps = {
+                    productDesign: { status: 'IN_PROGRESS', startedAt: new Date().toISOString() },
+                    customerApproval: { status: 'PENDING' },
+                    moldDesign: { status: 'PENDING' },
+                    moldDesignApproval: { status: 'PENDING' },
+                    materialOrder: { status: 'PENDING', isOrdered: false },
+                    cncMachining: { status: 'PENDING' },
+                    assembly: { status: 'PENDING' },
+                    t0Trial: { status: 'PENDING' },
+                    t0Polishing: { status: 'PENDING' },
+                    polishing: { status: 'PENDING' },
+                    ppap: { status: 'PENDING' },
+                    massProductionApproval: { status: 'PENDING' }
+                };
+            }
+
             await addDoc(collection(db, PROJECT_COLLECTION), {
                 ...formData,
                 status: MOLD_STATUS.WAITING,
                 tasks: [],
+                workflowSteps: defaultWorkflowSteps,
                 createdAt: new Date().toISOString(), 
                 createdBy: loggedInUser.name
             });
@@ -575,6 +647,9 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                         <button onClick={() => setViewType('GANTT')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'GANTT' ? 'bg-white dark:bg-gray-600 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
                             <BarChart className="w-4 h-4 mr-2" /> Çizelge
                         </button>
+                        <button onClick={() => setViewType('MAP')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'MAP' ? 'bg-white dark:bg-gray-600 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                            <Network className="w-4 h-4 mr-2" /> İş Akış Haritası
+                        </button>
                     </div>
 
                     <button onClick={() => setIsAddModalOpen(true)} className="flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition transform active:scale-95">
@@ -583,7 +658,15 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                 </div>
             </div>
 
-            {viewType === 'LIST' ? (
+            {viewType === 'MAP' ? (
+                <WorkflowMapDashboard
+                    projects={projects}
+                    selectedProject={selectedProjectForMap}
+                    setSelectedProject={setSelectedProjectForMap}
+                    onUpdateWorkflowStep={handleUpdateWorkflowStep}
+                    loggedInUser={loggedInUser}
+                />
+            ) : viewType === 'LIST' ? (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                     
                     <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 h-full">

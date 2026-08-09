@@ -16,7 +16,8 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel }) => {
         productImageUrl: '', // Artık buraya dosya URL'si gelecek
         trialReportUrl: '',
         projectManager: '',
-        moldDesigner: ''
+        moldDesigner: '',
+        initialStage: 'URUN_GELISTIRME' // 'URUN_GELISTIRME' veya 'KALIP_TASARIM'
     });
 
     const [errors, setErrors] = useState({});
@@ -35,7 +36,8 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel }) => {
                 productImageUrl: '',
                 trialReportUrl: '',
                 projectManager: '',
-                moldDesigner: ''
+                moldDesigner: '',
+                initialStage: 'URUN_GELISTIRME'
             });
             setErrors({});
             setUploadSuccess(false);
@@ -193,6 +195,44 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel }) => {
                             <option value="">Seçiniz...</option>
                             {designers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                         </select>
+                    </div>
+                </div>
+
+                {/* 7. Satır: Başlangıç Aşaması Seçimi */}
+                <div className="border-t pt-4 dark:border-gray-700 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 rounded-xl border border-amber-200 dark:border-amber-900">
+                    <label className="block text-xs font-black uppercase text-amber-800 dark:text-amber-300 mb-2 tracking-wide">
+                        🎯 Proje Başlangıç Aşaması
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <label className={`p-3 rounded-lg border-2 cursor-pointer transition flex items-start gap-2.5 ${formData.initialStage === 'URUN_GELISTIRME' ? 'bg-white dark:bg-gray-800 border-amber-500 text-amber-900 dark:text-amber-200 shadow-sm' : 'bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                            <input 
+                                type="radio" 
+                                name="initialStage" 
+                                value="URUN_GELISTIRME" 
+                                checked={formData.initialStage === 'URUN_GELISTIRME'} 
+                                onChange={handleChange} 
+                                className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                            />
+                            <div>
+                                <span className="font-bold block text-sm">Ürün Geliştirme Süreci</span>
+                                <span className="text-[11px] opacity-80 leading-relaxed block mt-0.5">İlk olarak Ürün Geliştirme Ofisi bekleyen iş havuzuna düşer, müşteri onayından sonra kalıp tasarıma geçer.</span>
+                            </div>
+                        </label>
+
+                        <label className={`p-3 rounded-lg border-2 cursor-pointer transition flex items-start gap-2.5 ${formData.initialStage === 'KALIP_TASARIM' ? 'bg-white dark:bg-gray-800 border-blue-500 text-blue-900 dark:text-blue-200 shadow-sm' : 'bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                            <input 
+                                type="radio" 
+                                name="initialStage" 
+                                value="KALIP_TASARIM" 
+                                checked={formData.initialStage === 'KALIP_TASARIM'} 
+                                onChange={handleChange} 
+                                className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                            />
+                            <div>
+                                <span className="font-bold block text-sm">Doğrudan Kalıp Tasarımı</span>
+                                <span className="text-[11px] opacity-80 leading-relaxed block mt-0.5">Ürün geliştirme adımı gerekmiyorsa, proje doğrudan Kalıp Tasarımı adımıyla başlar.</span>
+                            </div>
+                        </label>
                     </div>
                 </div>
 
