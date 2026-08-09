@@ -23,7 +23,7 @@ import { db, collection, addDoc, updateDoc, doc } from '../config/firebase.js';
 // Sabitler ve Adresler
 import { 
     MOLD_STATUS, PROJECT_TYPES, 
-    PROJECT_COLLECTION 
+    PROJECT_COLLECTION, PRODUCT_DEV_JOBS_COLLECTION, DESIGN_JOB_STATUS
 } from '../config/constants.js';
 
 // Yardımcılar
@@ -457,7 +457,7 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
             let defaultWorkflowSteps = {};
             if (initialStage === 'KALIP_TASARIM') {
                 defaultWorkflowSteps = {
-                    productDesign: { status: 'SKIPPED', approvedAt: new Date().toISOString(), approvedBy: loggedInUser.name, note: 'Doğrudan Kalıp Tasarımı ile Başlandı' },
+                    productDesign: { status: 'SKIPPED', approvedAt: new Date().toISOString(), approvedBy: loggedInUser.name, note: 'Doğrudan Kalıp Tasarımı ile Başlandı', progressPercent: 100 },
                     customerApproval: { status: 'SKIPPED', approvedAt: new Date().toISOString(), approvedBy: loggedInUser.name, note: 'Doğrudan Kalıp Tasarımı ile Başlandı' },
                     moldDesign: { status: 'IN_PROGRESS', startedAt: new Date().toISOString() },
                     moldDesignApproval: { status: 'PENDING' },
@@ -472,7 +472,7 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 };
             } else {
                 defaultWorkflowSteps = {
-                    productDesign: { status: 'IN_PROGRESS', startedAt: new Date().toISOString() },
+                    productDesign: { status: 'IN_PROGRESS', startedAt: new Date().toISOString(), progressPercent: 0 },
                     customerApproval: { status: 'PENDING' },
                     moldDesign: { status: 'PENDING' },
                     moldDesignApproval: { status: 'PENDING' },
@@ -487,14 +487,37 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 };
             }
 
-            await addDoc(collection(db, PROJECT_COLLECTION), {
+            const projectRef = await addDoc(collection(db, PROJECT_COLLECTION), {
                 ...formData,
+                initialStage: initialStage,
                 status: MOLD_STATUS.WAITING,
                 tasks: [],
                 workflowSteps: defaultWorkflowSteps,
                 createdAt: new Date().toISOString(), 
                 createdBy: loggedInUser.name
             });
+
+            // Ürün Geliştirme aşaması seçildiyse Ürün Geliştirme İş Planlama Havuzuna otomatik atanmamış iş kaydı oluştur
+            if (initialStage === 'URUN_GELISTIRME') {
+                try {
+                    await addDoc(collection(db, PRODUCT_DEV_JOBS_COLLECTION), {
+                        projectId: projectRef.id,
+                        projectName: formData.moldName,
+                        customer: formData.customer || '',
+                        taskType: 'ÜRÜN TASARIMI',
+                        estimatedHours: 0,
+                        assignedDesigner: '', // Atanmamış (İş Planlama Havuzunda bekler)
+                        status: DESIGN_JOB_STATUS?.ASSIGNED || 'ASSIGNED',
+                        createdBy: loggedInUser.name,
+                        createdAt: new Date().toISOString(),
+                        progressPercent: 0,
+                        managerNote: 'Yeni açılan projeden otomatik ürün geliştirme iş havuzuna eklendi.'
+                    });
+                } catch (jobErr) {
+                    console.error("Ürün geliştirme havuz iş kaydı oluşturulurken hata:", jobErr);
+                }
+            }
+
             setIsAddModalOpen(false);
 
             let recipientEmail = "";

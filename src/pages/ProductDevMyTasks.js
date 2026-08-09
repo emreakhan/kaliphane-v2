@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PlayCircle, PauseCircle, CheckCircle, Search, ChevronDown, AlertTriangle, Briefcase, ListOrdered, CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { doc, updateDoc, addDoc, collection } from '../config/firebase.js';
-import { PRODUCT_DEV_JOBS_COLLECTION, DESIGN_JOB_STATUS, DESIGN_ACTIVITY_TYPES } from '../config/constants.js';
+import { PRODUCT_DEV_JOBS_COLLECTION, DESIGN_JOB_STATUS, DESIGN_ACTIVITY_TYPES, PROJECT_COLLECTION } from '../config/constants.js';
 import { getCurrentDateTimeString } from '../utils/dateUtils.js';
 import Modal from '../components/Modals/Modal.js';
 
@@ -540,10 +540,24 @@ const ProductDevMyTasks = ({ db, designJobs = [], projects = [], loggedInUser, t
             }
             await updateDoc(jobRef, {
                 status: DESIGN_JOB_STATUS.COMPLETED,
+                progressPercent: 100,
                 workSessions: sessions,
                 completedAt: timeNow,
                 completionNote: completionNote.trim() || ''
             });
+
+            if (completeJob.projectId) {
+                try {
+                    const projRef = doc(db, PROJECT_COLLECTION, completeJob.projectId);
+                    await updateDoc(projRef, {
+                        [`workflowSteps.productDesign.progressPercent`]: 100,
+                        [`workflowSteps.productDesign.status`]: 'COMPLETED',
+                        [`workflowSteps.productDesign.approvedBy`]: completeJob.assignedDesigner || loggedInUser?.name || 'Ürün Geliştirme'
+                    });
+                } catch (projErr) {
+                    console.error("Proje iş akış haritası güncellenemedi:", projErr);
+                }
+            }
             setCompleteModalOpen(false);
             setCompleteJob(null);
             setCompletionNote('');
@@ -552,6 +566,35 @@ const ProductDevMyTasks = ({ db, designJobs = [], projects = [], loggedInUser, t
             alert("İşlem kaydedilemedi.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleUpdateTaskProgress = async (job, newPercent) => {
+        const pVal = Math.min(100, Math.max(0, parseInt(newPercent) || 0));
+        try {
+            const jobRef = doc(db, PRODUCT_DEV_JOBS_COLLECTION, job.id);
+            const timeNow = getCurrentDateTimeString();
+            
+            await updateDoc(jobRef, {
+                progressPercent: pVal,
+                status: pVal >= 100 ? DESIGN_JOB_STATUS.COMPLETED : job.status,
+                updatedAt: timeNow
+            });
+
+            if (job.projectId) {
+                try {
+                    const projRef = doc(db, PROJECT_COLLECTION, job.projectId);
+                    await updateDoc(projRef, {
+                        [`workflowSteps.productDesign.progressPercent`]: pVal,
+                        [`workflowSteps.productDesign.status`]: pVal >= 100 ? 'COMPLETED' : (pVal > 0 ? 'IN_PROGRESS' : 'PENDING'),
+                        [`workflowSteps.productDesign.approvedBy`]: job.assignedDesigner || loggedInUser?.name || 'Ürün Geliştirme'
+                    });
+                } catch (projErr) {
+                    console.error("Proje iş akış haritası güncellenemedi:", projErr);
+                }
+            }
+        } catch (error) {
+            console.error("İlerleme oranı güncellenemedi:", error);
         }
     };
 
@@ -670,7 +713,6 @@ const ProductDevMyTasks = ({ db, designJobs = [], projects = [], loggedInUser, t
                     {myJobs.map((job) => {
                         const spentHours = getSpentHours(job, now, designConfig);
                         const estHours = parseFloat(job.estimatedHours) || 0;
-                        const progressPct = estHours > 0 ? Math.min(100, Math.round((spentHours / estHours) * 100)) : 0;
                         const isRunning = job.status === DESIGN_JOB_STATUS.IN_PROGRESS;
                         const isPaused = job.status === DESIGN_JOB_STATUS.PAUSED;
 
@@ -698,9 +740,36 @@ const ProductDevMyTasks = ({ db, designJobs = [], projects = [], loggedInUser, t
                                         <span>Harcanan Süre:</span>
                                         <span className="font-black text-amber-600 dark:text-amber-400">{spentHours.toFixed(1)} Saat</span>
                                     </div>
-                                    
-                                    <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden mt-1">
-                                        <div className={`h-full transition-all ${progressPct > 100 ? 'bg-red-500' : 'bg-amber-600'}`} style={{ width: `${progressPct}%` }} />
+
+                                    {/* TAMAMLANMA YÜZDESİ GÜNCELLEME ALANI */}
+                                    <div className="space-y-1 bg-white dark:bg-gray-800 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 mt-2">
+                                        <div className="flex justify-between items-center text-[11px] font-bold">
+                                            <span className="text-gray-700 dark:text-gray-300">📊 Tamamlanma Oranı:</span>
+                                            <span className="text-blue-600 dark:text-blue-400 font-black">%{job.progressPercent || 0}</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-300 ${(job.progressPercent || 0) >= 100 ? 'bg-emerald-500' : (job.progressPercent || 0) > 0 ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`} 
+                                                style={{ width: `${job.progressPercent || 0}%` }}
+                                            />
+                                        </div>
+                                        {/* Hızlı Yüzde Güncelleme Butonları */}
+                                        <div className="flex gap-1 pt-1 justify-between">
+                                            {[0, 25, 50, 75, 100].map(pct => (
+                                                <button
+                                                    key={pct}
+                                                    type="button"
+                                                    onClick={() => handleUpdateTaskProgress(job, pct)}
+                                                    className={`flex-1 py-1 rounded text-[10px] font-black transition ${
+                                                        (job.progressPercent || 0) === pct 
+                                                            ? 'bg-blue-600 text-white shadow-xs' 
+                                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/40'
+                                                    }`}
+                                                >
+                                                    %{pct}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 

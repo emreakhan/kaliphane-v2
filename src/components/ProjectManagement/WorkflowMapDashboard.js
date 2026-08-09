@@ -315,24 +315,120 @@ const WorkflowMapDashboard = ({
                                 const state = getNodeState(node.id);
                                 const IconComponent = node.icon;
 
+                                // Yüzdelik Oran Hesabı
+                                let pct = 0;
+                                if (node.id === 'productDesign') {
+                                    pct = steps?.productDesign?.progressPercent ?? (steps?.productDesign?.status === 'COMPLETED' ? 100 : 0);
+                                } else {
+                                    const nodeStep = steps?.[node.id];
+                                    pct = nodeStep?.progressPercent !== undefined ? nodeStep.progressPercent : (state.status === 'COMPLETED' ? 100 : (state.status === 'IN_PROGRESS' ? 50 : 0));
+                                }
+                                pct = Math.min(100, Math.max(0, parseInt(pct) || 0));
+
+                                // SVG Dairesel Halka Matematik Tanımı (R=36, C=2*PI*36 ~ 226.19)
+                                const radius = 36;
+                                const circumference = 2 * Math.PI * radius;
+                                const strokeDashoffset = circumference - (circumference * pct) / 100;
+
+                                // 0-100 Yüzde Renk Skalası (Glow & Gradient)
+                                let ringGradStart = '#94a3b8';
+                                let ringGradEnd = '#64748b';
+                                let badgeBg = 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700';
+                                let ringGlow = '';
+
+                                if (pct > 0 && pct <= 25) {
+                                    ringGradStart = '#ef4444'; // Kırmızı
+                                    ringGradEnd = '#f97316';   // Turuncu
+                                    badgeBg = 'bg-gradient-to-r from-red-500 to-orange-500 text-white font-black shadow-md shadow-red-500/40 border-red-400';
+                                    ringGlow = 'drop-shadow-[0_0_10px_rgba(239,68,68,0.7)]';
+                                } else if (pct > 25 && pct <= 50) {
+                                    ringGradStart = '#f59e0b'; // Kehribar
+                                    ringGradEnd = '#eab308';   // Altın Sarısı
+                                    badgeBg = 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-black shadow-md shadow-amber-500/40 border-amber-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(245,158,11,0.8)]';
+                                } else if (pct > 50 && pct <= 75) {
+                                    ringGradStart = '#0284c7'; // Mavi
+                                    ringGradEnd = '#3b82f6';   // Parlak Mavi
+                                    badgeBg = 'bg-gradient-to-r from-sky-500 to-blue-600 text-white font-black shadow-md shadow-blue-500/40 border-blue-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(59,130,246,0.8)]';
+                                } else if (pct > 75 && pct < 100) {
+                                    ringGradStart = '#0d9488'; // Turkuaz
+                                    ringGradEnd = '#10b981';   // Zümrüt Yeşili
+                                    badgeBg = 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white font-black shadow-md shadow-teal-500/40 border-emerald-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(16,185,129,0.8)]';
+                                } else if (pct >= 100) {
+                                    ringGradStart = '#10b981'; // Zümrüt Yeşili
+                                    ringGradEnd = '#34d399';   // Mint Yeşili
+                                    badgeBg = 'bg-gradient-to-r from-emerald-500 to-teal-400 text-white font-black shadow-md shadow-emerald-500/50 border-emerald-300 ring-2 ring-emerald-400/50';
+                                    ringGlow = 'drop-shadow-[0_0_14px_rgba(16,185,129,0.9)]';
+                                }
+
+                                const ringId = `svg-ring-grad-t1-${node.id}`;
+
                                 return (
                                     <React.Fragment key={node.id}>
                                         <div 
                                             onClick={() => handleOpenNodeModal(node)}
                                             className="flex flex-col items-center cursor-pointer group flex-shrink-0 transition-transform duration-200 hover:scale-105"
                                         >
-                                            {/* Düğüm Dairesi */}
-                                            <div className={`w-20 h-20 rounded-full border-4 flex flex-col items-center justify-center p-2 text-center transition-all ${state.colorClass}`}>
-                                                <IconComponent className="w-5 h-5 mb-0.5" />
-                                                <span className="text-[10px] font-black leading-tight tracking-tight uppercase">{node.label}</span>
+                                            {/* Düğüm Dairesi & SVG İlerleme Halkası */}
+                                            <div className={`relative w-24 h-24 flex items-center justify-center ${ringGlow} transition-all duration-500`}>
+                                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 88 88">
+                                                    <defs>
+                                                        <linearGradient id={ringId} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                            <stop offset="0%" stopColor={ringGradStart} />
+                                                            <stop offset="100%" stopColor={ringGradEnd} />
+                                                        </linearGradient>
+                                                    </defs>
+                                                    
+                                                    {/* Arka Plan Gri Dairesel Ray */}
+                                                    <circle
+                                                        cx="44"
+                                                        cy="44"
+                                                        r={radius}
+                                                        stroke="currentColor"
+                                                        strokeWidth="4.5"
+                                                        fill="transparent"
+                                                        className="text-gray-200 dark:text-gray-700/60"
+                                                    />
+                                                    
+                                                    {/* İlerleme Halkası */}
+                                                    {pct > 0 && (
+                                                        <circle
+                                                            cx="44"
+                                                            cy="44"
+                                                            r={radius}
+                                                            stroke={`url(#${ringId})`}
+                                                            strokeWidth="5.5"
+                                                            strokeLinecap="round"
+                                                            fill="transparent"
+                                                            strokeDasharray={circumference}
+                                                            strokeDashoffset={strokeDashoffset}
+                                                            className="transition-all duration-1000 ease-out"
+                                                        />
+                                                    )}
+                                                </svg>
+
+                                                {/* İç Daire Düğüm İçeriği */}
+                                                <div className={`absolute inset-2.5 rounded-full flex flex-col items-center justify-center p-1.5 text-center transition-all shadow-inner ${state.colorClass}`}>
+                                                    <IconComponent className="w-4 h-4 mb-0.5" />
+                                                    <span className="text-[9px] font-black leading-tight tracking-tight uppercase line-clamp-2 px-0.5">
+                                                        {node.label}
+                                                    </span>
+
+                                                    {/* Belirgin Yüzdelik Rozeti */}
+                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded-full mt-0.5 border shadow-sm transition-all transform group-hover:scale-110 ${badgeBg}`}>
+                                                        %{pct}
+                                                    </span>
+                                                </div>
                                             </div>
                                             
                                             {/* Durum Etiketi (COMPLETED / IN PROGRESS / PENDING) */}
-                                            <span className={`mt-2 text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${
-                                                state.status === 'COMPLETED' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
-                                                state.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-300 font-bold' :
-                                                state.status === 'SKIPPED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                            <span className={`mt-2 text-[9px] font-black px-2 py-0.5 rounded-full uppercase border transition-colors ${
+                                                state.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' :
+                                                state.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-bold border-amber-300 dark:border-amber-700' :
+                                                state.status === 'SKIPPED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300' :
+                                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-600'
                                             }`}>
                                                 {state.badge}
                                             </span>
@@ -365,24 +461,113 @@ const WorkflowMapDashboard = ({
                                 const state = getNodeState(node.id);
                                 const IconComponent = node.icon;
 
+                                // Yüzdelik Oran Hesabı
+                                const nodeStep = steps?.[node.id];
+                                let pct = nodeStep?.progressPercent !== undefined ? nodeStep.progressPercent : (state.status === 'COMPLETED' ? 100 : (state.status === 'IN_PROGRESS' ? 50 : 0));
+                                pct = Math.min(100, Math.max(0, parseInt(pct) || 0));
+
+                                const radius = 36;
+                                const circumference = 2 * Math.PI * radius;
+                                const strokeDashoffset = circumference - (circumference * pct) / 100;
+
+                                let ringGradStart = '#94a3b8';
+                                let ringGradEnd = '#64748b';
+                                let badgeBg = 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700';
+                                let ringGlow = '';
+
+                                if (pct > 0 && pct <= 25) {
+                                    ringGradStart = '#ef4444';
+                                    ringGradEnd = '#f97316';
+                                    badgeBg = 'bg-gradient-to-r from-red-500 to-orange-500 text-white font-black shadow-md shadow-red-500/40 border-red-400';
+                                    ringGlow = 'drop-shadow-[0_0_10px_rgba(239,68,68,0.7)]';
+                                } else if (pct > 25 && pct <= 50) {
+                                    ringGradStart = '#f59e0b';
+                                    ringGradEnd = '#eab308';
+                                    badgeBg = 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-black shadow-md shadow-amber-500/40 border-amber-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(245,158,11,0.8)]';
+                                } else if (pct > 50 && pct <= 75) {
+                                    ringGradStart = '#0284c7';
+                                    ringGradEnd = '#3b82f6';
+                                    badgeBg = 'bg-gradient-to-r from-sky-500 to-blue-600 text-white font-black shadow-md shadow-blue-500/40 border-blue-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(59,130,246,0.8)]';
+                                } else if (pct > 75 && pct < 100) {
+                                    ringGradStart = '#0d9488';
+                                    ringGradEnd = '#10b981';
+                                    badgeBg = 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white font-black shadow-md shadow-teal-500/40 border-emerald-400';
+                                    ringGlow = 'drop-shadow-[0_0_12px_rgba(16,185,129,0.8)]';
+                                } else if (pct >= 100) {
+                                    ringGradStart = '#10b981';
+                                    ringGradEnd = '#34d399';
+                                    badgeBg = 'bg-gradient-to-r from-emerald-500 to-teal-400 text-white font-black shadow-md shadow-emerald-500/50 border-emerald-300 ring-2 ring-emerald-400/50';
+                                    ringGlow = 'drop-shadow-[0_0_14px_rgba(16,185,129,0.9)]';
+                                }
+
+                                const ringId = `svg-ring-grad-t2-${node.id}`;
+
                                 return (
                                     <React.Fragment key={node.id}>
                                         <div 
                                             onClick={() => handleOpenNodeModal(node)}
                                             className="flex flex-col items-center cursor-pointer group flex-shrink-0 transition-transform duration-200 hover:scale-105"
                                         >
-                                            {/* Düğüm Dairesi */}
-                                            <div className={`w-20 h-20 rounded-full border-4 flex flex-col items-center justify-center p-2 text-center transition-all ${state.colorClass}`}>
-                                                <IconComponent className="w-5 h-5 mb-0.5" />
-                                                <span className="text-[10px] font-black leading-tight tracking-tight uppercase">{node.label}</span>
+                                            {/* Düğüm Dairesi & SVG İlerleme Halkası */}
+                                            <div className={`relative w-24 h-24 flex items-center justify-center ${ringGlow} transition-all duration-500`}>
+                                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 88 88">
+                                                    <defs>
+                                                        <linearGradient id={ringId} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                            <stop offset="0%" stopColor={ringGradStart} />
+                                                            <stop offset="100%" stopColor={ringGradEnd} />
+                                                        </linearGradient>
+                                                    </defs>
+                                                    
+                                                    {/* Arka Plan Gri Dairesel Ray */}
+                                                    <circle
+                                                        cx="44"
+                                                        cy="44"
+                                                        r={radius}
+                                                        stroke="currentColor"
+                                                        strokeWidth="4.5"
+                                                        fill="transparent"
+                                                        className="text-gray-200 dark:text-gray-700/60"
+                                                    />
+                                                    
+                                                    {/* İlerleme Halkası */}
+                                                    {pct > 0 && (
+                                                        <circle
+                                                            cx="44"
+                                                            cy="44"
+                                                            r={radius}
+                                                            stroke={`url(#${ringId})`}
+                                                            strokeWidth="5.5"
+                                                            strokeLinecap="round"
+                                                            fill="transparent"
+                                                            strokeDasharray={circumference}
+                                                            strokeDashoffset={strokeDashoffset}
+                                                            className="transition-all duration-1000 ease-out"
+                                                        />
+                                                    )}
+                                                </svg>
+
+                                                {/* İç Daire Düğüm İçeriği */}
+                                                <div className={`absolute inset-2.5 rounded-full flex flex-col items-center justify-center p-1.5 text-center transition-all shadow-inner ${state.colorClass}`}>
+                                                    <IconComponent className="w-4 h-4 mb-0.5" />
+                                                    <span className="text-[9px] font-black leading-tight tracking-tight uppercase line-clamp-2 px-0.5">
+                                                        {node.label}
+                                                    </span>
+
+                                                    {/* Belirgin Yüzdelik Rozeti */}
+                                                    <span className={`text-[9px] px-1.5 py-0.2 rounded-full mt-0.5 border shadow-sm transition-all transform group-hover:scale-110 ${badgeBg}`}>
+                                                        %{pct}
+                                                    </span>
+                                                </div>
                                             </div>
                                             
                                             {/* Durum Etiketi */}
-                                            <span className={`mt-2 text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${
-                                                state.status === 'COMPLETED' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
-                                                state.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-300 font-bold' :
-                                                state.status === 'SKIPPED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                            <span className={`mt-2 text-[9px] font-black px-2 py-0.5 rounded-full uppercase border transition-colors ${
+                                                state.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' :
+                                                state.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-bold border-amber-300 dark:border-amber-700' :
+                                                state.status === 'SKIPPED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300' :
+                                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-600'
                                             }`}>
                                                 {state.badge}
                                             </span>
@@ -591,6 +776,21 @@ const WorkflowMapDashboard = ({
                                         <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                                         <div>
                                             <span>Bu adım bölümler arası bir <strong className="font-extrabold text-blue-600 dark:text-blue-400 underline">Onay Kapısı (Gate)</strong> durumundadır.</span>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {activeNodeModal.id === 'productDesign' && (
+                                    <div className="p-3 bg-blue-50 dark:bg-blue-950/40 rounded-xl border border-blue-200 dark:border-blue-800 space-y-2">
+                                        <div className="flex justify-between items-center text-xs font-bold text-blue-900 dark:text-blue-200">
+                                            <span>🎨 Ürün Geliştirme İlerleme Oranı:</span>
+                                            <span className="text-sm font-black text-blue-600 dark:text-blue-400">%{steps?.productDesign?.progressPercent || (steps?.productDesign?.status === 'COMPLETED' ? 100 : 0)}</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 dark:bg-gray-700 h-2.5 rounded-full overflow-hidden">
+                                            <div 
+                                                className="bg-blue-600 h-full transition-all duration-300" 
+                                                style={{ width: `${steps?.productDesign?.progressPercent || (steps?.productDesign?.status === 'COMPLETED' ? 100 : 0)}%` }}
+                                            />
                                         </div>
                                     </div>
                                 )}
