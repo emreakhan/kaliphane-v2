@@ -6,7 +6,8 @@ import {
     Search, Users, Box, Calendar, Clock, CheckCircle, 
     BarChart2, PieChart, Monitor, TrendingUp, 
     CalendarDays, AlertOctagon, History, ClipboardList,
-    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle 
+    ArrowRight, Activity, Layers, Filter, Table as TableIcon, AlertTriangle,
+    ChevronDown, ChevronUp, Check
 } from 'lucide-react';
 
 import { 
@@ -443,6 +444,34 @@ const TimelineCard = ({
     );
 };
 
+const normalizeMoldType = (typeRaw) => {
+    if (!typeRaw) return 'YENİ KALIP';
+    const str = String(typeRaw).toUpperCase().trim();
+    if (str.includes('T0')) return 'T0-İYİLEŞTİRME';
+    if (str.includes('REVİZ') || str.includes('REVIZ')) return 'REVİZYON';
+    if (str.includes('İYİLEŞ') || str.includes('IYILES')) return 'İYİLEŞTİRME';
+    if (str.includes('PROJE') || str.includes('FASON')) return 'PROJE İMALAT';
+    return 'YENİ KALIP';
+};
+
+const getMoldTypeBadgeInfo = (typeRaw) => {
+    const norm = normalizeMoldType(typeRaw);
+    switch(norm) {
+        case 'YENİ KALIP':
+            return { label: 'YENİ KALIP', icon: '🟦', colorClass: 'bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-200 border-blue-300 dark:border-blue-700' };
+        case 'REVİZYON':
+            return { label: 'REVİZYON', icon: '🛠️', colorClass: 'bg-orange-100 dark:bg-orange-950 text-orange-900 dark:text-orange-200 border-orange-300 dark:border-orange-700' };
+        case 'PROJE İMALAT':
+            return { label: 'PROJE İMALAT', icon: '⚙️', colorClass: 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200 border-purple-300 dark:border-purple-700' };
+        case 'İYİLEŞTİRME':
+            return { label: 'İYİLEŞTİRME', icon: '✨', colorClass: 'bg-teal-100 dark:bg-teal-950 text-teal-200 border-teal-300 dark:border-teal-700' };
+        case 'T0-İYİLEŞTİRME':
+            return { label: 'T0-İYİLEŞTİRME', icon: '🚀', colorClass: 'bg-indigo-100 dark:bg-indigo-950 text-indigo-200 border-indigo-300 dark:border-indigo-700' };
+        default:
+            return { label: 'YENİ KALIP', icon: '🟦', colorClass: 'bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-200 border-blue-300 dark:border-blue-700' };
+    }
+};
+
 const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
     
     const [activeTab, setActiveTab] = useState('general'); 
@@ -504,7 +533,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         const totalHours = operationsInYear.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
         const completedMoldsInYear = validMoldProjects.filter(p => {
             if (p.status !== MOLD_STATUS.COMPLETED) return false;
-            const allOps = p.tasks.flatMap(t => t.operations);
+            const allOps = (p.tasks || []).flatMap(t => t.operations || []);
             const lastOpDate = allOps.filter(op => op.finishDate).map(op => new Date(op.finishDate)).sort((a, b) => b - a)[0]; 
             return lastOpDate && lastOpDate.getFullYear() === parseInt(selectedYear);
         }).length;
@@ -514,8 +543,38 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             monthlyData[month].ops += 1;
             monthlyData[month].hours += (parseFloat(op.durationInHours) || 0);
         });
+
+        // Kalıp Türü (Tür) Dağılımı (Yıllık)
+        const typeCounts = {
+            'YENİ KALIP': 0,
+            'REVİZYON': 0,
+            'PROJE İMALAT': 0,
+            'İYİLEŞTİRME': 0,
+            'T0-İYİLEŞTİRME': 0
+        };
+
+        const activeMoldsInYear = validMoldProjects.filter(p => {
+            const allOps = (p.tasks || []).flatMap(t => t.operations || []);
+            const hasOpInYear = allOps.some(op => op.finishDate && new Date(op.finishDate).getFullYear() === parseInt(selectedYear));
+            const createdInYear = p.createdAt && new Date(p.createdAt).getFullYear() === parseInt(selectedYear);
+            return hasOpInYear || createdInYear;
+        });
+
+        activeMoldsInYear.forEach(p => {
+            const norm = normalizeMoldType(p.projectType || p.type);
+            typeCounts[norm] = (typeCounts[norm] || 0) + 1;
+        });
+
         const maxMonthlyOps = Math.max(...monthlyData.map(d => d.ops), 1);
-        return { totalOps: operationsInYear.length, totalHours: totalHours.toFixed(0), completedMolds: completedMoldsInYear, monthlyData, maxMonthlyOps };
+        return { 
+            totalOps: operationsInYear.length, 
+            totalHours: totalHours.toFixed(0), 
+            completedMolds: completedMoldsInYear, 
+            monthlyData, 
+            maxMonthlyOps,
+            typeCounts,
+            totalActiveMoldsInYear: activeMoldsInYear.length
+        };
     }, [allCompletedOperations, validMoldProjects, selectedYear]);
 
     const reworkAnalysis = useMemo(() => {
@@ -760,7 +819,532 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         );
     };
 
+    const MonthlyAnalysisCard = () => {
+        const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth()); // 0 - 11
+        const [selectedMonthlyYear, setSelectedMonthlyYear] = useState(selectedYear || new Date().getFullYear());
+        const [searchTerm, setSearchTerm] = useState('');
+        const [statusFilter, setStatusFilter] = useState('worked'); // 'worked' | 'completed' | 'all'
+        const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'YENİ KALIP' | 'REVİZYON' | 'PROJE İMALAT' | 'İYİLEŞTİRME' | 'T0-İYİLEŞTİRME'
+        const [expandedMoldId, setExpandedMoldId] = useState(null);
+
+        const monthNames = [
+            'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 
+            'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+        ];
+
+        const monthStartDate = useMemo(() => {
+            return new Date(selectedMonthlyYear, selectedMonth, 1, 0, 0, 0);
+        }, [selectedMonthlyYear, selectedMonth]);
+
+        const monthEndDate = useMemo(() => {
+            return new Date(selectedMonthlyYear, selectedMonth + 1, 0, 23, 59, 59);
+        }, [selectedMonthlyYear, selectedMonth]);
+
+        const monthlyMoldAnalysis = useMemo(() => {
+            const startMs = monthStartDate.getTime();
+            const endMs = monthEndDate.getTime();
+
+            return validMoldProjects.map(mold => {
+                const normType = normalizeMoldType(mold.projectType || mold.type);
+                const allOps = (mold.tasks || []).flatMap(t => 
+                    (t.operations || []).map(op => ({
+                        ...op,
+                        taskId: t.id,
+                        taskName: t.taskName
+                    }))
+                );
+
+                // Ops finished or worked in selected month
+                const opsInMonth = allOps.filter(op => {
+                    if (!op.finishDate && !op.startDate) return false;
+                    const fTime = op.finishDate ? new Date(op.finishDate).getTime() : null;
+                    const sTime = op.startDate ? new Date(op.startDate).getTime() : null;
+                    const timeToCheck = fTime || sTime;
+                    return timeToCheck >= startMs && timeToCheck <= endMs;
+                });
+
+                // Ops finished BEFORE the start of this month
+                const opsBeforeMonth = allOps.filter(op => {
+                    if (op.status !== OPERATION_STATUS.COMPLETED || !op.finishDate) return false;
+                    return new Date(op.finishDate).getTime() < startMs;
+                });
+
+                // Ops finished UP TO the end of this month
+                const opsUpToMonth = allOps.filter(op => {
+                    if (op.status !== OPERATION_STATUS.COMPLETED || !op.finishDate) return false;
+                    return new Date(op.finishDate).getTime() <= endMs;
+                });
+
+                const totalOpsCount = allOps.length;
+                const startPct = totalOpsCount > 0 ? Math.min(100, Math.round((opsBeforeMonth.length / totalOpsCount) * 100)) : 0;
+                const endPct = totalOpsCount > 0 ? Math.min(100, Math.round((opsUpToMonth.length / totalOpsCount) * 100)) : 0;
+                const progressDelta = Math.max(0, endPct - startPct);
+
+                const hoursWorkedInMonth = opsInMonth.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0);
+
+                // Completed tasks/parts in this month
+                const completedTasksInMonth = (mold.tasks || []).filter(task => {
+                    const taskOps = task.operations || [];
+                    if (taskOps.length === 0) return false;
+                    const allTaskOpsCompleted = taskOps.every(op => op.status === OPERATION_STATUS.COMPLETED);
+                    if (!allTaskOpsCompleted) return false;
+                    const finishTimes = taskOps.map(op => op.finishDate ? new Date(op.finishDate).getTime() : 0);
+                    const lastFinishTime = Math.max(...finishTimes);
+                    return lastFinishTime >= startMs && lastFinishTime <= endMs;
+                });
+
+                return {
+                    id: mold.id,
+                    moldName: mold.moldName,
+                    customer: mold.customer || '',
+                    status: mold.status,
+                    projectType: normType,
+                    rawType: mold.projectType || mold.type,
+                    initialStage: mold.initialStage,
+                    totalOpsCount,
+                    startPct,
+                    endPct,
+                    progressDelta,
+                    hoursWorkedInMonth: parseFloat(hoursWorkedInMonth.toFixed(1)),
+                    opsInMonth,
+                    completedTasksInMonth,
+                    hasActivityInMonth: opsInMonth.length > 0 || completedTasksInMonth.length > 0
+                };
+            });
+        }, [monthStartDate, monthEndDate]);
+
+        const monthlyTypeCounts = useMemo(() => {
+            const counts = {
+                'YENİ KALIP': 0,
+                'REVİZYON': 0,
+                'PROJE İMALAT': 0,
+                'İYİLEŞTİRME': 0,
+                'T0-İYİLEŞTİRME': 0
+            };
+
+            monthlyMoldAnalysis.forEach(item => {
+                if (item.hasActivityInMonth) {
+                    const norm = item.projectType;
+                    counts[norm] = (counts[norm] || 0) + 1;
+                }
+            });
+
+            return counts;
+        }, [monthlyMoldAnalysis]);
+
+        const monthlyTotals = useMemo(() => {
+            let totalHours = 0;
+            let totalCompletedParts = 0;
+            let totalOpsCount = 0;
+            let activeMoldsCount = 0;
+
+            monthlyMoldAnalysis.forEach(item => {
+                if (item.hasActivityInMonth) {
+                    activeMoldsCount++;
+                    totalHours += item.hoursWorkedInMonth;
+                    totalCompletedParts += item.completedTasksInMonth.length;
+                    totalOpsCount += item.opsInMonth.length;
+                }
+            });
+
+            return {
+                totalHours: totalHours.toFixed(1),
+                totalCompletedParts,
+                totalOpsCount,
+                activeMoldsCount
+            };
+        }, [monthlyMoldAnalysis]);
+
+        const filteredMonthlyMolds = useMemo(() => {
+            let list = monthlyMoldAnalysis;
+
+            if (statusFilter === 'worked') {
+                list = list.filter(m => m.hasActivityInMonth || m.progressDelta > 0);
+            } else if (statusFilter === 'completed') {
+                list = list.filter(m => m.completedTasksInMonth.length > 0);
+            }
+
+            if (typeFilter !== 'all') {
+                list = list.filter(m => m.projectType === typeFilter);
+            }
+
+            const query = searchTerm.toLowerCase().trim();
+            if (query) {
+                list = list.filter(m => 
+                    m.moldName.toLowerCase().includes(query) || 
+                    m.customer.toLowerCase().includes(query)
+                );
+            }
+
+            return list.sort((a, b) => b.hoursWorkedInMonth - a.hoursWorkedInMonth || b.progressDelta - a.progressDelta);
+        }, [monthlyMoldAnalysis, statusFilter, typeFilter, searchTerm]);
+
+        return (
+            <div className="space-y-6 animate-fadeIn text-gray-900 dark:text-white">
+                {/* ÜST CONTROL BARI */}
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-md border border-gray-200 dark:border-gray-700 space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-100 dark:border-gray-700 pb-4">
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                <CalendarDays className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                                Aylık Üretim & İlerleme Analizi
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Seçilen ayda hangi kalıpta % kaçtan kaça ilerleme olduğunu, tamamlanan parçaları ve harcanan çalışma sürelerini görüntüleyin.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-gray-500">Yıl Seçin:</span>
+                            <select 
+                                value={selectedMonthlyYear} 
+                                onChange={(e) => setSelectedMonthlyYear(parseInt(e.target.value))} 
+                                className="bg-gray-50 border border-gray-300 text-gray-900 text-sm font-bold rounded-xl focus:ring-purple-500 focus:border-purple-500 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            >
+                                {availableYears.map(year => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* AY SEÇİM PILL BUTONLARI */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                        {monthNames.map((monthName, idx) => {
+                            const isSelected = selectedMonth === idx;
+                            return (
+                                <button
+                                    key={monthName}
+                                    type="button"
+                                    onClick={() => setSelectedMonth(idx)}
+                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition shadow-xs whitespace-nowrap flex items-center gap-1 ${
+                                        isSelected 
+                                            ? 'bg-purple-600 text-white shadow-purple-500/30' 
+                                            : 'bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                >
+                                    <Calendar className="w-3.5 h-3.5" />
+                                    {monthName}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* ARAMA VE DURUM FİLTRELERİ */}
+                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-2">
+                        <div className="relative flex-1 max-w-md">
+                            <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                            <input 
+                                type="text"
+                                placeholder="Kalıp adı veya müşteri arayın..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 rounded-xl text-xs font-bold text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setStatusFilter('worked')}
+                                className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition ${
+                                    statusFilter === 'worked'
+                                        ? 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200 border border-purple-300'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                                }`}
+                            >
+                                🔥 Sadece Çalışılanlar ({monthlyMoldAnalysis.filter(m => m.hasActivityInMonth).length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setStatusFilter('completed')}
+                                className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition ${
+                                    statusFilter === 'completed'
+                                        ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                                }`}
+                            >
+                                🧩 Parçası Tamamlananlar ({monthlyMoldAnalysis.filter(m => m.completedTasksInMonth.length > 0).length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setStatusFilter('all')}
+                                className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition ${
+                                    statusFilter === 'all'
+                                        ? 'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200 border border-blue-300'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                                }`}
+                            >
+                                Tüm Kalıplar ({monthlyMoldAnalysis.length})
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* KALIP TÜRLERİ ÖZET FİLTRE BARI */}
+                    <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700/80">
+                        <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 mr-1 flex items-center gap-1">
+                            <Filter className="w-3.5 h-3.5" /> Kalıp Türüne Göre:
+                        </span>
+                        
+                        <button
+                            type="button"
+                            onClick={() => setTypeFilter('all')}
+                            className={`px-3 py-1 text-xs font-extrabold rounded-lg transition ${
+                                typeFilter === 'all'
+                                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900 shadow-sm'
+                                    : 'bg-gray-100 dark:bg-gray-700/70 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
+                            }`}
+                        >
+                            Tüm Türler ({monthlyMoldAnalysis.filter(m => m.hasActivityInMonth).length})
+                        </button>
+
+                        {[
+                            { id: 'YENİ KALIP', label: 'Yeni Kalıp', icon: '🟦' },
+                            { id: 'REVİZYON', label: 'Revizyon', icon: '🛠️' },
+                            { id: 'PROJE İMALAT', label: 'Proje İmalat', icon: '⚙️' },
+                            { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
+                            { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
+                        ].map(t => {
+                            const count = monthlyTypeCounts[t.id] || 0;
+                            const isSelected = typeFilter === t.id;
+                            const badgeInfo = getMoldTypeBadgeInfo(t.id);
+                            return (
+                                <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => setTypeFilter(isSelected ? 'all' : t.id)}
+                                    className={`px-3 py-1 text-xs font-black rounded-lg transition flex items-center gap-1.5 border shadow-2xs ${
+                                        isSelected
+                                            ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40'
+                                            : `${badgeInfo.colorClass} hover:opacity-90`
+                                    }`}
+                                >
+                                    <span>{t.icon} {t.label}</span>
+                                    <span className={`px-1.5 py-0.2 text-[10px] font-black rounded-full ${
+                                        isSelected ? 'bg-white text-purple-900' : 'bg-white/80 dark:bg-black/40 text-gray-900 dark:text-white'
+                                    }`}>
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* SEÇİLEN AY ÖZET KPI KARTLARI */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-700 text-white shadow-lg space-y-1">
+                        <div className="flex justify-between items-center opacity-80 text-xs font-bold uppercase">
+                            <span>Aylık Toplam Çalışma</span>
+                            <Clock className="w-5 h-5" />
+                        </div>
+                        <div className="text-3xl font-black">{monthlyTotals.totalHours} <span className="text-sm font-normal opacity-80">Saat</span></div>
+                        <p className="text-[11px] text-purple-200">{monthNames[selectedMonth]} {selectedMonthlyYear} işçilik süresi</p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg space-y-1">
+                        <div className="flex justify-between items-center opacity-80 text-xs font-bold uppercase">
+                            <span>Tamamlanan Parçalar</span>
+                            <CheckCircle className="w-5 h-5" />
+                        </div>
+                        <div className="text-3xl font-black">{monthlyTotals.totalCompletedParts} <span className="text-sm font-normal opacity-80">Adet Parça</span></div>
+                        <p className="text-[11px] text-emerald-200">Bu ay bitirilen kalıp bileşenleri</p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-700 text-white shadow-lg space-y-1">
+                        <div className="flex justify-between items-center opacity-80 text-xs font-bold uppercase">
+                            <span>İşlenen Operasyonlar</span>
+                            <Activity className="w-5 h-5" />
+                        </div>
+                        <div className="text-3xl font-black">{monthlyTotals.totalOpsCount} <span className="text-sm font-normal opacity-80">Operasyon</span></div>
+                        <p className="text-[11px] text-blue-200">Tamamlanan tezgah operasyonu</p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg space-y-1">
+                        <div className="flex justify-between items-center opacity-80 text-xs font-bold uppercase">
+                            <span>Aktif Kalıp Sayısı</span>
+                            <Box className="w-5 h-5" />
+                        </div>
+                        <div className="text-3xl font-black">{monthlyTotals.activeMoldsCount} <span className="text-sm font-normal opacity-80">Kalıp Projesi</span></div>
+                        <p className="text-[11px] text-amber-100">Bu ay hareket gören kalıplar</p>
+                    </div>
+                </div>
+
+                {/* AYLIK KALIP İLERLEME VE PARÇA TABLOSU */}
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden space-y-3">
+                    <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                        <div>
+                            <h4 className="font-extrabold text-base text-gray-900 dark:text-white flex items-center gap-2">
+                                📊 {monthNames[selectedMonth]} {selectedMonthlyYear} Kalıp İlerleme & Tamamlanan Parçalar Karnesi
+                            </h4>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                Kalıpların ay başı ve ay sonu yüzdelik durumlarını, o ay kat edilen mesafeyi ve tamamlanan parçaları listeler.
+                            </p>
+                        </div>
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 font-extrabold text-xs rounded-full">
+                            {filteredMonthlyMolds.length} Kalıp Gösteriliyor
+                        </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 dark:bg-gray-700/60 text-[11px] font-black uppercase text-gray-500 dark:text-gray-300 border-y border-gray-200 dark:border-gray-700">
+                                    <th className="py-3 px-4">Kalıp / Proje Adı</th>
+                                    <th className="py-3 px-3 text-center">Ay Başı İlerleme</th>
+                                    <th className="py-3 px-3 text-center">Ay Sonu İlerleme</th>
+                                    <th className="py-3 px-3 text-center">Aylık İlerleme Farkı</th>
+                                    <th className="py-3 px-4">O Ay Tamamlanan Parçalar</th>
+                                    <th className="py-3 px-3 text-center">Aylık Çalışma Süresi</th>
+                                    <th className="py-3 px-3 text-center">Detay</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 text-xs">
+                                {filteredMonthlyMolds.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="7" className="py-12 text-center text-gray-400 italic">
+                                            Seçilen filtrelerde {monthNames[selectedMonth]} {selectedMonthlyYear} dönemi için kayıtlı kalıp verisi bulunamadı.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredMonthlyMolds.map(moldItem => {
+                                        const isExpanded = expandedMoldId === moldItem.id;
+                                        const typeBadge = getMoldTypeBadgeInfo(moldItem.projectType);
+                                        return (
+                                            <React.Fragment key={moldItem.id}>
+                                                <tr className={`hover:bg-purple-50/40 dark:hover:bg-purple-950/20 transition ${isExpanded ? 'bg-purple-50/60 dark:bg-purple-950/30' : ''}`}>
+                                                    {/* Kalıp Adı & Müşteri & Tür Badge */}
+                                                    <td className="py-3.5 px-4 font-bold text-gray-900 dark:text-white">
+                                                        <div className="flex items-center gap-2">
+                                                            <Box className="w-4 h-4 text-purple-600 shrink-0" />
+                                                            <div className="space-y-0.5">
+                                                                <div className="font-extrabold text-sm flex items-center gap-2">
+                                                                    <span>{moldItem.moldName}</span>
+                                                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-black border ${typeBadge.colorClass}`}>
+                                                                        {typeBadge.icon} {typeBadge.label}
+                                                                    </span>
+                                                                </div>
+                                                                {moldItem.customer && (
+                                                                    <div className="text-[10px] text-gray-500 font-semibold">{moldItem.customer}</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Ay Başı % */}
+                                                    <td className="py-3.5 px-3 text-center">
+                                                        <span className="px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white font-black text-xs border border-slate-300 dark:border-slate-500 shadow-xs">
+                                                            %{moldItem.startPct}
+                                                        </span>
+                                                    </td>
+
+                                                    {/* Ay Sonu % */}
+                                                    <td className="py-3.5 px-3 text-center">
+                                                        <span className="px-3 py-1 rounded-full bg-blue-600 dark:bg-blue-600 text-white font-black text-xs border border-blue-400 shadow-md shadow-blue-600/30">
+                                                            %{moldItem.endPct}
+                                                        </span>
+                                                    </td>
+
+                                                    {/* Aylık İlerleme Farkı */}
+                                                    <td className="py-3.5 px-3 text-center">
+                                                        {moldItem.progressDelta > 0 ? (
+                                                            <span className="px-3 py-1 rounded-full bg-emerald-600 text-white font-black text-xs shadow-md shadow-emerald-600/30 border border-emerald-400 inline-flex items-center gap-1">
+                                                                <TrendingUp className="w-3.5 h-3.5" /> +%{moldItem.progressDelta}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs font-bold">-%0</span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* O Ay Tamamlanan Parçalar */}
+                                                    <td className="py-3.5 px-4">
+                                                        {moldItem.completedTasksInMonth.length > 0 ? (
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {moldItem.completedTasksInMonth.map(t => (
+                                                                    <span key={t.id || t.taskName} className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300 text-[10px] font-black">
+                                                                        ✓ {t.taskName}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-gray-400 text-[11px] italic">Tamamlanan parça yok</span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Aylık Çalışma Süresi */}
+                                                    <td className="py-3.5 px-3 text-center font-black text-purple-600 dark:text-purple-400 text-sm">
+                                                        {moldItem.hoursWorkedInMonth > 0 ? `${moldItem.hoursWorkedInMonth} st` : '-'}
+                                                    </td>
+
+                                                    {/* Detay Aç / Kapa */}
+                                                    <td className="py-3.5 px-3 text-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setExpandedMoldId(isExpanded ? null : moldItem.id)}
+                                                            className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-bold transition flex items-center gap-1 mx-auto"
+                                                        >
+                                                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                            {isExpanded ? 'Kapat' : 'İşlemler'}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+
+                                                {/* EXPANDABLE ROW: O AYDA YAPILAN OPERASYON DETAYLARI */}
+                                                {isExpanded && (
+                                                    <tr className="bg-purple-50/30 dark:bg-purple-950/40">
+                                                        <td colSpan="7" className="p-4">
+                                                            <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-purple-200 dark:border-purple-800/60 space-y-3">
+                                                                <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-2">
+                                                                    <h5 className="font-extrabold text-xs text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                                                                        <Activity className="w-4 h-4 text-purple-600" />
+                                                                        {moldItem.moldName} - {monthNames[selectedMonth]} {selectedMonthlyYear} Operasyon Detayları ({moldItem.opsInMonth.length} İşlem)
+                                                                    </h5>
+                                                                    <span className="text-[11px] font-bold text-gray-500">Toplam {moldItem.hoursWorkedInMonth} Saat</span>
+                                                                </div>
+
+                                                                {moldItem.opsInMonth.length === 0 ? (
+                                                                    <p className="text-gray-400 text-xs italic py-2">Bu ay içerisinde tamamlanan veya çalışılan operasyon kaydı bulunmuyor.</p>
+                                                                ) : (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                                        {moldItem.opsInMonth.map((op, oIdx) => (
+                                                                            <div key={oIdx} className="p-2.5 bg-gray-50 dark:bg-gray-900/60 rounded-lg border border-gray-200 dark:border-gray-700 space-y-1">
+                                                                                <div className="flex justify-between items-start">
+                                                                                    <span className="font-black text-gray-900 dark:text-white text-xs">{op.taskName}</span>
+                                                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                                                                                        {op.type}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="text-[11px] text-gray-500 flex justify-between pt-1">
+                                                                                    <span>Personel: {op.operatorName || 'Belirtilmedi'}</span>
+                                                                                    <span className="font-bold text-purple-600">{op.durationInHours || 0} st</span>
+                                                                                </div>
+                                                                                {op.finishDate && (
+                                                                                    <div className="text-[10px] text-gray-400">
+                                                                                        Bitiş: {formatDate(op.finishDate)}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const GeneralAnalysisCard = () => {
+        const [generalSubTab, setGeneralSubTab] = useState('yearly'); // 'yearly' | 'monthly'
         const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
         const chartData = useMemo(() => {
@@ -772,53 +1356,132 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         }, [yearlyStats.monthlyData]);
 
         return (
-            <div className="space-y-8 animate-fadeIn text-gray-900 dark:text-white">
-                <div className="flex flex-col md:flex-row justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                    <div><h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center"><TrendingUp className="w-6 h-6 mr-2 text-blue-600" />Yıllık Faaliyet Raporu</h3><p className="text-gray-500 dark:text-gray-400 mt-1">Şirketin genel performans verileri</p></div>
-                    <div className="mt-4 md:mt-0 flex items-center"><CalendarDays className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-300" /><select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">{availableYears.map(year => (<option key={year} value={year}>{year}</option>))}</select></div>
+            <div className="space-y-6 animate-fadeIn text-gray-900 dark:text-white">
+                {/* SUB TAB SEÇİM BARI */}
+                <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 p-1.5 rounded-2xl w-fit border border-gray-200 dark:border-gray-700">
+                    <button
+                        type="button"
+                        onClick={() => setGeneralSubTab('yearly')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 ${
+                            generalSubTab === 'yearly'
+                                ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-md'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                        }`}
+                    >
+                        <TrendingUp className="w-4 h-4 text-blue-500" />
+                        📈 Yıllık Faaliyet Raporu
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setGeneralSubTab('monthly')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 ${
+                            generalSubTab === 'monthly'
+                                ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-md'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                        }`}
+                    >
+                        <CalendarDays className="w-4 h-4 text-purple-500" />
+                        📅 Aylık İlerleme & Üretim Analizi
+                    </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="p-6 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-blue-100 text-sm font-medium mb-1">Toplam Tamamlanan Kalıp</p><h4 className="text-4xl font-bold">{yearlyStats.completedMolds}</h4></div><Box className="w-8 h-8 text-blue-200 opacity-80" /></div></div>
-                    <div className="p-6 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-purple-100 text-sm font-medium mb-1">Toplam İşçilik Saati</p><h4 className="text-4xl font-bold">{yearlyStats.totalHours}</h4></div><Clock className="w-8 h-8 text-purple-200 opacity-80" /></div></div>
-                    <div className="p-6 rounded-xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-green-100 text-sm font-medium mb-1">Tamamlanan Operasyon</p><h4 className="text-4xl font-bold">{yearlyStats.totalOps}</h4></div><CheckCircle className="w-8 h-8 text-green-200 opacity-80" /></div></div>
-                </div>
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
-                        <BarChart2 className="w-5 h-5 mr-2 text-blue-500" />
-                        Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
-                    </h4>
-                    <div className="h-80 w-full text-xs font-bold">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
-                                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                                <XAxis dataKey="name" className="fill-gray-600 dark:fill-gray-400 font-bold" />
-                                <YAxis 
-                                    yAxisId="left" 
-                                    label={{ value: 'İşçilik Saati (Saat)', angle: -90, position: 'insideLeft', offset: -5, className: 'fill-purple-600 dark:fill-purple-400 font-bold' }} 
-                                    className="fill-gray-600 dark:fill-gray-400 font-bold" 
-                                />
-                                <YAxis 
-                                    yAxisId="right" 
-                                    orientation="right" 
-                                    label={{ value: 'Operasyon Sayısı (Adet)', angle: 90, position: 'insideRight', offset: 15, className: 'fill-blue-600 dark:fill-blue-400 font-bold' }} 
-                                    className="fill-gray-600 dark:fill-gray-400 font-bold" 
-                                />
-                                <Tooltip 
-                                    contentStyle={{ 
-                                        backgroundColor: '#1f2937', 
-                                        border: '1px solid #374151', 
-                                        borderRadius: '8px', 
-                                        color: '#ffffff',
-                                        fontWeight: 'bold' 
-                                    }} 
-                                />
-                                <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                                <Line yAxisId="left" type="monotone" dataKey="İşçilik Saati (Saat)" stroke="#a855f7" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
-                                <Line yAxisId="right" type="monotone" dataKey="Operasyon Sayısı (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
-                            </LineChart>
-                        </ResponsiveContainer>
+
+                {generalSubTab === 'monthly' ? (
+                    <MonthlyAnalysisCard />
+                ) : (
+                    <div className="space-y-8 animate-fadeIn text-gray-900 dark:text-white">
+                        <div className="flex flex-col md:flex-row justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+                            <div><h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center"><TrendingUp className="w-6 h-6 mr-2 text-blue-600" />Yıllık Faaliyet Raporu</h3><p className="text-gray-500 dark:text-gray-400 mt-1">Şirketin genel performans verileri</p></div>
+                            <div className="mt-4 md:mt-0 flex items-center"><CalendarDays className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-300" /><select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">{availableYears.map(year => (<option key={year} value={year}>{year}</option>))}</select></div>
+                        </div>
+
+                        {/* YILLIK ÜST KPİ KARTLARI */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-blue-100 text-sm font-medium mb-1">Toplam Tamamlanan Kalıp</p><h4 className="text-4xl font-bold">{yearlyStats.completedMolds}</h4></div><Box className="w-8 h-8 text-blue-200 opacity-80" /></div></div>
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-purple-100 text-sm font-medium mb-1">Toplam İşçilik Saati</p><h4 className="text-4xl font-bold">{yearlyStats.totalHours}</h4></div><Clock className="w-8 h-8 text-purple-200 opacity-80" /></div></div>
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-green-100 text-sm font-medium mb-1">Tamamlanan Operasyon</p><h4 className="text-4xl font-bold">{yearlyStats.totalOps}</h4></div><CheckCircle className="w-8 h-8 text-green-200 opacity-80" /></div></div>
+                        </div>
+
+                        {/* YILLIK KALIP TÜRLERİ DAĞILIMI KARTI */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                            <h4 className="text-base font-extrabold text-gray-900 dark:text-white flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                    <Layers className="w-5 h-5 text-indigo-500" />
+                                    Yıllık Kalıp Türü Dağılımı ({selectedYear})
+                                </span>
+                                <span className="text-xs font-bold text-gray-500">
+                                    Toplam {yearlyStats.totalActiveMoldsInYear} Aktif İş Hacmi
+                                </span>
+                            </h4>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                                {[
+                                    { id: 'YENİ KALIP', label: 'Yeni Kalıp', icon: '🟦' },
+                                    { id: 'REVİZYON', label: 'Revizyon', icon: '🛠️' },
+                                    { id: 'PROJE İMALAT', label: 'Proje İmalat', icon: '⚙️' },
+                                    { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
+                                    { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
+                                ].map(t => {
+                                    const count = yearlyStats.typeCounts?.[t.id] || 0;
+                                    const total = yearlyStats.totalActiveMoldsInYear || 1;
+                                    const pct = ((count / total) * 100).toFixed(1);
+                                    const badgeInfo = getMoldTypeBadgeInfo(t.id);
+
+                                    return (
+                                        <div key={t.id} className={`p-4 rounded-xl border flex flex-col justify-between shadow-2xs ${badgeInfo.colorClass}`}>
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-black uppercase tracking-wider">{t.icon} {t.label}</span>
+                                                <span className="text-xs font-black px-2 py-0.5 rounded bg-white/80 dark:bg-black/40 text-gray-900 dark:text-white">
+                                                    %{pct}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3">
+                                                <div className="text-2xl font-black">{count} <span className="text-xs font-bold opacity-80">Adet</span></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
+                                <BarChart2 className="w-5 h-5 mr-2 text-blue-500" />
+                                Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
+                            </h4>
+                            <div className="h-80 w-full text-xs font-bold">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                                        <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+                                        <XAxis dataKey="name" className="fill-gray-600 dark:fill-gray-400 font-bold" />
+                                        <YAxis 
+                                            yAxisId="left" 
+                                            label={{ value: 'İşçilik Saati (Saat)', angle: -90, position: 'insideLeft', offset: -5, className: 'fill-purple-600 dark:fill-purple-400 font-bold' }} 
+                                            className="fill-gray-600 dark:fill-gray-400 font-bold" 
+                                        />
+                                        <YAxis 
+                                            yAxisId="right" 
+                                            orientation="right" 
+                                            label={{ value: 'Operasyon Sayısı (Adet)', angle: 90, position: 'insideRight', offset: 15, className: 'fill-blue-600 dark:fill-blue-400 font-bold' }} 
+                                            className="fill-gray-600 dark:fill-gray-400 font-bold" 
+                                        />
+                                        <Tooltip 
+                                            contentStyle={{ 
+                                                backgroundColor: '#1f2937', 
+                                                border: '1px solid #374151', 
+                                                borderRadius: '8px', 
+                                                color: '#ffffff',
+                                                fontWeight: 'bold' 
+                                            }} 
+                                        />
+                                        <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                                        <Line yAxisId="left" type="monotone" dataKey="İşçilik Saati (Saat)" stroke="#a855f7" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
+                                        <Line yAxisId="right" type="monotone" dataKey="Operasyon Sayısı (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         );
     };
