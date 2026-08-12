@@ -102,7 +102,12 @@ const EnhancedMoldList = ({ projects }) => {
             p && 
             p.moldName && 
             typeof p.moldName === 'string' && 
-            p.moldName.trim() !== '' 
+            p.moldName.trim() !== '' &&
+            !p.isDeleted &&
+            p.deleted !== true &&
+            !p.deletedAt &&
+            String(p.status || '').toUpperCase().trim() !== 'DELETED' &&
+            String(p.status || '').toUpperCase().trim() !== 'SİLİNDİ'
         );
     }, [projects]);
 

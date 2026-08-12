@@ -18,7 +18,7 @@ import {
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 
 import { 
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+    LineChart, Line, BarChart, Bar, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 
 import PersonnelPerformanceAnalysis from '../components/Analysis/PersonnelPerformanceAnalysis.js'; 
@@ -480,12 +480,35 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
 
     const validMoldProjects = useMemo(() => {
         if (!projects || !Array.isArray(projects)) return [];
-        return projects.filter(p => 
-            p && 
-            p.moldName && 
-            typeof p.moldName === 'string' &&
-            Array.isArray(p.tasks) 
-        );
+        return projects
+            .filter(p => {
+                if (!p || !p.moldName || typeof p.moldName !== 'string' || !Array.isArray(p.tasks)) return false;
+                if (p.isDeleted || p.deleted === true || p.deletedAt) return false;
+                const st = String(p.status || '').toUpperCase().trim();
+                if (st === 'DELETED' || st === 'SİLİNDİ' || st === 'ÇÖP') return false;
+                return true;
+            })
+            .map(p => ({
+                ...p,
+                tasks: (p.tasks || [])
+                    .filter(t => {
+                        if (!t) return false;
+                        if (t.isDeleted || t.deleted === true || t.deletedAt) return false;
+                        const tSt = String(t.status || '').toUpperCase().trim();
+                        if (tSt === 'DELETED' || tSt === 'SİLİNDİ') return false;
+                        return true;
+                    })
+                    .map(t => ({
+                        ...t,
+                        operations: (t.operations || []).filter(op => {
+                            if (!op) return false;
+                            if (op.isDeleted || op.deleted === true || op.deletedAt) return false;
+                            const opSt = String(op.status || '').toUpperCase().trim();
+                            if (opSt === 'DELETED' || opSt === 'SİLİNDİ') return false;
+                            return true;
+                        })
+                    }))
+            }));
     }, [projects]);
 
     const canViewReworkTab = 
@@ -1345,15 +1368,188 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
 
     const GeneralAnalysisCard = () => {
         const [generalSubTab, setGeneralSubTab] = useState('yearly'); // 'yearly' | 'monthly'
+        const [completedSearchTerm, setCompletedSearchTerm] = useState('');
+        const [completedTypeFilter, setCompletedTypeFilter] = useState('all');
+        const [yearlyMonthFilter, setYearlyMonthFilter] = useState('all'); // 'all' | 0 .. 11
+        const [chartTypeFilter, setChartTypeFilter] = useState('all');
+
         const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
+        const filteredYearlyOps = useMemo(() => {
+            return allCompletedOperations.filter(op => {
+                if (!op.finishDate) return false;
+                const d = new Date(op.finishDate);
+                if (d.getFullYear() !== parseInt(selectedYear)) return false;
+                if (yearlyMonthFilter !== 'all' && d.getMonth() !== parseInt(yearlyMonthFilter)) return false;
+                return true;
+            });
+        }, [allCompletedOperations, selectedYear, yearlyMonthFilter]);
+
+        const yearlyTotalHours = useMemo(() => {
+            return filteredYearlyOps.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0).toFixed(0);
+        }, [filteredYearlyOps]);
+
+        const completedMoldsRawList = useMemo(() => {
+            return validMoldProjects.filter(p => {
+                const st = p.status ? String(p.status).toUpperCase().trim() : '';
+                const isCompletedStatus = 
+                    st === 'TAMAMLANDI' || 
+                    st === 'COMPLETED' || 
+                    st === 'BİTTİ' || 
+                    st === 'BITTI' || 
+                    st === 'DONE' ||
+                    p.status === MOLD_STATUS.COMPLETED;
+
+                if (!isCompletedStatus) return false;
+
+                const allOps = (p.tasks || []).flatMap(t => t.operations || []);
+                const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
+                
+                const finishDates = completedOps
+                    .map(op => op.finishDate ? new Date(op.finishDate).getTime() : null)
+                    .filter(Boolean);
+
+                const lastFinishMs = finishDates.length > 0 
+                    ? Math.max(...finishDates) 
+                    : (p.completedAt ? new Date(p.completedAt).getTime() : (p.updatedAt ? new Date(p.updatedAt).getTime() : null));
+
+                if (!lastFinishMs) return false;
+                
+                const finishDateObj = new Date(lastFinishMs);
+                if (finishDateObj.getFullYear() !== parseInt(selectedYear)) return false;
+                if (yearlyMonthFilter !== 'all' && finishDateObj.getMonth() !== parseInt(yearlyMonthFilter)) return false;
+
+                return true;
+            }).map(p => {
+                const allOps = (p.tasks || []).flatMap(t => t.operations || []);
+                const completedOps = allOps.filter(op => op.status === OPERATION_STATUS.COMPLETED);
+
+                const startDates = allOps
+                    .map(op => op.startDate ? new Date(op.startDate).getTime() : (op.finishDate ? new Date(op.finishDate).getTime() : null))
+                    .filter(Boolean);
+
+                const finishDates = completedOps
+                    .map(op => op.finishDate ? new Date(op.finishDate).getTime() : null)
+                    .filter(Boolean);
+
+                const firstStartMs = startDates.length > 0 
+                    ? Math.min(...startDates) 
+                    : (p.createdAt ? new Date(p.createdAt).getTime() : new Date().getTime());
+
+                const lastFinishMs = finishDates.length > 0 
+                    ? Math.max(...finishDates) 
+                    : (p.completedAt ? new Date(p.completedAt).getTime() : new Date().getTime());
+
+                let totalDurationDays = 1;
+                if (firstStartMs && lastFinishMs && lastFinishMs >= firstStartMs) {
+                    totalDurationDays = Math.max(1, Math.ceil((lastFinishMs - firstStartMs) / (1000 * 60 * 60 * 24)));
+                }
+
+                const totalManHours = completedOps.reduce((acc, op) => acc + (parseFloat(op.durationInHours) || 0), 0).toFixed(1);
+                const normType = normalizeMoldType(p.projectType || p.type);
+
+                return {
+                    id: p.id,
+                    moldName: p.moldName,
+                    customer: p.customer || '',
+                    projectType: normType,
+                    startDateFormatted: formatDate(firstStartMs),
+                    finishDateFormatted: formatDate(lastFinishMs),
+                    totalDurationDays,
+                    totalManHours,
+                    totalTasks: (p.tasks || []).length,
+                    lastFinishMs
+                };
+            }).sort((a, b) => b.lastFinishMs - a.lastFinishMs);
+        }, [validMoldProjects, selectedYear, yearlyMonthFilter]);
+
+        const [completedChartTypeFilter, setCompletedChartTypeFilter] = useState('all');
+
+        const completedMoldsChartData = useMemo(() => {
+            const monthlyAcc = Array(12).fill(0).map(() => ({ completedMolds: 0 }));
+
+            completedMoldsRawList.forEach(mold => {
+                if (!mold.lastFinishMs) return;
+                const finishDateObj = new Date(mold.lastFinishMs);
+                if (finishDateObj.getFullYear() !== parseInt(selectedYear)) return;
+
+                if (completedChartTypeFilter !== 'all') {
+                    if (mold.projectType !== completedChartTypeFilter) return;
+                }
+
+                const monthIdx = finishDateObj.getMonth();
+                monthlyAcc[monthIdx].completedMolds += 1;
+            });
+
+            return monthlyAcc.map((data, index) => ({
+                name: months[index],
+                "Tamamlanan Kalıp (Adet)": data.completedMolds
+            }));
+        }, [completedMoldsRawList, selectedYear, completedChartTypeFilter, months]);
+
         const chartData = useMemo(() => {
-            return yearlyStats.monthlyData.map((data, index) => ({
+            const monthlyAcc = Array(12).fill(0).map(() => ({ ops: 0, hours: 0 }));
+
+            allCompletedOperations.forEach(op => {
+                if (!op.finishDate) return;
+                const d = new Date(op.finishDate);
+                if (d.getFullYear() !== parseInt(selectedYear)) return;
+
+                if (chartTypeFilter !== 'all') {
+                    const parentMold = validMoldProjects.find(m => m.id === op.moldId);
+                    const normType = normalizeMoldType(parentMold?.projectType || parentMold?.type);
+                    if (normType !== chartTypeFilter) return;
+                }
+
+                const monthIdx = d.getMonth();
+                monthlyAcc[monthIdx].ops += 1;
+                monthlyAcc[monthIdx].hours += (parseFloat(op.durationInHours) || 0);
+            });
+
+            return monthlyAcc.map((data, index) => ({
                 name: months[index],
                 "İşçilik Saati (Saat)": parseFloat(data.hours.toFixed(0)),
                 "Operasyon Sayısı (Adet)": data.ops
             }));
-        }, [yearlyStats.monthlyData]);
+        }, [allCompletedOperations, validMoldProjects, selectedYear, chartTypeFilter, months]);
+
+        const completedMoldsList = useMemo(() => {
+            let list = completedMoldsRawList;
+
+            if (completedTypeFilter !== 'all') {
+                list = list.filter(m => m.projectType === completedTypeFilter);
+            }
+
+            const query = completedSearchTerm.toLowerCase().trim();
+            if (query) {
+                list = list.filter(m => 
+                    m.moldName.toLowerCase().includes(query) || 
+                    m.customer.toLowerCase().includes(query)
+                );
+            }
+
+            return list;
+        }, [completedMoldsRawList, completedTypeFilter, completedSearchTerm]);
+
+        const filteredYearlyTypeCounts = useMemo(() => {
+            const counts = {
+                'YENİ KALIP': 0,
+                'REVİZYON': 0,
+                'PROJE İMALAT': 0,
+                'İYİLEŞTİRME': 0,
+                'T0-İYİLEŞTİRME': 0
+            };
+
+            completedMoldsRawList.forEach(m => {
+                const norm = m.projectType;
+                counts[norm] = (counts[norm] || 0) + 1;
+            });
+
+            return {
+                counts,
+                totalCompleted: completedMoldsRawList.length
+            };
+        }, [completedMoldsRawList]);
 
         return (
             <div className="space-y-6 animate-fadeIn text-gray-900 dark:text-white">
@@ -1389,27 +1585,100 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                     <MonthlyAnalysisCard />
                 ) : (
                     <div className="space-y-8 animate-fadeIn text-gray-900 dark:text-white">
-                        <div className="flex flex-col md:flex-row justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                            <div><h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center"><TrendingUp className="w-6 h-6 mr-2 text-blue-600" />Yıllık Faaliyet Raporu</h3><p className="text-gray-500 dark:text-gray-400 mt-1">Şirketin genel performans verileri</p></div>
-                            <div className="mt-4 md:mt-0 flex items-center"><CalendarDays className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-300" /><select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white">{availableYears.map(year => (<option key={year} value={year}>{year}</option>))}</select></div>
+                        {/* BAŞLIK VE FİLTRELER BARI */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div>
+                                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                                        <TrendingUp className="w-6 h-6 mr-2 text-blue-600" />
+                                        Yıllık Faaliyet Raporu {yearlyMonthFilter !== 'all' ? `(${months[yearlyMonthFilter]} ${selectedYear})` : `(${selectedYear})`}
+                                    </h3>
+                                    <p className="text-gray-500 dark:text-gray-400 mt-1">
+                                        Şirketin tamamlanan kalıp performans verileri, biten kalıplar ve tür dağılımları
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    {/* YIL SEÇİMİ */}
+                                    <div className="flex items-center gap-2">
+                                        <CalendarDays className="w-5 h-5 text-gray-500 dark:text-gray-300" />
+                                        <span className="text-xs font-bold text-gray-500">Yıl:</span>
+                                        <select 
+                                            value={selectedYear} 
+                                            onChange={(e) => setSelectedYear(parseInt(e.target.value))} 
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm font-bold rounded-xl focus:ring-blue-500 focus:border-blue-500 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        >
+                                            {availableYears.map(year => (<option key={year} value={year}>{year}</option>))}
+                                        </select>
+                                    </div>
+
+                                    {/* AY SEÇİM DROPDOWN */}
+                                    <div className="flex items-center gap-2">
+                                        <Filter className="w-4 h-4 text-gray-500 dark:text-gray-300" />
+                                        <span className="text-xs font-bold text-gray-500">Ay Filtresi:</span>
+                                        <select
+                                            value={yearlyMonthFilter}
+                                            onChange={(e) => setYearlyMonthFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm font-bold rounded-xl focus:ring-blue-500 focus:border-blue-500 p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        >
+                                            <option value="all">📅 Tüm Yıl (12 Ay)</option>
+                                            {months.map((mName, mIdx) => (
+                                                <option key={mIdx} value={mIdx}>{mName} {selectedYear}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* HIZLI AY SEÇİMİ PILL BUTONLARI */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-2 border-t border-gray-100 dark:border-gray-700/80 no-scrollbar">
+                                <button
+                                    type="button"
+                                    onClick={() => setYearlyMonthFilter('all')}
+                                    className={`px-3.5 py-1.5 text-xs font-black rounded-xl transition whitespace-nowrap flex items-center gap-1 ${
+                                        yearlyMonthFilter === 'all'
+                                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    📅 Tüm Yıl ({selectedYear})
+                                </button>
+                                {months.map((mName, idx) => {
+                                    const isSelected = yearlyMonthFilter === idx;
+                                    return (
+                                        <button
+                                            key={mName}
+                                            type="button"
+                                            onClick={() => setYearlyMonthFilter(isSelected ? 'all' : idx)}
+                                            className={`px-3.5 py-1.5 text-xs font-black rounded-xl transition whitespace-nowrap ${
+                                                isSelected
+                                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            {mName}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         {/* YILLIK ÜST KPİ KARTLARI */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="p-6 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-blue-100 text-sm font-medium mb-1">Toplam Tamamlanan Kalıp</p><h4 className="text-4xl font-bold">{yearlyStats.completedMolds}</h4></div><Box className="w-8 h-8 text-blue-200 opacity-80" /></div></div>
-                            <div className="p-6 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-purple-100 text-sm font-medium mb-1">Toplam İşçilik Saati</p><h4 className="text-4xl font-bold">{yearlyStats.totalHours}</h4></div><Clock className="w-8 h-8 text-purple-200 opacity-80" /></div></div>
-                            <div className="p-6 rounded-xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-green-100 text-sm font-medium mb-1">Tamamlanan Operasyon</p><h4 className="text-4xl font-bold">{yearlyStats.totalOps}</h4></div><CheckCircle className="w-8 h-8 text-green-200 opacity-80" /></div></div>
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-blue-100 text-sm font-medium mb-1">Toplam Tamamlanan Kalıp</p><h4 className="text-4xl font-bold">{completedMoldsRawList.length}</h4></div><Box className="w-8 h-8 text-blue-200 opacity-80" /></div></div>
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-purple-100 text-sm font-medium mb-1">Toplam İşçilik Saati</p><h4 className="text-4xl font-bold">{yearlyTotalHours}</h4></div><Clock className="w-8 h-8 text-purple-200 opacity-80" /></div></div>
+                            <div className="p-6 rounded-xl bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg transform hover:-translate-y-1 transition duration-300"><div className="flex justify-between items-start"><div><p className="text-green-100 text-sm font-medium mb-1">Tamamlanan Operasyon</p><h4 className="text-4xl font-bold">{filteredYearlyOps.length}</h4></div><CheckCircle className="w-8 h-8 text-green-200 opacity-80" /></div></div>
                         </div>
 
-                        {/* YILLIK KALIP TÜRLERİ DAĞILIMI KARTI */}
+                        {/* YILLIK TAMAMLANAN KALIP TÜRLERİ DAĞILIMI KARTI */}
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
                             <h4 className="text-base font-extrabold text-gray-900 dark:text-white flex items-center justify-between">
                                 <span className="flex items-center gap-2">
                                     <Layers className="w-5 h-5 text-indigo-500" />
-                                    Yıllık Kalıp Türü Dağılımı ({selectedYear})
+                                    Tamamlanan Kalıp Türü Dağılımı {yearlyMonthFilter !== 'all' ? `(${months[yearlyMonthFilter]} ${selectedYear})` : `(${selectedYear})`}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">
-                                    Toplam {yearlyStats.totalActiveMoldsInYear} Aktif İş Hacmi
+                                    Toplam {filteredYearlyTypeCounts.totalCompleted} Tamamlanan Kalıp
                                 </span>
                             </h4>
 
@@ -1421,9 +1690,9 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                     { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
                                     { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
                                 ].map(t => {
-                                    const count = yearlyStats.typeCounts?.[t.id] || 0;
-                                    const total = yearlyStats.totalActiveMoldsInYear || 1;
-                                    const pct = ((count / total) * 100).toFixed(1);
+                                    const count = filteredYearlyTypeCounts.counts?.[t.id] || 0;
+                                    const total = filteredYearlyTypeCounts.totalCompleted || 1;
+                                    const pct = filteredYearlyTypeCounts.totalCompleted > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
                                     const badgeInfo = getMoldTypeBadgeInfo(t.id);
 
                                     return (
@@ -1435,7 +1704,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                                 </span>
                                             </div>
                                             <div className="mt-3">
-                                                <div className="text-2xl font-black">{count} <span className="text-xs font-bold opacity-80">Adet</span></div>
+                                                <div className="text-2xl font-black">{count} <span className="text-xs font-bold opacity-80">Adet Biten</span></div>
                                             </div>
                                         </div>
                                     );
@@ -1443,12 +1712,213 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                             </div>
                         </div>
 
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                            <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
-                                <BarChart2 className="w-5 h-5 mr-2 text-blue-500" />
-                                Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
-                            </h4>
-                            <div className="h-80 w-full text-xs font-bold">
+                        {/* YILLIK TAMAMLANAN KALIPLAR LİSTESİ TABLOSU */}
+                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden space-y-4 p-6">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-100 dark:border-gray-700 pb-4">
+                                <div>
+                                    <h4 className="text-lg font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                        {selectedYear} Yılında Tamamlanan Kalıplar Listesi ({completedMoldsList.length} Kalıp)
+                                    </h4>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Seçilen yılda imalatı ve süreçleri bitirilip teslim edilen kalıpların başlama, bitiş tarihleri, toplam imalat gün süreleri ve detaylı karnesi.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 w-full md:w-auto">
+                                    <div className="relative flex-1 md:w-64">
+                                        <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            placeholder="Tamamlanan kalıp ara..."
+                                            value={completedSearchTerm}
+                                            onChange={(e) => setCompletedSearchTerm(e.target.value)}
+                                            className="w-full pl-9 pr-3 py-1.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* TÜRE GÖRE FİLTRELEME BUTONLARI */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                    <Filter className="w-3.5 h-3.5" /> Kalıp Türüne Göre Filtrele:
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setCompletedTypeFilter('all')}
+                                    className={`px-3 py-1 text-xs font-black rounded-lg transition ${
+                                        completedTypeFilter === 'all'
+                                            ? 'bg-emerald-600 text-white shadow-md'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    Tüm Biten Kalıplar ({completedMoldsRawList.length})
+                                </button>
+
+                                {[
+                                    { id: 'YENİ KALIP', label: 'Yeni Kalıp', icon: '🟦' },
+                                    { id: 'REVİZYON', label: 'Revizyon', icon: '🛠️' },
+                                    { id: 'PROJE İMALAT', label: 'Proje İmalat', icon: '⚙️' },
+                                    { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
+                                    { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
+                                ].map(t => {
+                                    const count = completedMoldsRawList.filter(m => m.projectType === t.id).length;
+                                    const isSelected = completedTypeFilter === t.id;
+                                    const badgeInfo = getMoldTypeBadgeInfo(t.id);
+                                    return (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            onClick={() => setCompletedTypeFilter(isSelected ? 'all' : t.id)}
+                                            className={`px-3 py-1 text-xs font-black rounded-lg transition flex items-center gap-1.5 border shadow-2xs ${
+                                                isSelected
+                                                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-400/40'
+                                                    : `${badgeInfo.colorClass} hover:opacity-90`
+                                            }`}
+                                        >
+                                            <span>{t.icon} {t.label}</span>
+                                            <span className={`px-1.5 py-0.2 text-[10px] font-black rounded-full ${
+                                                isSelected ? 'bg-white text-emerald-900' : 'bg-white/80 dark:bg-black/40 text-gray-900 dark:text-white'
+                                            }`}>
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* TABLO */}
+                            <div className="overflow-x-auto border border-gray-100 dark:border-gray-700/80 rounded-xl">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50 dark:bg-gray-700/60 text-[11px] font-black uppercase text-gray-500 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                                            <th className="py-3 px-4">Kalıp / Proje Adı</th>
+                                            <th className="py-3 px-3 text-center">Kalıp Türü</th>
+                                            <th className="py-3 px-3 text-center">Başlangıç Tarihi</th>
+                                            <th className="py-3 px-3 text-center">Bitiş Tarihi</th>
+                                            <th className="py-3 px-3 text-center">Tamamlanma Süresi</th>
+                                            <th className="py-3 px-3 text-center">İşçilik Saati</th>
+                                            <th className="py-3 px-3 text-center">Parça Sayısı</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 text-xs">
+                                        {completedMoldsList.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="7" className="py-10 text-center text-gray-400 italic font-semibold">
+                                                    {selectedYear} yılında seçilen kriterlerde tamamlanmış kalıp kaydı bulunmamaktadır.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            completedMoldsList.map((mold) => {
+                                                const typeBadge = getMoldTypeBadgeInfo(mold.projectType);
+                                                return (
+                                                    <tr key={mold.id} className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition">
+                                                        <td className="py-3 px-4 font-bold text-gray-900 dark:text-white">
+                                                            <div className="flex items-center gap-2">
+                                                                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                                                                <div>
+                                                                    <div className="font-extrabold text-sm text-gray-900 dark:text-white">{mold.moldName}</div>
+                                                                    {mold.customer && (
+                                                                        <div className="text-[10px] text-gray-500 font-semibold">{mold.customer}</div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center">
+                                                            <span className={`text-[10px] px-2.5 py-0.5 rounded-md font-black border inline-block ${typeBadge.colorClass}`}>
+                                                                {typeBadge.icon} {typeBadge.label}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center font-bold text-gray-700 dark:text-gray-300">
+                                                            {mold.startDateFormatted}
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
+                                                            {mold.finishDateFormatted}
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center">
+                                                            <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 font-black text-xs border border-emerald-300">
+                                                                ⏱️ {mold.totalDurationDays} Gün
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center font-black text-purple-600 dark:text-purple-400 text-xs">
+                                                            {mold.totalManHours} st
+                                                        </td>
+
+                                                        <td className="py-3 px-3 text-center font-black text-blue-600 dark:text-blue-400 text-xs">
+                                                            {mold.totalTasks} Parça
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* GRAFİK 1: AYLIK ÜRETİM VE İŞÇİLİK YOĞUNLUĞU */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-gray-100 dark:border-gray-700 pb-3">
+                                <div>
+                                    <h4 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                                        <BarChart2 className="w-5 h-5 mr-2 text-blue-500" />
+                                        Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
+                                    </h4>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        Kalıp türüne göre aylık harcanan işçilik saatlerini ve tamamlanan operasyon adetlerini grafik üzerinde inceleyin.
+                                    </p>
+                                </div>
+
+                                {/* TÜRE GÖRE GRAFİK FİLTRELEME */}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 mr-1 flex items-center gap-1">
+                                        <Filter className="w-3.5 h-3.5" /> Kalıp Türü:
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setChartTypeFilter('all')}
+                                        className={`px-3 py-1 text-xs font-black rounded-lg transition ${
+                                            chartTypeFilter === 'all'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Tüm Türler
+                                    </button>
+                                    {[
+                                        { id: 'YENİ KALIP', label: 'Yeni Kalıp', icon: '🟦' },
+                                        { id: 'REVİZYON', label: 'Revizyon', icon: '🛠️' },
+                                        { id: 'PROJE İMALAT', label: 'Proje İmalat', icon: '⚙️' },
+                                        { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
+                                        { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
+                                    ].map(t => {
+                                        const isSelected = chartTypeFilter === t.id;
+                                        const badgeInfo = getMoldTypeBadgeInfo(t.id);
+                                        return (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => setChartTypeFilter(isSelected ? 'all' : t.id)}
+                                                className={`px-2.5 py-1 text-xs font-black rounded-lg transition flex items-center gap-1 border shadow-2xs ${
+                                                    isSelected
+                                                        ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-400/40'
+                                                        : `${badgeInfo.colorClass} hover:opacity-90`
+                                                }`}
+                                            >
+                                                <span>{t.icon} {t.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="h-80 w-full text-xs font-bold pt-2">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
@@ -1477,6 +1947,90 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                         <Line yAxisId="left" type="monotone" dataKey="İşçilik Saati (Saat)" stroke="#a855f7" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
                                         <Line yAxisId="right" type="monotone" dataKey="Operasyon Sayısı (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
                                     </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* GRAFİK 2: ÖZEL AYLIK TAMAMLANAN KALIP SAYISI GRAFİĞİ */}
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-gray-100 dark:border-gray-700 pb-3">
+                                <div>
+                                    <h4 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
+                                        <Box className="w-5 h-5 mr-2 text-emerald-500" />
+                                        Aylık Tamamlanan Kalıp Sayısı Grafiği ({selectedYear})
+                                    </h4>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        Seçilen yılda aylara göre imalatı biten ve teslim edilen kalıpların net adet dağılımı.
+                                    </p>
+                                </div>
+
+                                {/* TÜRE GÖRE TAMAMLANAN KALIP GRAFİK FİLTRELEME */}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs font-extrabold text-gray-500 dark:text-gray-400 mr-1 flex items-center gap-1">
+                                        <Filter className="w-3.5 h-3.5" /> Kalıp Türü:
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCompletedChartTypeFilter('all')}
+                                        className={`px-3 py-1 text-xs font-black rounded-lg transition ${
+                                            completedChartTypeFilter === 'all'
+                                                ? 'bg-emerald-600 text-white shadow-sm'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Tüm Türler
+                                    </button>
+                                    {[
+                                        { id: 'YENİ KALIP', label: 'Yeni Kalıp', icon: '🟦' },
+                                        { id: 'REVİZYON', label: 'Revizyon', icon: '🛠️' },
+                                        { id: 'PROJE İMALAT', label: 'Proje İmalat', icon: '⚙️' },
+                                        { id: 'İYİLEŞTİRME', label: 'İyileştirme', icon: '✨' },
+                                        { id: 'T0-İYİLEŞTİRME', label: 'T0-İyileştirme', icon: '🚀' },
+                                    ].map(t => {
+                                        const isSelected = completedChartTypeFilter === t.id;
+                                        const badgeInfo = getMoldTypeBadgeInfo(t.id);
+                                        return (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => setCompletedChartTypeFilter(isSelected ? 'all' : t.id)}
+                                                className={`px-2.5 py-1 text-xs font-black rounded-lg transition flex items-center gap-1 border shadow-2xs ${
+                                                    isSelected
+                                                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-400/40'
+                                                        : `${badgeInfo.colorClass} hover:opacity-90`
+                                                }`}
+                                            >
+                                                <span>{t.icon} {t.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="h-80 w-full text-xs font-bold pt-4">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={completedMoldsChartData} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
+                                        <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+                                        <XAxis dataKey="name" className="fill-gray-600 dark:fill-gray-400 font-bold" />
+                                        <YAxis 
+                                            allowDecimals={false} 
+                                            label={{ value: 'Biten Kalıp Sayısı (Adet)', angle: -90, position: 'insideLeft', offset: -5, className: 'fill-emerald-600 dark:fill-emerald-400 font-bold' }} 
+                                            className="fill-gray-600 dark:fill-gray-400 font-bold" 
+                                        />
+                                        <Tooltip 
+                                            contentStyle={{ 
+                                                backgroundColor: '#1f2937', 
+                                                border: '1px solid #10b981', 
+                                                borderRadius: '8px', 
+                                                color: '#ffffff',
+                                                fontWeight: 'bold' 
+                                            }} 
+                                        />
+                                        <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                                        <Bar dataKey="Tamamlanan Kalıp (Adet)" fill="#10b981" radius={[8, 8, 0, 0]}>
+                                            <LabelList dataKey="Tamamlanan Kalıp (Adet)" position="top" fill="#10b981" fontSize={12} fontWeight="bold" formatter={(val) => val > 0 ? `${val} Kalıp` : ''} />
+                                        </Bar>
+                                    </BarChart>
                                 </ResponsiveContainer>
                             </div>
                         </div>
