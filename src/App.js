@@ -1045,7 +1045,7 @@ const App = () => {
 
                         {/* YENİ EKLENEN CANLI DURUM VE VARDİYA PLANI ROTALARI */}
                         <Route path="/canli-durum" element={<CanliDurum db={db} />} />
-                        <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} />} />
+                        <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} />} />
                         <Route path="/vardiya-takip" element={
                             (loggedInUser?.role === ROLES.CAM_OPERATOR || loggedInUser?.role === 'CAM Sorumlusu' || loggedInUser?.role === ROLES.ADMIN)
                             ? <ShiftPlannerPage db={db} loggedInUser={loggedInUser} personnel={personnel} />
@@ -1072,7 +1072,7 @@ const App = () => {
 
                         <Route path="/vardiya-plani" element={
                             activeUserPermissions['/vardiya-plani']?.view
-                            ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
+                            ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 
