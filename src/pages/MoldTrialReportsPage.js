@@ -171,6 +171,23 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const [isUploadingMedia, setIsUploadingMedia] = useState(false); 
 
     // --- VERİ ÇEKME ---
+    const [allReports, setAllReports] = useState([]);
+
+    // Sol panel filtreleri için tüm deneme raporlarını dinle
+    useEffect(() => {
+        if (!db) return;
+        const q = query(
+            collection(db, MOLD_TRIAL_REPORTS_COLLECTION),
+            orderBy('createdAt', 'desc')
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setAllReports(fetched);
+        });
+        return () => unsubscribe();
+    }, [db]);
+
+    // Seçili kalıbın deneme raporlarını çek
     useEffect(() => {
         if (!selectedMold || !db) return;
         const q = query(
@@ -213,26 +230,45 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
         }
     };
 
-    // --- FİLTRELEME ---
+    // Her kalıbın en güncel deneme raporu kararı (APPROVED, REJECTED, REVISION, WAITING)
+    const moldLatestTrialResultMap = useMemo(() => {
+        const map = new Map();
+        allReports.forEach(report => {
+            if (report.moldId && !map.has(report.moldId)) {
+                map.set(report.moldId, report);
+            }
+        });
+        return map;
+    }, [allReports]);
+
+    // --- SOL PANEL FİLTRELEME (DENEME RAPORU KARARINA GÖRE) ---
     const filteredMolds = useMemo(() => {
         if (!projects || projects.length === 0) return [];
-        let filtered = projects;
+
+        let filtered = projects.map(p => {
+            const latestReport = moldLatestTrialResultMap.get(p.id);
+            const trialResult = latestReport ? latestReport.result : null;
+            const trialPhase = latestReport ? latestReport.phase : 'T0';
+            return {
+                ...p,
+                trialResult,
+                trialPhase
+            };
+        });
 
         if (listFilter === 'TRIALS') {
-            filtered = projects.filter(p => {
-                const status = p.status ? p.status.toString().toUpperCase().trim() : '';
-                return (status.includes('DENEME') || status.includes('TRIAL') || status.includes('TASH') || status.includes('ALIŞTIRMA'));
+            filtered = filtered.filter(p => {
+                if (p.trialResult === 'WAITING' || p.trialResult === 'REVISION') return true;
+                if (!p.trialResult) {
+                    const status = p.status ? p.status.toString().toUpperCase().trim() : '';
+                    return (status.includes('DENEME') || status.includes('TRIAL') || status.includes('TASH') || status.includes('ALIŞTIRMA') || status.includes('BEKLEMEDE') || status === '');
+                }
+                return false;
             });
         } else if (listFilter === 'APPROVED') {
-            filtered = projects.filter(p => {
-                const status = p.status ? p.status.toString().toUpperCase().trim() : '';
-                return (status === 'ONAY' || status === 'APPROVED' || status === 'SERİ ONAY');
-            });
+            filtered = filtered.filter(p => p.trialResult === 'APPROVED');
         } else if (listFilter === 'REJECTED') {
-            filtered = projects.filter(p => {
-                const status = p.status ? p.status.toString().toUpperCase().trim() : '';
-                return (status === 'RET' || status === 'REJECTED' || status === 'İPTAL');
-            });
+            filtered = filtered.filter(p => p.trialResult === 'REJECTED');
         }
 
         if (searchTerm) {
@@ -242,7 +278,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
             );
         }
         return filtered;
-    }, [projects, listFilter, searchTerm]);
+    }, [projects, listFilter, searchTerm, moldLatestTrialResultMap]);
 
     const handleMoldSelect = (mold) => {
         setSelectedMold(mold);
@@ -435,15 +471,7 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
                 quickNotes: reportData.quickNotes 
             }));
 
-            let newStatus = selectedMold.status;
-            if (dataToSave.result === 'APPROVED') newStatus = 'ONAY';
-            else if (dataToSave.result === 'REJECTED') newStatus = 'RET';
-            else if (dataToSave.result === 'REVISION') newStatus = 'TASHİH';
-            else if (dataToSave.result === 'WAITING') newStatus = 'DENEME';
-
-            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), { status: newStatus });
-
-            if (!silent) alert(`${dataToSave.phase} fazı kaydedildi ve kalıp durumu "${newStatus}" olarak güncellendi!`);
+            if (!silent) alert(`${dataToSave.phase} deneme raporu başarıyla kaydedildi!`);
         } catch (error) {
             console.error("Hata:", error);
             // Kaydetme hatasını her zaman gösteriyoruz ki sessizce kaybolmasın
@@ -965,22 +993,40 @@ const MoldTrialReportsPage = ({ db, loggedInUser, projects }) => {
     const handlePrevMedia = (e) => { if(e) e.stopPropagation(); if (trialData.media.length > 0) setLightboxIndex((prev) => (prev - 1 + trialData.media.length) % trialData.media.length); };
 
     // --- RENDER BİLEŞENLERİ ---
-    const MoldListItem = ({ mold }) => (
-        <div onClick={() => handleMoldSelect(mold)} className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 transition group ${selectedMold?.id === mold.id ? 'bg-blue-50 dark:bg-gray-700 border-l-4 border-l-blue-600' : ''}`}>
-            <div className="flex justify-between items-start mb-1">
-                <span className="font-bold text-gray-800 dark:text-gray-200 text-sm truncate w-2/3">{mold.moldName}</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                    (mold.status && (mold.status.includes('ONAY') || mold.status === 'APPROVED')) ? 'bg-green-100 text-green-800' : 
-                    (mold.status && (mold.status.includes('RET') || mold.status === 'REJECTED')) ? 'bg-red-100 text-red-800' :
-                    (mold.status && mold.status.toString().toUpperCase().includes('DENEME')) ? 'bg-yellow-100 text-yellow-800' : 
-                    'bg-gray-100 text-gray-600'
-                }`}>{mold.status || 'BELİRSİZ'}</span>
+    const MoldListItem = ({ mold }) => {
+        const latestReport = moldLatestTrialResultMap.get(mold.id);
+        const trialResult = latestReport ? latestReport.result : null;
+        const phase = latestReport ? latestReport.phase : 'T0';
+
+        let badgeLabel = 'DENEME';
+        let badgeStyle = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300';
+
+        if (trialResult === 'APPROVED') {
+            badgeLabel = 'ONAY';
+            badgeStyle = 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300';
+        } else if (trialResult === 'REJECTED') {
+            badgeLabel = 'RET';
+            badgeStyle = 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
+        } else if (trialResult === 'REVISION') {
+            badgeLabel = 'TASHİH';
+            badgeStyle = 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300';
+        } else if (mold.status) {
+            badgeLabel = mold.status;
+        }
+
+        return (
+            <div onClick={() => handleMoldSelect(mold)} className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 transition group ${selectedMold?.id === mold.id ? 'bg-blue-50 dark:bg-gray-700 border-l-4 border-l-blue-600' : ''}`}>
+                <div className="flex justify-between items-start mb-1">
+                    <span className="font-bold text-gray-800 dark:text-gray-200 text-sm truncate w-2/3">{mold.moldName}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${badgeStyle}`}>{badgeLabel}</span>
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                    <span>{mold.projectCode || 'Kod Yok'}</span>
+                    <span className="font-bold text-blue-600 dark:text-blue-400">{phase}</span>
+                </div>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
-                <span>{mold.projectCode || 'Kod Yok'}</span><span>T{mold.trialCount || '0'}</span>
-            </div>
-        </div>
-    );
+        );
+    };
 
     return (
         // RESPONSIVE ANA KAPLAYICI (gap-0 on mobile, gap-4 on desktop)

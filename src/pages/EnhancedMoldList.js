@@ -11,10 +11,10 @@ import {
 } from 'lucide-react';
 
 // Sabitler
-import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG, MOLD_STATUSES_COLLECTION, DEFAULT_MOLD_STATUSES } from '../config/constants.js';
+import { MOLD_STATUS, MOLD_STATUS_ACTIVE_LIST, OPERATION_STATUS, PROJECT_TYPES, PROJECT_TYPE_CONFIG, MOLD_STATUSES_COLLECTION, DEFAULT_MOLD_STATUSES, PROJECT_COLLECTION } from '../config/constants.js';
 
 // Firebase
-import { db, collection, onSnapshot } from '../config/firebase.js';
+import { db, collection, onSnapshot, doc, updateDoc } from '../config/firebase.js';
 
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
@@ -378,7 +378,9 @@ const EnhancedMoldList = ({ projects }) => {
                     ) : (
                         filteredProjects.map(project => {
                             const totalProgress = calculateMoldProgress(project.tasks);
-                            const moldStatus = project.status || MOLD_STATUS.WAITING;
+                            const rawStatus = String(project.status || MOLD_STATUS.WAITING).trim();
+                            const isTrialStatus = ['RET', 'ONAY', 'TASHİH', 'APPROVED', 'REJECTED', 'REVISION'].includes(rawStatus.toUpperCase());
+                            const moldStatus = isTrialStatus ? 'BEKLEMEDE' : rawStatus;
                             const typeStyle = getProjectTypeStyle(project.projectType);
 
                             // Güvenli erişim operatörleri eklendi (?.)

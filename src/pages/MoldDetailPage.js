@@ -970,15 +970,21 @@ const MoldDetailPage = ({
 
                     <div>
                         <span>Müşteri: <span className="font-bold text-gray-800 dark:text-gray-200">{mold.customer}</span> | Durum:</span>
-                        {isAdmin ? (
-                            <select value={mold.status || (statusOptions[0] || 'BEKLEMEDE')} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(mold.status || 'BEKLEMEDE')}`}>
-                               {statusOptions.map(status => <option key={status} value={status}>{status}</option>)}
-                            </select>
-                        ) : (
-                            <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusClasses(mold.status || MOLD_STATUS.WAITING)}`}>
-                                {mold.status || MOLD_STATUS.WAITING}
-                            </span>
-                        )}
+                        {(() => {
+                            const rawStatus = String(mold.status || 'BEKLEMEDE').trim();
+                            const isTrialStatus = ['RET', 'ONAY', 'TASHİH', 'APPROVED', 'REJECTED', 'REVISION'].includes(rawStatus.toUpperCase());
+                            const currentMoldStatus = isTrialStatus ? 'BEKLEMEDE' : rawStatus;
+
+                            return isAdmin ? (
+                                <select value={currentMoldStatus} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(currentMoldStatus)}`}>
+                                   {statusOptions.map(status => <option key={status} value={status}>{status}</option>)}
+                                </select>
+                            ) : (
+                                <span className={`ml-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusClasses(currentMoldStatus)}`}>
+                                    {currentMoldStatus}
+                                </span>
+                            );
+                        })()}
                     </div>
 
                     <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
