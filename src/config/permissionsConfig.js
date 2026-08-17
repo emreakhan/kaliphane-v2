@@ -89,6 +89,7 @@ export const getDefaultPermissions = (role) => {
         permissions['/survey-evaluation'] = { view: true, edit: true };
         permissions['/continuous-improvement'] = { view: true, edit: true };
         permissions['/process-improvement'] = { view: true, edit: true };
+        permissions['/vardiya-plani'] = { view: true, edit: true };
         return permissions;
     }
 
@@ -98,6 +99,7 @@ export const getDefaultPermissions = (role) => {
         permissions['/survey-evaluation'] = { view: true, edit: true };
         permissions['/continuous-improvement'] = { view: true, edit: true };
         permissions['/process-improvement'] = { view: true, edit: true };
+        permissions['/vardiya-plani'] = { view: true, edit: true };
         return permissions;
     }
 
@@ -112,6 +114,7 @@ export const getDefaultPermissions = (role) => {
         permissions['/operator-performance'] = { view: true, edit: true };
         permissions['/cnc-torna-history'] = { view: true, edit: false };
         permissions['/survey-evaluation'] = { view: true, edit: true };
+        permissions['/vardiya-plani'] = { view: true, edit: true };
         return permissions;
     }
 

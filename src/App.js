@@ -225,7 +225,7 @@ const App = () => {
     // Tezgah Operatörleri için rota sınırlandırma
     useEffect(() => {
         if (loggedInUser && loggedInUser.role === ROLES.MACHINE_OPERATOR) {
-            const allowedPaths = ['/terminal', '/survey-evaluation', '/tool-history', '/tool-assignment', '/continuous-improvement', '/process-improvement'];
+            const allowedPaths = ['/terminal', '/survey-evaluation', '/tool-history', '/tool-assignment', '/continuous-improvement', '/process-improvement', '/vardiya-plani'];
             if (!allowedPaths.includes(location.pathname)) {
                 navigate('/terminal', { replace: true });
             }
@@ -1044,8 +1044,6 @@ const App = () => {
                         } />
 
                         {/* YENİ EKLENEN CANLI DURUM VE VARDİYA PLANI ROTALARI */}
-                        <Route path="/canli-durum" element={<CanliDurum db={db} />} />
-                        <Route path="/vardiya-plani" element={<NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} />} />
                         <Route path="/vardiya-takip" element={
                             (loggedInUser?.role === ROLES.CAM_OPERATOR || loggedInUser?.role === 'CAM Sorumlusu' || loggedInUser?.role === ROLES.ADMIN)
                             ? <ShiftPlannerPage db={db} loggedInUser={loggedInUser} personnel={personnel} />

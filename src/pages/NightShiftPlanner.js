@@ -3,7 +3,7 @@ import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateD
 import { 
   PlusIcon, TrashIcon, MonitorIcon, PencilIcon, XIcon, SaveIcon, HistoryIcon, UserIcon, 
   CheckCircle, PlayCircle, AlertTriangle, Clock, Filter, Wrench, Ruler,
-  Check, UserCheck, Layers, ListPlus, ChevronDown, RefreshCw
+  Check, UserCheck, Layers, ListPlus, ChevronDown, RefreshCw, ArrowUp, ArrowDown
 } from 'lucide-react';
 
 const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
@@ -16,6 +16,98 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     if (isCamOrAdmin) return false;
     return userRoleLower.includes('operatör') || userRoleLower.includes('operator') || userRoleLower.includes('tezgah') || userRoleLower.includes('cnc') || userRoleLower.includes('torna') || canEdit === false;
   }, [loggedInUser, userRoleLower, canEdit]);
+
+  // Sıralama Yetkisi Kontrolü (Admin, CAM Operatörü, CAM Sorumlusu)
+  const canReorderJobs = useMemo(() => {
+    if (!loggedInUser) return false;
+    const roleStr = (loggedInUser?.role || loggedInUser?.userRole || loggedInUser?.jobTitle || '').toLowerCase();
+    return (
+      roleStr.includes('admin') ||
+      roleStr.includes('cam') ||
+      roleStr.includes('yönetici') ||
+      roleStr.includes('müdür') ||
+      roleStr.includes('sorumlu') ||
+      loggedInUser?.role === 'Admin' ||
+      loggedInUser?.role === 'CAM Operatörü' ||
+      loggedInUser?.role === 'CAM Sorumlusu'
+    );
+  }, [loggedInUser]);
+
+  // Tezgah Grubunun Öncelik Sırasını Yukarı veya Aşağı Taşıma Fonksiyonu
+  const handleMoveMachineGroup = async (groupIdx, direction) => {
+    if (!groupedOperatorPlans || groupedOperatorPlans.length < 2 || !db) return;
+    const targetIdx = direction === 'up' ? groupIdx - 1 : groupIdx + 1;
+    if (targetIdx < 0 || targetIdx >= groupedOperatorPlans.length) return;
+
+    try {
+      const currentGroup = groupedOperatorPlans[groupIdx];
+      const targetGroup = groupedOperatorPlans[targetIdx];
+
+      // Üste geçecek olan gruba daha küçük öncelik numaraları verilir
+      const topGroup = direction === 'up' ? currentGroup : targetGroup;
+      const bottomGroup = direction === 'up' ? targetGroup : currentGroup;
+
+      const sortedTop = [...topGroup.plans].sort((a, b) => (a.priority || 0) - (b.priority || 0));
+      const sortedBottom = [...bottomGroup.plans].sort((a, b) => (a.priority || 0) - (b.priority || 0));
+
+      const minPriTop = Math.min(...sortedTop.map(p => p.priority || 1));
+      const minPriBottom = Math.min(...sortedBottom.map(p => p.priority || 1));
+      const startPriority = Math.min(minPriTop, minPriBottom);
+
+      const updates = [];
+      let currentPri = startPriority;
+
+      // Üste geçen grup öncelikle küçük numaraları alır
+      sortedTop.forEach(plan => {
+        updates.push(
+          updateDoc(doc(db, "night_shift_plans", plan.id), {
+            priority: currentPri++,
+            updatedAt: serverTimestamp()
+          })
+        );
+      });
+
+      // Alta geçen grup sonraki numaraları alır
+      sortedBottom.forEach(plan => {
+        updates.push(
+          updateDoc(doc(db, "night_shift_plans", plan.id), {
+            priority: currentPri++,
+            updatedAt: serverTimestamp()
+          })
+        );
+      });
+
+      await Promise.all(updates);
+    } catch (err) {
+      console.error("Tezgah öncelik sıralaması güncelleme hatası:", err);
+    }
+  };
+
+  // Genel Vardiya Notunu Çekme Yardımcısı (Grup Başlığının Altında Gösterim İçin)
+  const getGroupGeneralNote = (group) => {
+    if (!group) return '';
+    if (group.generalDescription) return group.generalDescription;
+    const planWithNote = group.plans?.find(p => p.generalDescription);
+    if (planWithNote?.generalDescription) return planWithNote.generalDescription;
+
+    // Geçmiş birleşik verilerden genel notu ayıkla
+    for (const p of (group.plans || [])) {
+      if (p.description) {
+        const match = p.description.match(/\[Genel Not:\s*(.*?)\]|\(Genel Not:\s*(.*?)\)/i);
+        if (match && (match[1] || match[2])) {
+          return (match[1] || match[2]).trim();
+        }
+      }
+    }
+    return '';
+  };
+
+  // Takıma Özel Açıklamayı Temizleme Yardımcısı (Takım Satırında Gösterim İçin)
+  const getCleanToolDescription = (plan) => {
+    if (!plan?.description) return '';
+    let desc = plan.description.replace(/\[Genel Not:.*?\]|\(Genel Not:.*?\)/gi, '').trim();
+    return desc;
+  };
 
   // Varsayılan Sekme: Tezgah Operatörü ise 'operator', Değilse 'planning'
   const [activeTab, setActiveTab] = useState(() => isMachineOperator ? 'operator' : 'planning');
@@ -41,6 +133,11 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
   // TV Modu Arşiv Filtresi & Otomatik Sayfa Döngüsü (Auto-Pager)
   const [tvShiftOnly, setTvShiftOnly] = useState(true);
   const [currentTvPage, setCurrentTvPage] = useState(0);
+
+  // Kayıt Defteri Filtreleme State'leri (Günlük, Haftalık, Aylık, Tezgah & Arama)
+  const [historyDateFilter, setHistoryDateFilter] = useState('all'); // 'today', 'week', 'month', 'all'
+  const [historyMachineFilter, setHistoryMachineFilter] = useState('all');
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
 
   // ARANABİLİR TEZGAH DROPDOWN STATE
   const [isMachineDropdownOpen, setIsMachineDropdownOpen] = useState(false);
@@ -216,11 +313,6 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     for (let i = 0; i < validTools.length; i++) {
       const tool = validTools[i];
       const stepToolDesc = tool.description.trim();
-      
-      let finalDescription = stepToolDesc;
-      if (generalDesc) {
-        finalDescription = stepToolDesc ? `${stepToolDesc} [Genel Not: ${generalDesc}]` : generalDesc;
-      }
 
       await addDoc(collection(db, "night_shift_plans"), {
         machineId: machineIdUpper,
@@ -228,7 +320,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
         partName: partNameTrim,
         toolInfo: tool.toolInfo.trim(),
         toolLength: tool.toolLength.trim(),
-        description: finalDescription,
+        description: stepToolDesc,
         generalDescription: generalDesc,
         priority: startPriority + i,
         addedBy: currentUserDisplay || "Belirtilmedi",
@@ -340,12 +432,34 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     await updateDoc(doc(db, "night_shift_plans", id), updatePayload);
   };
 
-  // --- SÜZME VE ZAMAN KONTROLÜ (GÜNCEL VARDİYA / OTOMATİK KAPANMA) ---
-  const isRecentShiftJob = (plan) => {
+  // --- GECE VARDİYASI KESİM SAATİ (HER GÜN ÖĞLEN 12:00 SIFIRLANMA MANTIĞI) ---
+  const getActiveShiftCutoffTime = () => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    const cutoff = new Date(now);
+    cutoff.setMinutes(0);
+    cutoff.setSeconds(0);
+    cutoff.setMilliseconds(0);
+
+    if (currentHour < 12) {
+      // Öğlen 12:00'den önceyiz (Örn: Salı 08:30 AM):
+      // Vardiya döngüsü dün öğlen 12:00'de başladı
+      cutoff.setDate(cutoff.getDate() - 1);
+      cutoff.setHours(12);
+    } else {
+      // Öğlen 12:00'den sonrayız (Örn: Salı 14:00 PM):
+      // Vardiya döngüsü bugün öğlen 12:00'de başladı
+      cutoff.setHours(12);
+    }
+    
+    return cutoff.getTime();
+  };
+
+  const isCurrentShiftJob = (plan) => {
+    // Tamamlanmamış (Bekliyor / İşleniyor / Problem) işler HER ZAMAN görünür
     if (plan.status !== 'TAMAMLANDI') return true;
 
-    const now = new Date().getTime();
-    
     let compTime = null;
     if (plan.completedAt?.toDate) {
       compTime = plan.completedAt.toDate().getTime();
@@ -353,18 +467,11 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       compTime = new Date(plan.completedAt).getTime();
     }
 
-    let createTime = null;
-    if (plan.createdAt?.toDate) {
-      createTime = plan.createdAt.toDate().getTime();
-    } else if (plan.createdAt) {
-      createTime = new Date(plan.createdAt).getTime();
-    }
+    if (!compTime) return true;
 
-    const THIRTY_HOURS_MS = 30 * 60 * 60 * 1000;
-    const refTime = compTime || createTime;
-    if (!refTime) return true;
-
-    return (now - refTime) <= THIRTY_HOURS_MS;
+    // İş, mevcut vardiya döngüsü başladıktan (öğlen 12:00'den) sonra mı bitti?
+    const cutoffTime = getActiveShiftCutoffTime();
+    return compTime >= cutoffTime;
   };
 
   // 1. Bekleyen & Devam Eden Aktif İşler
@@ -373,13 +480,61 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
   // 2. Geçmiş Tüm Tamamlanan İşler (Kayıt Defteri Arşivi)
   const allCompletedPlans = plans.filter(p => p.status === 'TAMAMLANDI');
 
-  // 3. TV MODU İŞ LİSTESİ (Güncel Vardiya İşleri)
+  // 3. TV MODU VE OPERATÖR TAKİP İŞ LİSTESİ (Güncel Vardiya İşleri - 12:00 Sıfırlanma Mantıklı)
   const tvShiftPlans = plans.filter(plan => {
     if (tvShiftOnly) {
-      return isRecentShiftJob(plan);
+      return isCurrentShiftJob(plan);
     }
     return true;
   });
+
+  // 4. KAYIT DEFTERİ FİLTRELENMİŞ İŞ LİSTESİ (GÜNLÜK / HAFTALIK / AYLIK)
+  const filteredHistoryPlans = useMemo(() => {
+    return allCompletedPlans.filter(plan => {
+      // Tezgah Filtresi
+      if (historyMachineFilter !== 'all' && plan.machineId !== historyMachineFilter) {
+        return false;
+      }
+
+      // Arama Filtresi
+      if (historySearchTerm.trim()) {
+        const queryStr = historySearchTerm.toLowerCase().trim();
+        const combined = `${plan.machineId} ${plan.moldName} ${plan.partName || ''} ${plan.toolInfo || ''} ${plan.operatorName || ''} ${plan.addedBy || ''} ${plan.description || ''} ${plan.generalDescription || ''}`.toLowerCase();
+        if (!combined.includes(queryStr)) return false;
+      }
+
+      // Tarih Filtresi
+      if (historyDateFilter === 'all') return true;
+
+      let compTime = null;
+      if (plan.completedAt?.toDate) {
+        compTime = plan.completedAt.toDate().getTime();
+      } else if (plan.completedAt) {
+        compTime = new Date(plan.completedAt).getTime();
+      }
+
+      if (!compTime) return true;
+
+      const now = new Date();
+
+      if (historyDateFilter === 'today') {
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        return compTime >= startOfToday;
+      }
+
+      if (historyDateFilter === 'week') {
+        const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+        return (now.getTime() - compTime) <= ONE_WEEK_MS;
+      }
+
+      if (historyDateFilter === 'month') {
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        return (now.getTime() - compTime) <= THIRTY_DAYS_MS;
+      }
+
+      return true;
+    });
+  }, [allCompletedPlans, historyDateFilter, historyMachineFilter, historySearchTerm]);
 
   // 4. PLANLAMA SEKME LİSTESİ (SADECE GİRİŞ YAPAN CAM OPERATÖRÜNÜN İŞLERİ)
   const planningPlans = uncompletedPlans.filter(plan => {
@@ -407,9 +562,8 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       map.get(key).plans.push(plan);
     });
     return Array.from(map.values()).sort((a, b) => {
-      if (a.machineId !== b.machineId) return a.machineId.localeCompare(b.machineId);
-      const minPriA = Math.min(...a.plans.map(p => p.priority || 0));
-      const minPriB = Math.min(...b.plans.map(p => p.priority || 0));
+      const minPriA = Math.min(...a.plans.map(p => p.priority || 9999));
+      const minPriB = Math.min(...b.plans.map(p => p.priority || 9999));
       return minPriA - minPriB;
     });
   }, [planningPlans]);
@@ -440,9 +594,8 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       map.get(key).plans.push(plan);
     });
     return Array.from(map.values()).sort((a, b) => {
-      if (a.machineId !== b.machineId) return a.machineId.localeCompare(b.machineId);
-      const minPriA = Math.min(...a.plans.map(p => p.priority || 0));
-      const minPriB = Math.min(...b.plans.map(p => p.priority || 0));
+      const minPriA = Math.min(...a.plans.map(p => p.priority || 9999));
+      const minPriB = Math.min(...b.plans.map(p => p.priority || 9999));
       return minPriA - minPriB;
     });
   }, [operatorPlans]);
@@ -656,6 +809,17 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     </div>
                   </div>
 
+                  {/* GENEL VARDİYA NOTU BANNERI (GRUP SEVİYESİNDE EN ÜSTTE) */}
+                  {getGroupGeneralNote(group) && (
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 px-4 py-2 flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200">
+                      <span className="text-amber-500 text-sm">💡</span>
+                      <span className="font-black uppercase text-[10px] text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-700 shrink-0">
+                        Genel Vardiya Notu
+                      </span>
+                      <span className="italic font-bold">"{getGroupGeneralNote(group)}"</span>
+                    </div>
+                  )}
+
                   {/* GRUP İÇİNDEKİ TAKIMLARIN DERLİ TOPLU SATIR LİSTESİ */}
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
                     {group.plans.map(plan => (
@@ -678,9 +842,9 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                               )}
                             </div>
 
-                            {plan.description && (
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400 italic truncate" title={plan.description}>
-                                💡 CAM Notu: "{plan.description}"
+                            {getCleanToolDescription(plan) && (
+                              <div className="text-[11px] text-slate-600 dark:text-slate-400 italic truncate" title={getCleanToolDescription(plan)}>
+                                💡 Takım Notu: "{getCleanToolDescription(plan)}"
                               </div>
                             )}
                           </div>
@@ -1017,13 +1181,71 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                 Seçilen tezgahta aktif bekleyen veya tamamlanan gece vardiyası işi bulunmuyor.
               </div>
             ) : (
-              groupedOperatorPlans.map(group => (
-                <div key={group.key} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                  <div className="bg-slate-100 dark:bg-slate-900 px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap justify-between items-center gap-2">
+              groupedOperatorPlans.map((group, groupIdx) => (
+                <div 
+                  key={group.key} 
+                  className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border overflow-hidden transition-all ${
+                    groupIdx === 0 
+                      ? 'border-red-500/80 ring-2 ring-red-500/30' 
+                      : groupIdx === 1 
+                      ? 'border-amber-400/80' 
+                      : 'border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <div className={`px-4 py-3 border-b flex flex-wrap justify-between items-center gap-2 ${
+                    groupIdx === 0 
+                      ? 'bg-gradient-to-r from-red-950/40 via-slate-900 to-slate-900 border-red-500/40' 
+                      : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                  }`}>
                     <div className="flex flex-wrap items-center gap-3">
+                      {/* YÖNETİCİ & CAM YETKİLİLERİ İÇİN TEZGAH GRUBU SIRALAMA DÜĞMELERİ */}
+                      {canReorderJobs && (
+                        <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-xl border border-slate-300 dark:border-slate-700">
+                          <button
+                            type="button"
+                            disabled={groupIdx === 0}
+                            onClick={() => handleMoveMachineGroup(groupIdx, 'up')}
+                            className="p-1 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-200 disabled:opacity-20 transition shadow-xs"
+                            title="Tezgah Sırasını Yukarı Taşı"
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={groupIdx === groupedOperatorPlans.length - 1}
+                            onClick={() => handleMoveMachineGroup(groupIdx, 'down')}
+                            className="p-1 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-200 disabled:opacity-20 transition shadow-xs"
+                            title="Tezgah Sırasını Aşağı Taşı"
+                          >
+                            <ArrowDown size={14} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* TEZGAH KODU */}
                       <span className="font-mono font-black text-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/80 px-3 py-1 rounded-xl border border-blue-200 dark:border-blue-800">
                         🖥️ {group.machineId}
                       </span>
+
+                      {/* ÖNCELİKLİ TEZGAH BELİRGİN ROZETLERİ */}
+                      {groupIdx === 0 ? (
+                        <span className="text-xs font-black bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 text-white px-3 py-1 rounded-xl shadow-md shadow-red-500/30 animate-pulse border border-red-400 flex items-center gap-1.5">
+                          🔥 1. ACİL ÖNCELİKLİ TEZGAH
+                        </span>
+                      ) : groupIdx === 1 ? (
+                        <span className="text-xs font-black bg-amber-500 text-slate-950 px-3 py-1 rounded-xl shadow-xs border border-amber-300 flex items-center gap-1.5">
+                          ⭐ 2. ÖNCELİKLİ TEZGAH
+                        </span>
+                      ) : groupIdx === 2 ? (
+                        <span className="text-xs font-black bg-blue-600 text-white px-3 py-1 rounded-xl border border-blue-400 flex items-center gap-1.5">
+                          📌 3. SIRADA
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-xl border dark:border-slate-700">
+                          📌 {groupIdx + 1}. SIRADA
+                        </span>
+                      )}
+
                       <div>
                         <span className="font-black text-base text-slate-900 dark:text-white uppercase mr-2">
                           📦 {group.moldName}
@@ -1046,6 +1268,17 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     </div>
                   </div>
 
+                  {/* GENEL VARDİYA NOTU BANNERI (GRUP SEVİYESİNDE EN ÜSTTE) */}
+                  {getGroupGeneralNote(group) && (
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 px-4 py-2 flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200">
+                      <span className="text-amber-500 text-sm">💡</span>
+                      <span className="font-black uppercase text-[10px] text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-700 shrink-0">
+                        Genel Vardiya Notu
+                      </span>
+                      <span className="italic font-bold">"{getGroupGeneralNote(group)}"</span>
+                    </div>
+                  )}
+
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
                     {group.plans.map(plan => {
                       return (
@@ -1067,9 +1300,9 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                                 )}
                               </div>
 
-                              {plan.description && (
-                                <div className="text-[11px] text-slate-500 dark:text-slate-400 italic truncate" title={plan.description}>
-                                  💡 CAM Notu: "{plan.description}"
+                              {getCleanToolDescription(plan) && (
+                                <div className="text-[11px] text-slate-600 dark:text-slate-400 italic truncate" title={getCleanToolDescription(plan)}>
+                                  💡 Takım Notu: "{getCleanToolDescription(plan)}"
                                 </div>
                               )}
 
@@ -1329,6 +1562,17 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     </div>
                   </div>
 
+                  {/* GENEL VARDİYA NOTU BANNERI (TV MODU EN ÜSTTE) */}
+                  {getGroupGeneralNote(group) && (
+                    <div className="bg-amber-950/60 border-b border-amber-800/60 px-4 py-1.5 flex items-center gap-2 text-xs text-amber-200">
+                      <span className="text-amber-400 text-sm">💡</span>
+                      <span className="font-black uppercase text-[10px] text-amber-400 bg-amber-900/80 px-2 py-0.5 rounded-md border border-amber-700 shrink-0">
+                        Genel Vardiya Notu
+                      </span>
+                      <span className="italic font-bold">"{getGroupGeneralNote(group)}"</span>
+                    </div>
+                  )}
+
                   <div className="divide-y divide-slate-800/80">
                     {group.plans.map((plan) => {
                       const statusBadge = getStatusBadge(plan.status);
@@ -1372,9 +1616,9 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                                 <span>YAPAN: {plan.operatorName}</span>
                                 {plan.operatorNote && <span className="text-slate-400 font-normal italic">("{plan.operatorNote}")</span>}
                               </span>
-                            ) : plan.description ? (
-                              <span className="text-slate-400 italic truncate" title={plan.description}>
-                                💡 CAM Notu: {plan.description}
+                            ) : getCleanToolDescription(plan) ? (
+                              <span className="text-slate-400 italic truncate" title={getCleanToolDescription(plan)}>
+                                💡 Takım Notu: {getCleanToolDescription(plan)}
                               </span>
                             ) : (
                               <span className="text-slate-600 italic text-[11px]">Bekliyor</span>
@@ -1410,36 +1654,121 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       {/* 4. KAYIT DEFTERİ (GEÇMİŞ TAMAMLANAN İŞLER ARŞİVİ) */}
       {/* ========================================================================= */}
       {activeTab === 'history' && !isMachineOperator && (
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border dark:border-slate-700">
-            <div className="p-4 border-b dark:border-slate-700 font-bold flex justify-between items-center">
-              <span className="flex items-center gap-2 text-slate-900 dark:text-white">
-                <HistoryIcon className="text-blue-500" /> Tamamlanan Gece Vardiyası İş Arşivi
-              </span>
-              <span className="text-xs font-bold text-slate-500">
-                Toplam {allCompletedPlans.length} Geçmiş Kayıt
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+          
+          {/* FİLTRELEME VE ARAMA ÜST BARI */}
+          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border dark:border-slate-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <HistoryIcon className="text-blue-600 w-5 h-5" /> Geçmiş Gece Vardiyası Kayıt Defteri
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Gündüz, haftalık veya aylık bazda tamamlanan tüm işleri inceleyin.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* TARİH FİLTRE DÜĞMELERİ */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setHistoryDateFilter('today')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                    historyDateFilter === 'today'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  📅 Bugün
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHistoryDateFilter('week')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                    historyDateFilter === 'week'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  🗓️ Bu Hafta
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHistoryDateFilter('month')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                    historyDateFilter === 'month'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  📆 Bu Ay
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHistoryDateFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                    historyDateFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  📜 Tüm Zamanlar
+                </button>
+              </div>
+
+              {/* TEZGAH SEÇİMİ */}
+              <select
+                value={historyMachineFilter}
+                onChange={(e) => setHistoryMachineFilter(e.target.value)}
+                className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-xl p-2 focus:outline-none"
+              >
+                <option value="all">🖥️ Tüm Tezgahlar</option>
+                {mergedMachines.map(m => (
+                  <option key={m.name} value={m.name}>🖥️ {m.name}</option>
+                ))}
+              </select>
+
+              {/* ARAMA İNPUTU */}
+              <input
+                type="text"
+                placeholder="Kalıp, parça veya operatör ara..."
+                value={historySearchTerm}
+                onChange={(e) => setHistorySearchTerm(e.target.value)}
+                className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-xl p-2 w-48 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* TABLO KARTI */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border dark:border-slate-700 overflow-hidden">
+            <div className="p-4 border-b dark:border-slate-700 font-bold flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+              <span className="flex items-center gap-2 text-slate-900 dark:text-white text-xs uppercase tracking-wider font-black">
+                📋 Gösterilen Kayıt Sayısı: {filteredHistoryPlans.length} / {allCompletedPlans.length}
               </span>
             </div>
             
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase text-[10px] font-black border-b dark:border-slate-700">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 uppercase text-[10px] font-black border-b dark:border-slate-700">
                   <tr>
                     <th className="p-3">Tezgah</th>
                     <th className="p-3">Kalıp / Parça</th>
                     <th className="p-3">Takım & Boy</th>
+                    <th className="p-3">Vardiya & Takım Notları</th>
                     <th className="p-3">İşi Yapan Operatör</th>
-                    <th className="p-3">Operatör Notu</th>
                     <th className="p-3">CAM Sorumlu</th>
                     <th className="p-3">Bitiş Tarihi</th>
                     <th className="p-3 text-right">İşlem</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y dark:divide-slate-700">
-                  {allCompletedPlans.length === 0 ? (
-                    <tr><td colSpan="8" className="p-6 text-center text-slate-500">Geçmiş tamamlanmış gece vardiyası kaydı bulunmuyor.</td></tr>
+                  {filteredHistoryPlans.length === 0 ? (
+                    <tr><td colSpan="8" className="p-8 text-center text-slate-500 font-bold">Seçilen filtrelere uygun geçmiş tamamlanmış gece vardiyası kaydı bulunmuyor.</td></tr>
                   ) : (
-                    allCompletedPlans.map(plan => (
+                    filteredHistoryPlans.map(plan => (
                       <tr key={plan.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
                         <td className="p-3 font-mono font-black text-blue-600 dark:text-blue-400">{plan.machineId}</td>
                         <td className="p-3">
@@ -1449,12 +1778,25 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                         <td className="p-3 font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                           {plan.toolInfo ? `🛠️ ${plan.toolInfo}` : ''} {plan.toolLength ? `| 📏 ${plan.toolLength}` : ''}
                         </td>
+                        <td className="p-3">
+                          {plan.generalDescription && (
+                            <div className="text-[11px] text-amber-700 dark:text-amber-300 font-bold">
+                              💡 Genel Vardiya: "{plan.generalDescription}"
+                            </div>
+                          )}
+                          {getCleanToolDescription(plan) && (
+                            <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">
+                              🔧 Takım Notu: "{getCleanToolDescription(plan)}"
+                            </div>
+                          )}
+                          {!plan.generalDescription && !getCleanToolDescription(plan) && <span className="text-slate-400">-</span>}
+                        </td>
                         <td className="p-3 font-black text-emerald-600 dark:text-emerald-400">
                           {plan.operatorName ? `👤 ${plan.operatorName}` : '-'}
+                          {plan.operatorNote && <div className="text-[10px] text-slate-400 italic font-normal">"{plan.operatorNote}"</div>}
                         </td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300 font-medium">{plan.operatorNote ? `✍️ "${plan.operatorNote}"` : '-'}</td>
                         <td className="p-3 font-semibold text-slate-500">{plan.addedBy}</td>
-                        <td className="p-3 text-slate-400 font-mono">
+                        <td className="p-3 text-slate-400 font-mono text-[11px]">
                           {plan.completedAt?.toDate ? plan.completedAt.toDate().toLocaleString() : (plan.completedAt ? new Date(plan.completedAt).toLocaleString() : '-')}
                         </td>
                         <td className="p-3 text-right">
