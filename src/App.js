@@ -1070,7 +1070,7 @@ const App = () => {
 
                         <Route path="/vardiya-plani" element={
                             activeUserPermissions['/vardiya-plani']?.view
-                            ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
+                            ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} projects={projects} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 

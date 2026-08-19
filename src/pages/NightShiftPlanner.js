@@ -3,10 +3,11 @@ import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateD
 import { 
   PlusIcon, TrashIcon, MonitorIcon, PencilIcon, XIcon, SaveIcon, HistoryIcon, UserIcon, 
   CheckCircle, PlayCircle, AlertTriangle, Clock, Filter, Wrench, Ruler,
-  Check, UserCheck, Layers, ListPlus, ChevronDown, RefreshCw, ArrowUp, ArrowDown
+  Check, UserCheck, Layers, ListPlus, ChevronDown, RefreshCw
 } from 'lucide-react';
+import { PROJECT_COLLECTION } from '../config/constants.js';
 
-const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
+const NightShiftPlanner = ({ db, loggedInUser, machines = [], projects = [], canEdit }) => {
   // Kullanıcı Rol Kontrolü (Tezgah Operatörü Tespiti)
   const userRoleLower = (loggedInUser?.role || loggedInUser?.userRole || loggedInUser?.jobTitle || '').toLowerCase();
   
@@ -32,56 +33,6 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       loggedInUser?.role === 'CAM Sorumlusu'
     );
   }, [loggedInUser]);
-
-  // Tezgah Grubunun Öncelik Sırasını Yukarı veya Aşağı Taşıma Fonksiyonu
-  const handleMoveMachineGroup = async (groupIdx, direction) => {
-    if (!groupedOperatorPlans || groupedOperatorPlans.length < 2 || !db) return;
-    const targetIdx = direction === 'up' ? groupIdx - 1 : groupIdx + 1;
-    if (targetIdx < 0 || targetIdx >= groupedOperatorPlans.length) return;
-
-    try {
-      const currentGroup = groupedOperatorPlans[groupIdx];
-      const targetGroup = groupedOperatorPlans[targetIdx];
-
-      // Üste geçecek olan gruba daha küçük öncelik numaraları verilir
-      const topGroup = direction === 'up' ? currentGroup : targetGroup;
-      const bottomGroup = direction === 'up' ? targetGroup : currentGroup;
-
-      const sortedTop = [...topGroup.plans].sort((a, b) => (a.priority || 0) - (b.priority || 0));
-      const sortedBottom = [...bottomGroup.plans].sort((a, b) => (a.priority || 0) - (b.priority || 0));
-
-      const minPriTop = Math.min(...sortedTop.map(p => p.priority || 1));
-      const minPriBottom = Math.min(...sortedBottom.map(p => p.priority || 1));
-      const startPriority = Math.min(minPriTop, minPriBottom);
-
-      const updates = [];
-      let currentPri = startPriority;
-
-      // Üste geçen grup öncelikle küçük numaraları alır
-      sortedTop.forEach(plan => {
-        updates.push(
-          updateDoc(doc(db, "night_shift_plans", plan.id), {
-            priority: currentPri++,
-            updatedAt: serverTimestamp()
-          })
-        );
-      });
-
-      // Alta geçen grup sonraki numaraları alır
-      sortedBottom.forEach(plan => {
-        updates.push(
-          updateDoc(doc(db, "night_shift_plans", plan.id), {
-            priority: currentPri++,
-            updatedAt: serverTimestamp()
-          })
-        );
-      });
-
-      await Promise.all(updates);
-    } catch (err) {
-      console.error("Tezgah öncelik sıralaması güncelleme hatası:", err);
-    }
-  };
 
   // Genel Vardiya Notunu Çekme Yardımcısı (Grup Başlığının Altında Gösterim İçin)
   const getGroupGeneralNote = (group) => {
@@ -129,6 +80,72 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
   // Operatör Sekmesi Tezgah Filtresi & Operatör Adı
   const [operatorMachineFilter, setOperatorMachineFilter] = useState('all');
   const [operatorNameInput, setOperatorNameInput] = useState(() => loggedInUser?.name || '');
+
+  // Tezgah Odaklı Sıralama Modalı State
+  const [isReorderModalOpen, setIsReorderModalOpen] = useState(false);
+  const [reorderList, setReorderList] = useState([]);
+  const [isSavingReorder, setIsSavingReorder] = useState(false);
+
+  // Tezgah Odaklı Sıralama Modalını Açma
+  const handleOpenReorderModal = () => {
+    if (!groupedOperatorPlans) return;
+    const list = groupedOperatorPlans.map((group, idx) => ({
+      key: group.key,
+      machineId: group.machineId,
+      moldName: group.moldName,
+      partName: group.partName,
+      orderNo: idx + 1,
+      plans: group.plans
+    }));
+    setReorderList(list);
+    setIsReorderModalOpen(true);
+  };
+
+  // Sıra Numarası Değişimi
+  const handleReorderInputChange = (index, value) => {
+    setReorderList(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], orderNo: value };
+      return copy;
+    });
+  };
+
+  // Yeni Sıralamayı Veritabanına Kaydetme
+  const handleSaveReorder = async () => {
+    if (!db || !reorderList || reorderList.length === 0) return;
+    setIsSavingReorder(true);
+    try {
+      // Sıra numarasına (orderNo) göre küçükten büyüğe sırala
+      const sorted = [...reorderList].sort((a, b) => {
+        const numA = parseInt(a.orderNo, 10) || 9999;
+        const numB = parseInt(b.orderNo, 10) || 9999;
+        return numA - numB;
+      });
+
+      const updates = [];
+      let currentPri = 1;
+
+      sorted.forEach(group => {
+        const sortedPlans = [...group.plans].sort((a, b) => (a.priority || 0) - (b.priority || 0));
+        sortedPlans.forEach(plan => {
+          updates.push(
+            updateDoc(doc(db, "night_shift_plans", plan.id), {
+              priority: currentPri++,
+              updatedAt: serverTimestamp()
+            })
+          );
+        });
+      });
+
+      await Promise.all(updates);
+      setIsReorderModalOpen(false);
+    } catch (err) {
+      console.error("Tezgah sıralaması kaydedilemedi:", err);
+      alert("Sıralama kaydedilirken hata oluştu: " + err.message);
+    } finally {
+      setIsSavingReorder(false);
+    }
+  };
 
   // TV Modu Arşiv Filtresi & Otomatik Sayfa Döngüsü (Auto-Pager)
   const [tvShiftOnly, setTvShiftOnly] = useState(true);
@@ -235,6 +252,79 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     );
   }, [mergedMachines, mainForm.machineId]);
 
+  // VERİTABANINDAN TÜM MEVCUT KALIPLARI ÇEKME
+  const [firestoreMolds, setFirestoreMolds] = useState([]);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(collection(db, PROJECT_COLLECTION), (snap) => {
+      const list = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+        .filter(m => m.moldName && typeof m.moldName === 'string' && m.moldName.trim() !== '');
+      setFirestoreMolds(list);
+    }, (err) => console.error("Kalıplar dinlenemedi:", err));
+    return () => unsub();
+  }, [db]);
+
+  const availableMolds = useMemo(() => {
+    const combined = [...(projects || []), ...firestoreMolds];
+    const map = new Map();
+    combined.forEach(p => {
+      if (p && p.moldName && typeof p.moldName === 'string' && p.moldName.trim() !== '') {
+        const name = p.moldName.trim();
+        if (!map.has(name.toLowerCase())) {
+          map.set(name.toLowerCase(), {
+            id: p.id,
+            moldName: name,
+            customer: p.customer || ''
+          });
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.moldName.localeCompare(b.moldName));
+  }, [projects, firestoreMolds]);
+
+  // KALIP ACİLİYET SIRASI MAP'İ (Kalıp Kartlarındaki Kırmızı Rozet Numarası: 1, 2, 3...)
+  const moldPriorityMap = useMemo(() => {
+    const map = new Map();
+    const combined = [...(projects || []), ...firestoreMolds];
+    combined.forEach(p => {
+      if (p && p.moldName && typeof p.moldName === 'string') {
+        const key = p.moldName.trim().toLowerCase();
+        if (p.priority !== undefined && p.priority !== null && p.priority !== '') {
+          const pri = parseInt(p.priority, 10);
+          if (!isNaN(pri) && pri > 0) {
+            map.set(key, pri);
+          }
+        }
+      }
+    });
+    return map;
+  }, [projects, firestoreMolds]);
+
+  // ARANABİLİR KALIP DROPDOWN STATE
+  const [isMoldDropdownOpen, setIsMoldDropdownOpen] = useState(false);
+  const moldDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (moldDropdownRef.current && !moldDropdownRef.current.contains(event.target)) {
+        setIsMoldDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // "İÇERİR" (INCLUDES) MANTIĞI İLE FİLTRELENMİŞ KALIPLAR LİSTESİ
+  const filteredMoldsList = useMemo(() => {
+    const query = (mainForm.moldName || '').toLowerCase().trim();
+    if (!query) return availableMolds;
+    return availableMolds.filter(m => 
+      (m.moldName || '').toLowerCase().includes(query) || 
+      (m.customer || '').toLowerCase().includes(query)
+    );
+  }, [availableMolds, mainForm.moldName]);
+
   // Takım Satırı Ekle
   const addToolRow = () => {
     setMainForm(prev => ({
@@ -291,35 +381,36 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       return;
     }
 
-    const validTools = mainForm.tools.filter(t => t.toolInfo.trim() !== '' || t.description.trim() !== '' || t.toolLength.trim() !== '');
-    if (validTools.length === 0) {
-      alert("Lütfen en az 1 adet Takım Bilgisi tanımlayınız!");
-      return;
-    }
+    const validTools = mainForm.tools.filter(t => (t.toolInfo && t.toolInfo.trim() !== '') || (t.description && t.description.trim() !== '') || (t.toolLength && t.toolLength.trim() !== ''));
+    // Takım yazılması isteğe bağlı: Hiç takım girilmediyse 1 adet boş takım kaydı ile genel plan oluşturulur
+    const toolsToSave = validTools.length > 0 ? validTools : [{ toolInfo: '', toolLength: '', description: '' }];
 
     const machineIdUpper = mainForm.machineId.toUpperCase().trim();
     const moldNameTrim = mainForm.moldName.trim();
     const partNameTrim = mainForm.partName.trim();
     const generalDesc = mainForm.generalDescription.trim();
 
-    // Seçilen Tezgah İçin Mevcut En Yüksek Sıra Numarasını Bul
+    // Kalıbın Kalıp Listesindeki Aciliyet Sırasını Al (1, 2, 3...)
+    const moldPriorityVal = moldPriorityMap.get(moldNameTrim.toLowerCase());
+
+    // Varsayılan Başlangıç Sırası: Kalıbın aciliyet numarası veya mevcut tezgahtaki sıra numarası
+    let startPriority = moldPriorityVal !== undefined && moldPriorityVal !== null ? moldPriorityVal : 99;
     const existingMachinePlans = plans.filter(p => p.machineId === machineIdUpper && p.status !== 'TAMAMLANDI');
-    let startPriority = 1;
-    if (existingMachinePlans.length > 0) {
+    if (existingMachinePlans.length > 0 && (moldPriorityVal === undefined || moldPriorityVal === null)) {
       startPriority = Math.max(...existingMachinePlans.map(p => p.priority || 0)) + 1;
     }
 
     // Her sıralı takım adımı için Firestore kaydı oluştur
-    for (let i = 0; i < validTools.length; i++) {
-      const tool = validTools[i];
-      const stepToolDesc = tool.description.trim();
+    for (let i = 0; i < toolsToSave.length; i++) {
+      const tool = toolsToSave[i];
+      const stepToolDesc = (tool.description || '').trim();
 
       await addDoc(collection(db, "night_shift_plans"), {
         machineId: machineIdUpper,
         moldName: moldNameTrim,
         partName: partNameTrim,
-        toolInfo: tool.toolInfo.trim(),
-        toolLength: tool.toolLength.trim(),
+        toolInfo: (tool.toolInfo || '').trim(),
+        toolLength: (tool.toolLength || '').trim(),
         description: stepToolDesc,
         generalDescription: generalDesc,
         priority: startPriority + i,
@@ -432,7 +523,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     await updateDoc(doc(db, "night_shift_plans", id), updatePayload);
   };
 
-  // --- GECE VARDİYASI KESİM SAATİ (HER GÜN ÖĞLEN 12:00 SIFIRLANMA MANTIĞI) ---
+  // --- GECE VARDİYASI KESİM SAATİ (HER GÜN SABAH 10:00 SIFIRLANMA MANTIĞI) ---
   const getActiveShiftCutoffTime = () => {
     const now = new Date();
     const currentHour = now.getHours();
@@ -442,45 +533,58 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
     cutoff.setSeconds(0);
     cutoff.setMilliseconds(0);
 
-    if (currentHour < 12) {
-      // Öğlen 12:00'den önceyiz (Örn: Salı 08:30 AM):
-      // Vardiya döngüsü dün öğlen 12:00'de başladı
+    if (currentHour < 10) {
+      // Sabah 10:00'dan önceyiz (Örn: Çarşamba 08:30 AM):
+      // Vardiya döngüsü dün sabah 10:00'da başladı
       cutoff.setDate(cutoff.getDate() - 1);
-      cutoff.setHours(12);
+      cutoff.setHours(10);
     } else {
-      // Öğlen 12:00'den sonrayız (Örn: Salı 14:00 PM):
-      // Vardiya döngüsü bugün öğlen 12:00'de başladı
-      cutoff.setHours(12);
+      // Sabah 10:00'dan sonrayız (Örn: Çarşamba 11:00 AM):
+      // Vardiya döngüsü bugün sabah 10:00'da başladı
+      cutoff.setHours(10);
     }
     
     return cutoff.getTime();
   };
 
   const isCurrentShiftJob = (plan) => {
-    // Tamamlanmamış (Bekliyor / İşleniyor / Problem) işler HER ZAMAN görünür
-    if (plan.status !== 'TAMAMLANDI') return true;
-
-    let compTime = null;
+    let jobTime = null;
     if (plan.completedAt?.toDate) {
-      compTime = plan.completedAt.toDate().getTime();
+      jobTime = plan.completedAt.toDate().getTime();
     } else if (plan.completedAt) {
-      compTime = new Date(plan.completedAt).getTime();
+      jobTime = new Date(plan.completedAt).getTime();
+    } else if (plan.createdAt?.toDate) {
+      jobTime = plan.createdAt.toDate().getTime();
+    } else if (plan.createdAt) {
+      jobTime = new Date(plan.createdAt).getTime();
     }
 
-    if (!compTime) return true;
+    if (!jobTime) return true;
 
-    // İş, mevcut vardiya döngüsü başladıktan (öğlen 12:00'den) sonra mı bitti?
+    // İş, mevcut vardiya döngüsü başladıktan (sabah 10:00'dan) sonra mı oluşturuldu/tamamlandı?
     const cutoffTime = getActiveShiftCutoffTime();
-    return compTime >= cutoffTime;
+
+    if (plan.status === 'TAMAMLANDI') {
+      let compTime = null;
+      if (plan.completedAt?.toDate) compTime = plan.completedAt.toDate().getTime();
+      else if (plan.completedAt) compTime = new Date(plan.completedAt).getTime();
+      return compTime ? compTime >= cutoffTime : false;
+    }
+
+    // Tamamlanmamış işler de bugünkü 10:00 vardiya döngüsünden sonraya ait olmalıdır (10:00'da sayfa sıfırlanır)
+    return jobTime >= cutoffTime;
   };
 
-  // 1. Bekleyen & Devam Eden Aktif İşler
-  const uncompletedPlans = plans.filter(p => p.status !== 'TAMAMLANDI');
+  // 1. Bugünkü Vardiyaya Ait Bekleyen & Devam Eden Aktif İşler
+  const uncompletedPlans = plans.filter(p => p.status !== 'TAMAMLANDI' && isCurrentShiftJob(p));
 
-  // 2. Geçmiş Tüm Tamamlanan İşler (Kayıt Defteri Arşivi)
-  const allCompletedPlans = plans.filter(p => p.status === 'TAMAMLANDI');
+  // 2. Geçmiş Tüm İşler (Kayıt Defteri Arşivi): Tamamlananlar veya 10:00 kesim saatinden önce kalmış tüm vardiya işleri
+  const allHistoryPlans = plans.filter(p => {
+    if (p.status === 'TAMAMLANDI') return true;
+    return !isCurrentShiftJob(p);
+  });
 
-  // 3. TV MODU VE OPERATÖR TAKİP İŞ LİSTESİ (Güncel Vardiya İşleri - 12:00 Sıfırlanma Mantıklı)
+  // 3. TV MODU VE OPERATÖR TAKİP İŞ LİSTESİ (Güncel Vardiya İşleri - 10:00 Sıfırlanma Mantıklı)
   const tvShiftPlans = plans.filter(plan => {
     if (tvShiftOnly) {
       return isCurrentShiftJob(plan);
@@ -490,7 +594,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
 
   // 4. KAYIT DEFTERİ FİLTRELENMİŞ İŞ LİSTESİ (GÜNLÜK / HAFTALIK / AYLIK)
   const filteredHistoryPlans = useMemo(() => {
-    return allCompletedPlans.filter(plan => {
+    return allHistoryPlans.filter(plan => {
       // Tezgah Filtresi
       if (historyMachineFilter !== 'all' && plan.machineId !== historyMachineFilter) {
         return false;
@@ -506,35 +610,39 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       // Tarih Filtresi
       if (historyDateFilter === 'all') return true;
 
-      let compTime = null;
+      let planTime = null;
       if (plan.completedAt?.toDate) {
-        compTime = plan.completedAt.toDate().getTime();
+        planTime = plan.completedAt.toDate().getTime();
       } else if (plan.completedAt) {
-        compTime = new Date(plan.completedAt).getTime();
+        planTime = new Date(plan.completedAt).getTime();
+      } else if (plan.createdAt?.toDate) {
+        planTime = plan.createdAt.toDate().getTime();
+      } else if (plan.createdAt) {
+        planTime = new Date(plan.createdAt).getTime();
       }
 
-      if (!compTime) return true;
+      if (!planTime) return true;
 
       const now = new Date();
 
       if (historyDateFilter === 'today') {
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        return compTime >= startOfToday;
+        return planTime >= startOfToday;
       }
 
       if (historyDateFilter === 'week') {
         const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-        return (now.getTime() - compTime) <= ONE_WEEK_MS;
+        return (now.getTime() - planTime) <= ONE_WEEK_MS;
       }
 
       if (historyDateFilter === 'month') {
         const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-        return (now.getTime() - compTime) <= THIRTY_DAYS_MS;
+        return (now.getTime() - planTime) <= THIRTY_DAYS_MS;
       }
 
       return true;
     });
-  }, [allCompletedPlans, historyDateFilter, historyMachineFilter, historySearchTerm]);
+  }, [allHistoryPlans, historyDateFilter, historyMachineFilter, historySearchTerm]);
 
   // 4. PLANLAMA SEKME LİSTESİ (SADECE GİRİŞ YAPAN CAM OPERATÖRÜNÜN İŞLERİ)
   const planningPlans = uncompletedPlans.filter(plan => {
@@ -594,11 +702,24 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
       map.get(key).plans.push(plan);
     });
     return Array.from(map.values()).sort((a, b) => {
-      const minPriA = Math.min(...a.plans.map(p => p.priority || 9999));
-      const minPriB = Math.min(...b.plans.map(p => p.priority || 9999));
-      return minPriA - minPriB;
+      const getPriorityVal = (group) => {
+        const minPlanPri = Math.min(...group.plans.map(p => (p.priority !== undefined && p.priority !== null && p.priority > 0) ? p.priority : 9999));
+        const moldPri = moldPriorityMap.get((group.moldName || '').trim().toLowerCase());
+        
+        if (minPlanPri !== 9999) return minPlanPri;
+        if (moldPri !== undefined && moldPri !== null) return moldPri;
+        return 9999;
+      };
+
+      const priA = getPriorityVal(a);
+      const priB = getPriorityVal(b);
+
+      if (priA !== priB) {
+        return priA - priB;
+      }
+      return (a.machineId || '').localeCompare(b.machineId || '');
     });
-  }, [operatorPlans]);
+  }, [operatorPlans, moldPriorityMap]);
 
   // TV MODU İÇİN GRUPLANMIŞ SATIR SATIR LİSTE VERİSİ
   const groupedTvEntries = useMemo(() => {
@@ -719,7 +840,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
-                <HistoryIcon size={15} /> 📜 Kayıt Defteri ({allCompletedPlans.length})
+                <HistoryIcon size={15} /> 📜 Kayıt Defteri ({allHistoryPlans.length})
               </button>
             )}
           </div>
@@ -965,17 +1086,55 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                       )}
                     </div>
 
-                    {/* Kalıp Adı */}
-                    <div>
+                    {/* Kalıp Adı (Aranabilir Dropdown - İçerir Mantığı) */}
+                    <div className="relative" ref={moldDropdownRef}>
                       <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">Kalıp Adı *</label>
-                      <input 
-                        type="text" 
-                        placeholder="Örn: AP504 MENTEŞE" 
-                        required 
-                        className="w-full p-2.5 text-xs font-bold border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" 
-                        value={mainForm.moldName} 
-                        onChange={e => setMainForm({ ...mainForm, moldName: e.target.value })} 
-                      />
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          placeholder="Kalıp arayın veya yazın (Örn: AP504)..." 
+                          required 
+                          onFocus={() => setIsMoldDropdownOpen(true)}
+                          className="w-full p-2.5 text-xs font-bold border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 pr-8" 
+                          value={mainForm.moldName} 
+                          onChange={e => {
+                            setMainForm({ ...mainForm, moldName: e.target.value });
+                            setIsMoldDropdownOpen(true);
+                          }} 
+                        />
+                        <ChevronDown size={16} className="absolute right-2.5 top-3 text-slate-400 pointer-events-none" />
+                      </div>
+
+                      {isMoldDropdownOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto custom-scrollbar">
+                          {filteredMoldsList.length === 0 ? (
+                            <div className="p-3 text-xs text-slate-400 text-center italic">
+                              "{mainForm.moldName}" içeren kayıtlı kalıp bulunamadı. (Özel kalıp adı olarak kaydedilebilir)
+                            </div>
+                          ) : (
+                            filteredMoldsList.map(m => (
+                              <button
+                                key={m.id || m.moldName}
+                                type="button"
+                                onClick={() => {
+                                  setMainForm({ ...mainForm, moldName: m.moldName });
+                                  setIsMoldDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3.5 py-2 text-xs font-bold hover:bg-purple-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-center transition"
+                              >
+                                <span className="font-extrabold text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                                  📦 {m.moldName}
+                                </span>
+                                {m.customer && (
+                                  <span className="text-[10px] bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded-md text-slate-500 dark:text-slate-400">
+                                    {m.customer}
+                                  </span>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Parça Adı */}
@@ -1008,7 +1167,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     <div className="flex justify-between items-center px-1">
                       <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                         <Layers size={15} className="text-emerald-500" />
-                        Sırasıyla Çalışacak Takımlar ({mainForm.tools.length} Takım)
+                        Sırasıyla Çalışacak Takımlar ({mainForm.tools.length} Takım - İsteğe Bağlı)
                       </span>
                       <button
                         type="button"
@@ -1075,9 +1234,9 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                 </>
               ) : (
                 /* Düzenleme Modu */
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border dark:border-slate-700">
+                <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800 grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">🛠️ Takım Bilgisi</label>
+                    <label className="block text-[11px] font-bold text-amber-800 dark:text-amber-300 mb-1">Takım Bilgisi</label>
                     <input 
                       type="text" 
                       className="w-full p-2 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400" 
@@ -1086,7 +1245,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">📏 Boy (mm)</label>
+                    <label className="block text-[11px] font-bold text-amber-800 dark:text-amber-300 mb-1">Takım Boyu</label>
                     <input 
                       type="text" 
                       className="w-full p-2 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400" 
@@ -1095,7 +1254,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">Sıra No</label>
+                    <label className="block text-[11px] font-bold text-amber-800 dark:text-amber-300 mb-1">Sıra Numarası (Öncelik)</label>
                     <input 
                       type="number" 
                       min="1"
@@ -1119,7 +1278,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                   type="submit" 
                   className="py-2.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2"
                 >
-                  {editingId ? <><SaveIcon size={16}/> Güncellemeyi Kaydet</> : <><PlusIcon size={16}/> 🚀 Planı Vardiyaya Kaydet ({mainForm.tools.length} Takım)</>}
+                  {editingId ? <><SaveIcon size={16}/> Güncellemeyi Kaydet</> : <><PlusIcon size={16}/> 🚀 Planı Vardiyaya Kaydet ({mainForm.tools.filter(t => (t.toolInfo && t.toolInfo.trim()) || (t.description && t.description.trim()) || (t.toolLength && t.toolLength.trim())).length > 0 ? `${mainForm.tools.filter(t => (t.toolInfo && t.toolInfo.trim()) || (t.description && t.description.trim()) || (t.toolLength && t.toolLength.trim())).length} Takım` : 'İsteğe Bağlı Takım'})</>}
                 </button>
               </div>
             </form>
@@ -1145,6 +1304,18 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* YÖNETİCİ VE YETKİLİLER İÇİN TEZGAH ODAKLI SIRALAMA DÜĞMESİ */}
+              {canReorderJobs && (
+                <button
+                  type="button"
+                  onClick={handleOpenReorderModal}
+                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition border border-amber-300 active:scale-95 shrink-0"
+                  title="Tezgah Sıralamasını Rakam Yazarak Düzenle"
+                >
+                  <ListPlus size={16} /> 🔢 Tezgah / İş Sıralamasını Düzenle
+                </button>
+              )}
+
               <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
                 <UserCheck size={14} className="text-emerald-500" />
                 <span className="text-xs font-bold text-slate-500">Varsayılan Operatör:</span>
@@ -1198,29 +1369,6 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                       : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-700'
                   }`}>
                     <div className="flex flex-wrap items-center gap-3">
-                      {/* YÖNETİCİ & CAM YETKİLİLERİ İÇİN TEZGAH GRUBU SIRALAMA DÜĞMELERİ */}
-                      {canReorderJobs && (
-                        <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-xl border border-slate-300 dark:border-slate-700">
-                          <button
-                            type="button"
-                            disabled={groupIdx === 0}
-                            onClick={() => handleMoveMachineGroup(groupIdx, 'up')}
-                            className="p-1 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-200 disabled:opacity-20 transition shadow-xs"
-                            title="Tezgah Sırasını Yukarı Taşı"
-                          >
-                            <ArrowUp size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={groupIdx === groupedOperatorPlans.length - 1}
-                            onClick={() => handleMoveMachineGroup(groupIdx, 'down')}
-                            className="p-1 rounded-lg bg-white dark:bg-slate-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-700 dark:text-slate-200 disabled:opacity-20 transition shadow-xs"
-                            title="Tezgah Sırasını Aşağı Taşı"
-                          >
-                            <ArrowDown size={14} />
-                          </button>
-                        </div>
-                      )}
 
                       {/* TEZGAH KODU */}
                       <span className="font-mono font-black text-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/80 px-3 py-1 rounded-xl border border-blue-200 dark:border-blue-800">
@@ -1746,7 +1894,7 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border dark:border-slate-700 overflow-hidden">
             <div className="p-4 border-b dark:border-slate-700 font-bold flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
               <span className="flex items-center gap-2 text-slate-900 dark:text-white text-xs uppercase tracking-wider font-black">
-                📋 Gösterilen Kayıt Sayısı: {filteredHistoryPlans.length} / {allCompletedPlans.length}
+                📋 Gösterilen Kayıt Sayısı: {filteredHistoryPlans.length} / {allHistoryPlans.length}
               </span>
             </div>
             
@@ -1808,6 +1956,104 @@ const NightShiftPlanner = ({ db, loggedInUser, machines = [], canEdit }) => {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEZGAH İŞ SIRALAMASI DÜZENLEME MODALI */}
+      {isReorderModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full p-6 space-y-5 max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
+            
+            {/* Modal Başlığı */}
+            <div className="flex justify-between items-center border-b dark:border-slate-800 pb-4 shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <ListPlus className="text-amber-500 w-5 h-5" /> ⚡ Tezgah Odaklı İş Sıralamasını Düzenle
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Mevcut gece vardiyası tezgahlarının öncelik sırasını kutucuklara rakam yazarak (1, 2, 3...) belirleyin.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReorderModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+
+            {/* Tezgah Liste İçeriği */}
+            <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+              {reorderList.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 text-sm font-bold">
+                  Sıralanacak gece vardiyası tezgah işi bulunmuyor.
+                </div>
+              ) : (
+                reorderList.map((item, idx) => (
+                  <div
+                    key={item.key}
+                    className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 hover:border-amber-400/60 transition"
+                  >
+                    {/* Sol: Sıra No Girdisi */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-bold text-slate-400">Sıra:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.orderNo}
+                        onChange={(e) => handleReorderInputChange(idx, e.target.value)}
+                        className="w-16 px-2 py-1.5 bg-white dark:bg-slate-900 border-2 border-amber-400 focus:border-amber-500 text-slate-900 dark:text-white font-black text-center text-sm rounded-xl outline-none shadow-xs"
+                      />
+                    </div>
+
+                    {/* Orta/Sağ: Tezgah, Kalıp ve Parça Bilgileri */}
+                    <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      {/* Tezgah Bilgisi */}
+                      <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/60 p-2 rounded-xl border border-blue-200 dark:border-blue-800 truncate">
+                        <span className="font-mono font-black text-blue-600 dark:text-blue-400 truncate">
+                          🖥️ {item.machineId || 'Tezgahsız'}
+                        </span>
+                      </div>
+
+                      {/* Kalıp Bilgisi */}
+                      <div className="flex items-center gap-1.5 bg-purple-50 dark:bg-purple-950/60 p-2 rounded-xl border border-purple-200 dark:border-purple-800 truncate">
+                        <span className="font-bold text-purple-900 dark:text-purple-200 truncate">
+                          📦 {item.moldName || 'Kalıp Belirtilmedi'}
+                        </span>
+                      </div>
+
+                      {/* Parça Adı Bilgisi */}
+                      <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/60 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800 truncate">
+                        <span className="font-bold text-emerald-900 dark:text-emerald-200 truncate">
+                          🧩 {item.partName || 'Tüm Parçalar'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Alt Butonlar */}
+            <div className="flex justify-end items-center gap-3 border-t dark:border-slate-800 pt-4 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsReorderModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={isSavingReorder || reorderList.length === 0}
+                onClick={handleSaveReorder}
+                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition disabled:opacity-50"
+              >
+                <SaveIcon size={16} /> {isSavingReorder ? 'Kaydediliyor...' : 'Sıralamayı Kaydet'}
+              </button>
             </div>
           </div>
         </div>
