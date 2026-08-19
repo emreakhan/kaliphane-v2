@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Plus, Trash2, ClipboardList, Send, MessageSquare, AlertCircle, 
-    CheckCircle2, Loader2, Play, Check, X, ShieldAlert, User, Search
+    CheckCircle2, Loader2, Play, Check, X, ShieldAlert, User, Search, Bell, BellRing, BellOff
 } from 'lucide-react';
 import { 
     collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, arrayUnion 
@@ -64,6 +64,72 @@ const ToolRequestBridgePage = ({ db, loggedInUser, machines = [], projects = [] 
     const [chatInput, setChatInput] = useState('');
     const chatEndRef = useRef(null);
 
+    // MASAÜSTÜ BİLDİRİM STATE VE İZİN YARDIMCISI
+    const [notificationPermission, setNotificationPermission] = useState(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            return Notification.permission;
+        }
+        return 'unsupported';
+    });
+
+    const requestNotificationPermission = async () => {
+        if (typeof window === 'undefined' || !('Notification' in window)) {
+            alert("Tarayıcınız masaüstü bildirimlerini desteklemiyor.");
+            return;
+        }
+        try {
+            const perm = await Notification.requestPermission();
+            setNotificationPermission(perm);
+            if (perm === 'granted') {
+                sendDesktopNotification("🔔 Bildirimler Aktif!", "CAM & Takımhane Köprüsü masaüstü bildirimleri etkinleştirildi.");
+            } else {
+                alert("Masaüstü bildirim izni verilmedi. Tarayıcı ayarlarınızdan izin verebilirsiniz.");
+            }
+        } catch (e) {
+            console.error("Bildirim izni alınamadı:", e);
+        }
+    };
+
+    const sendDesktopNotification = (title, body) => {
+        if (typeof window === 'undefined' || !("Notification" in window)) return;
+        if (Notification.permission === "granted") {
+            try {
+                const notif = new Notification(title, {
+                    body,
+                    icon: '/favicon.ico',
+                    tag: 'tool-request-' + Date.now(),
+                    renotify: true
+                });
+
+                // Ses Efekti (Zil sesi)
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        const ctx = new AudioContext();
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+                        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+                        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.3);
+                    }
+                } catch (audioErr) {
+                    // Ignore audio context errors
+                }
+            } catch (e) {
+                console.error("Masaüstü bildirimi gönderilemedi:", e);
+            }
+        }
+    };
+
+    const prevRequestsMapRef = useRef(new Map());
+    const isInitialLoadRef = useRef(true);
+
     // Real-time Tool Requests Listener
     useEffect(() => {
         if (!db) return;
@@ -78,6 +144,51 @@ const ToolRequestBridgePage = ({ db, loggedInUser, machines = [], projects = [] 
                 id: doc.id,
                 ...doc.data()
             }));
+
+            // BİLDİRİM KONTROLÜ (Sayfa ilk açıldığında geçmiş işler için tetiklenmez, sadece yeni gelen talep veya durumda tetiklenir)
+            if (!isInitialLoadRef.current) {
+                const userRoleStr = (loggedInUser?.role || loggedInUser?.userRole || loggedInUser?.jobTitle || '').toLowerCase();
+                const userNameStr = (loggedInUser?.name || loggedInUser?.displayName || '').toLowerCase().trim();
+
+                const isToolroomStaff = userRoleStr.includes('takımhane') || 
+                                        userRoleStr.includes('takimhane') || 
+                                        userRoleStr.includes('admin') || 
+                                        userRoleStr.includes('yönetici') || 
+                                        userRoleStr.includes('supervisor');
+
+                list.forEach(req => {
+                    const prevReq = prevRequestsMapRef.current.get(req.id);
+
+                    // 1. SENARYO: CAM Operatörü Yeni Talep Açtı -> Takımhane Sorumlusuna Masaüstü Bildirimi Gider
+                    if (!prevReq) {
+                        if (isToolroomStaff) {
+                            sendDesktopNotification(
+                                "🔔 Yeni Takımhane Talebi!",
+                                `📦 Kalıp/Tezgah: ${req.moldName || req.machineName || 'Belirtilmedi'} | Talep Eden: ${req.requesterName || 'CAM Operatörü'}`
+                            );
+                        }
+                    } 
+                    // 2. SENARYO: Takımhane Sorumlusu Talebi Tamamlandı Yaptı -> Talebi Açan CAM Operatörüne Masaüstü Bildirimi Gider
+                    else if (prevReq.status !== 'COMPLETED' && req.status === 'COMPLETED') {
+                        const isMyRequest = (req.requesterName || '').toLowerCase().trim() === userNameStr || 
+                                            (req.requesterUserId && req.requesterUserId === (loggedInUser?.id || loggedInUser?.uid));
+                        if (isMyRequest) {
+                            sendDesktopNotification(
+                                "✅ Takım Talebiniz Hazırlandı!",
+                                `📦 ${req.moldName || req.machineName || 'Kalıp'} için oluşturduğunuz takım hazırlık talebi takımhanede tamamlandı ve hazır!`
+                            );
+                        }
+                    }
+                });
+            } else {
+                isInitialLoadRef.current = false;
+            }
+
+            // Haritayı güncelle
+            const newMap = new Map();
+            list.forEach(r => newMap.set(r.id, r));
+            prevRequestsMapRef.current = newMap;
+
             setRequests(list);
             setLoading(false);
         }, (err) => {
@@ -86,7 +197,7 @@ const ToolRequestBridgePage = ({ db, loggedInUser, machines = [], projects = [] 
         });
 
         return () => unsub();
-    }, [db]);
+    }, [db, loggedInUser]);
 
     // Keep selected request updated if the requests list changes
     useEffect(() => {
@@ -358,13 +469,36 @@ const ToolRequestBridgePage = ({ db, loggedInUser, machines = [], projects = [] 
         <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden bg-gray-900 text-gray-100 font-sans">
             {/* ÜST BİLGİ VE TAB MENÜSÜ */}
             <div className="bg-gray-800 border-b border-gray-700 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div>
-                    <h1 className="text-xl font-black tracking-wide text-white flex items-center gap-2">
-                        <ClipboardList className="w-6 h-6 text-blue-500" /> CAM & Takımhane Köprüsü
-                    </h1>
-                    <p className="text-xs text-gray-400 mt-1">
-                        CAM operatörlerinin takım taleplerini anlık oluşturduğu ve takımhanenin hazırlık durumunu izlediği panel.
-                    </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full md:w-auto gap-3">
+                    <div>
+                        <h1 className="text-xl font-black tracking-wide text-white flex items-center gap-2">
+                            <ClipboardList className="w-6 h-6 text-blue-500" /> CAM & Takımhane Köprüsü
+                        </h1>
+                        <p className="text-xs text-gray-400 mt-1">
+                            CAM operatörlerinin takım taleplerini anlık oluşturduğu ve takımhanenin hazırlık durumunu izlediği panel.
+                        </p>
+                    </div>
+
+                    {/* Masaüstü Bildirim Etkinleştir / Durum Butonu */}
+                    <div className="flex items-center gap-2">
+                        {notificationPermission === 'granted' ? (
+                            <button 
+                                onClick={requestNotificationPermission}
+                                className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition hover:bg-emerald-500/20"
+                                title="Masaüstü bildirimleri aktif ve hazır"
+                            >
+                                <BellRing className="w-4 h-4 text-emerald-400 animate-pulse" /> 🔔 Bildirimler Aktif
+                            </button>
+                        ) : (
+                            <button 
+                                onClick={requestNotificationPermission}
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-blue-500/20"
+                                title="Yeni talepler ve tamamlanan işler için Masaüstü Bildirimlerini Etkinleştir"
+                            >
+                                <Bell className="w-4 h-4" /> 🔔 Bildirimleri Etkinleştir
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Tab Butonları */}
