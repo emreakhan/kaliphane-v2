@@ -51,6 +51,7 @@ export const ALL_SYSTEM_PAGES = [
     { path: '/process-improvement', label: 'Süreç & İyileştirme', iconName: 'Sparkles' },
     { path: '/workflow-map', label: 'İş Akış Haritası (Serbest)', iconName: 'Share2' },
     { path: '/product-development', label: 'Ürün Geliştirme Ofisi', iconName: 'Box' },
+    { path: '/proje-degerlendirme', label: 'Proje Değerlendirme', iconName: 'Award' },
 ];
 
 export const getDefaultPermissions = (role) => {
@@ -166,6 +167,22 @@ export const getDefaultPermissions = (role) => {
     // Ürün Geliştirme Ofisi Yetkisi
     if ([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.URUN_GELISTIRME_SORUMLUSU, ROLES.URUN_GELISTIRME_YONETICISI, 'Ürün Geliştirme Sorumlusu', 'Ürün Geliştirme Yöneticisi'].includes(role)) {
         permissions['/product-development'] = { view: true, edit: true };
+    }
+
+    // Proje Değerlendirme & Puanlama Yetkisi (Yöneticiler ve CAM Operatörlerine açık, Tezgah Operatörlerine kapalı)
+    const roleNormalized = String(role || '').toLowerCase().trim();
+    const isCamOrManager = (
+        [ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PROJE_SORUMLUSU, ROLES.KALIP_TASARIM_SORUMLUSU, ROLES.KALIP_TASARIM_YONETICISI, ROLES.CAM_OPERATOR, ROLES.CAM_SORUMLUSU, 'CAM Sorumlusu', 'CAM Operatörü', 'Yönetici'].includes(role) ||
+        roleNormalized.includes('cam') || 
+        roleNormalized.includes('admin') || 
+        roleNormalized.includes('yönetici') || 
+        roleNormalized.includes('müdür') || 
+        roleNormalized.includes('supervisor') || 
+        roleNormalized.includes('sorumlu') || 
+        roleNormalized.includes('tasarım')
+    );
+    if (isCamOrManager) {
+        permissions['/proje-degerlendirme'] = { view: true, edit: true };
     }
 
     // Edit permission default logic based on role authority

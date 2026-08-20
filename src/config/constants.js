@@ -20,6 +20,11 @@ export const TOOL_TRIALS_COLLECTION = `artifacts/${appId}/public/data/toolTrials
 export const IMPROVEMENT_REQUESTS_COLLECTION = `artifacts/${appId}/public/data/improvementRequests`;
 export const PROCESS_INSTRUCTIONS_COLLECTION = `artifacts/${appId}/public/data/processInstructions`;
 export const WORKFLOW_MAPS_COLLECTION = `artifacts/${appId}/public/data/workflowMaps`;
+export const PROJECT_EVALUATIONS_COLLECTION = `artifacts/${appId}/public/data/projectEvaluations`;
+export const EVALUATION_TEAMS_COLLECTION = `artifacts/${appId}/public/data/evaluationTeams`;
+export const PART_TRANSFER_MARKET_COLLECTION = `artifacts/${appId}/public/data/partTransferMarket`;
+export const MEMBER_POINT_LOGS_COLLECTION = `artifacts/${appId}/public/data/memberPointLogs`;
+export const EVALUATION_SETTINGS_COLLECTION = `artifacts/${appId}/public/data/evaluationSettings`;
 
 export const DEFAULT_MOLD_STATUSES = [
     { name: 'BEKLEMEDE', color: 'yellow', icon: 'RefreshCw', orderIndex: 1 },

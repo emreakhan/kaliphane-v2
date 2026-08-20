@@ -32,12 +32,13 @@ import {
     RefreshCw, LayoutDashboard, Settings, BarChart2, History, List, 
     LogOut, PlayCircle, Map as MapIcon, Monitor, Briefcase, PenTool,
     Package, Wrench, FileText, TrendingUp, Activity, Layers, Archive, Box, FileOutput, Users, Calendar, ClipboardCheck, Database, ListOrdered, Truck,
-    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight, Sparkles, Share2
+    Menu, X, Radio, Clock, Sun, Moon, Target, FolderOpen, ChevronDown, ChevronRight, Sparkles, Share2, Award
 } from 'lucide-react';
 
 // Sayfalar
 import DesignOfficePage from './pages/DesignOfficePage.js'; 
 import ProductDevOfficePage from './pages/ProductDevOfficePage.js'; 
+import ProjectEvaluationPage from './pages/ProjectEvaluationPage.js'; // <-- PROJE DEĞERLENDİRME & PUANLAMA MODÜLÜ 
 import CredentialLoginScreen from './pages/CredentialLoginScreen.js';
 import EnhancedMoldList from './pages/EnhancedMoldList.js';
 import MoldDetailPage from './pages/MoldDetailPage.js';
@@ -723,7 +724,7 @@ const App = () => {
         {
             id: "cat-1",
             title: "Kalıphane Planlama & İzleme",
-            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/technical-drawings", "/project-management", "/design-office", "/product-development", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
+            pagePaths: ["/", "/canli-durum", "/vardiya-plani", "/vardiya-takip", "/technical-drawings", "/project-management", "/design-office", "/product-development", "/proje-degerlendirme", "/machine-queue", "/mold-trial-reports", "/mold-maintenance", "/machine-maintenance", "/active", "/workshop-supervisor"]
         },
         {
             id: "cat-2",
@@ -780,7 +781,8 @@ const App = () => {
             Users: Users,
             Archive: Archive,
             Sparkles: Sparkles,
-            Share2: Share2
+            Share2: Share2,
+            Award: Award
         };
 
         // 1. Build a lookup map of all pages that the active user is allowed to view
@@ -1071,6 +1073,12 @@ const App = () => {
                         <Route path="/vardiya-plani" element={
                             activeUserPermissions['/vardiya-plani']?.view
                             ? <NightShiftPlanner db={db} loggedInUser={loggedInUser} machines={machines} projects={projects} canEdit={activeUserPermissions['/vardiya-plani']?.edit} />
+                            : <Navigate to="/" replace />
+                        } />
+
+                        <Route path="/proje-degerlendirme" element={
+                            activeUserPermissions['/proje-degerlendirme']?.view
+                            ? <ProjectEvaluationPage db={db} loggedInUser={loggedInUser} projects={projects} personnel={personnel} canEdit={activeUserPermissions['/proje-degerlendirme']?.edit} />
                             : <Navigate to="/" replace />
                         } />
 
