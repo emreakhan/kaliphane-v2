@@ -971,9 +971,7 @@ const MoldDetailPage = ({
                     <div>
                         <span>Müşteri: <span className="font-bold text-gray-800 dark:text-gray-200">{mold.customer}</span> | Durum:</span>
                         {(() => {
-                            const rawStatus = String(mold.status || 'BEKLEMEDE').trim();
-                            const isTrialStatus = ['RET', 'ONAY', 'TASHİH', 'APPROVED', 'REJECTED', 'REVISION'].includes(rawStatus.toUpperCase());
-                            const currentMoldStatus = isTrialStatus ? 'BEKLEMEDE' : rawStatus;
+                            const currentMoldStatus = String(mold.status || 'BEKLEMEDE').trim();
 
                             return isAdmin ? (
                                 <select value={currentMoldStatus} onChange={onStatusChange} className={`ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold appearance-none border border-gray-300 dark:border-gray-600 focus:outline-none ${getStatusClasses(currentMoldStatus)}`}>

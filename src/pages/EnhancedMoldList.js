@@ -378,9 +378,7 @@ const EnhancedMoldList = ({ projects }) => {
                     ) : (
                         filteredProjects.map(project => {
                             const totalProgress = calculateMoldProgress(project.tasks);
-                            const rawStatus = String(project.status || MOLD_STATUS.WAITING).trim();
-                            const isTrialStatus = ['RET', 'ONAY', 'TASHİH', 'APPROVED', 'REJECTED', 'REVISION'].includes(rawStatus.toUpperCase());
-                            const moldStatus = isTrialStatus ? 'BEKLEMEDE' : rawStatus;
+                            const moldStatus = String(project.status || MOLD_STATUS.WAITING).trim();
                             const typeStyle = getProjectTypeStyle(project.projectType);
 
                             // Güvenli erişim operatörleri eklendi (?.)
