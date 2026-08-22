@@ -1,12 +1,37 @@
+// src/services/etkaOeeService.js
 import * as signalR from '@microsoft/signalr';
 
-const DEFAULT_BASE_URL = 'http://172.16.50.10:5185';
+// ==========================================
+// ETKA OEE — BASE URL VE BAĞLANTI SABİTLERİ
+// ==========================================
+export const INTERNAL_BASE_URL = 'http://etkacrm.agdc.com.tr:1106'; // Kurum İçi / Şirket VPN
+export const EXTERNAL_BASE_URL = 'http://195.46.142.179:1106';     // Kurum Dışı / VPN'siz İnternet
+
+export const PRESET_BASE_URLS = [
+  {
+    id: 'internal',
+    label: 'Kurum İçi / Şirket VPN',
+    url: INTERNAL_BASE_URL,
+    badge: '🏢 Fabrika / VPN Ağında',
+    description: 'Şirket yerel ağında veya kurumsal VPN açıkken kullanılır.'
+  },
+  {
+    id: 'external',
+    label: 'Kurum Dışı / İnternet (VPN\'siz)',
+    url: EXTERNAL_BASE_URL,
+    badge: '🌍 Dış Ağ / Mobil Veri',
+    description: 'Ofis dışından, evden veya mobil cihazdan doğrudan internet üzerinden erişilir.'
+  }
+];
+
 const STORAGE_KEY = 'etka_oee_base_url';
+const ADMIN_TOKEN_KEY = 'etka_oee_admin_token';
 const ALIASES_STORAGE_KEY = 'etka_oee_machine_aliases';
 
+// Base URL Yönetimi
 export const getBaseUrl = () => {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return DEFAULT_BASE_URL;
+  if (!saved) return INTERNAL_BASE_URL;
   return saved.trim().replace(/\/+$/, '');
 };
 
@@ -19,10 +44,22 @@ export const setBaseUrl = (url) => {
   }
 };
 
+// Admin Token Yönetimi
+export const getAdminToken = () => {
+  return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+};
+
+export const setAdminToken = (token) => {
+  if (!token) {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+  } else {
+    localStorage.setItem(ADMIN_TOKEN_KEY, token.trim());
+  }
+};
+
 // ==========================================
 // TEZGAH İSİMLENDİRME & EŞLEŞTİRME (ALIASES)
 // ==========================================
-
 const DEFAULT_ALIASES = [
   { ipOrId: '192.168.2.72', customName: 'K22 — FANUC 0i-M', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.73', customName: 'K40 — HEIDENHAIN 530', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
@@ -63,27 +100,26 @@ export const findAlias = (ip, id, name) => {
 };
 
 // ==========================================
-// EVDEN ÇALIŞANLAR İÇİN DİNAMİK SİMÜLASYON VERİSİ
+// EVDEN TEST İÇİN DİNAMİK SİMÜLASYON VERİSİ
 // ==========================================
-
 export const generateDemoFleetData = () => {
   const aliases = getMachineAliases();
   
   return aliases.map((alias, idx) => {
-    const states = ['Running', 'Running', 'Running', 'Idle', 'Down'];
+    const states = ['Running', 'Running', 'Running', 'Idle', 'Down', 'Setup'];
     const currentState = states[idx % states.length];
 
     const isRunning = currentState === 'Running';
-    const isIdle = currentState === 'Idle';
+    const isIdle = currentState === 'Idle' || currentState === 'Idling';
 
     const spindleRpm = isRunning ? Math.floor(3000 + Math.random() * 2500) : (isIdle ? 0 : null);
     const feedrate = isRunning ? Math.floor(600 + Math.random() * 1200) : (isIdle ? 0 : null);
     const programs = ['O1234_MENTESE', 'MOLD_TOP_PLATE', 'O9012_DISI_CELIK', 'CORE_BOTTOM_504', 'AP200_SLIDE'];
     
-    // Operatör Override Yüzdeleri Simülasyonu
-    const feedOverrides = [100, 80, 60, 100, 50];
-    const rapidOverrides = [100, 50, 100, 25, 100];
-    const spindleOverrides = [100, 100, 90, 100, 100];
+    // Operatör Override Yüzdeleri
+    const feedOverrides = [100, 80, 60, 100, 50, 100];
+    const rapidOverrides = [100, 50, 100, 25, 100, 100];
+    const spindleOverrides = [100, 100, 90, 100, 100, 100];
 
     const feedOverridePct = isRunning || isIdle ? feedOverrides[idx % feedOverrides.length] : 100;
     const rapidOverridePct = isRunning || isIdle ? rapidOverrides[idx % rapidOverrides.length] : 100;
@@ -91,8 +127,9 @@ export const generateDemoFleetData = () => {
 
     const runningSec = isRunning ? 54000 + Math.floor(Math.random() * 10000) : 32000;
     const idleSec = isIdle ? 18000 : 4000;
+    const idlingSec = 1200;
     const downSec = currentState === 'Down' ? 12000 : 1000;
-    const totalSec = runningSec + idleSec + downSec || 1;
+    const totalSec = runningSec + idleSec + idlingSec + downSec || 1;
 
     return {
       id: `demo-device-${idx + 1}`,
@@ -111,14 +148,27 @@ export const generateDemoFleetData = () => {
       runningPct: runningSec / totalSec,
       runningSec,
       idleSec,
+      idlingSec,
       downSec,
       offlineSec: 0,
+      partsCount: Math.floor(15 + Math.random() * 80),
+      avgCycleSec: Math.floor(200 + Math.random() * 300),
+      connected: true,
+      lastDataUtc: new Date().toISOString(),
+      axes: [
+        { name: 'X', position: (123.456 + Math.random() * 2).toFixed(3) },
+        { name: 'Y', position: (-45.210 + Math.random()).toFixed(3) },
+        { name: 'Z', position: (312.800 + Math.random() * 1.5).toFixed(3) },
+        { name: 'C', position: '0.000' }
+      ],
       vendor: alias.customName.includes('FANUC') ? 'FANUC' : (alias.customName.includes('HEIDENHAIN') ? 'HEIDENHAIN' : 'SIEMENS')
     };
   });
 };
 
-// Helper for HTTP requests with timeout
+// ==========================================
+// HTTP İSTEK YARDIMCISI (TIMEOUT & ADMIN TOKEN)
+// ==========================================
 const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, customBaseUrl = null) => {
   const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
   const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
@@ -126,16 +176,27 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+
+  const adminToken = getAdminToken();
+  if (adminToken && !headers['X-Admin-Token']) {
+    headers['X-Admin-Token'] = adminToken;
+  }
+
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      },
+      headers,
       signal: controller.signal
     });
     clearTimeout(timeoutId);
+
+    if (response.status === 204) {
+      return null;
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -160,9 +221,10 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
 };
 
 // ==========================================
-// REST API ENDPOINTS
+// REST API ENDPOINTS (ETKA OEE v1)
 // ==========================================
 
+// §3 Sağlık / Meta
 export const checkHealth = async (customBaseUrl = null) => {
   return await fetchWithTimeout('/api/health', {}, 4000, customBaseUrl);
 };
@@ -171,20 +233,46 @@ export const getServerInfo = async (customBaseUrl = null) => {
   return await fetchWithTimeout('/api/server/info', {}, 4000, customBaseUrl);
 };
 
+export const getModules = async () => {
+  return await fetchWithTimeout('/api/modules');
+};
+
+// §2 Kimlik Doğrulama (Admin)
+export const getAuthStatus = async () => {
+  return await fetchWithTimeout('/api/auth/status');
+};
+
+export const loginAdmin = async (password) => {
+  const data = await fetchWithTimeout('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ password })
+  });
+  if (data && data.token) {
+    setAdminToken(data.token);
+  }
+  return data;
+};
+
+export const logoutAdmin = async () => {
+  try {
+    await fetchWithTimeout('/api/auth/logout', { method: 'POST' });
+  } finally {
+    setAdminToken('');
+  }
+};
+
+// §7 Dashboard & Metrikler
 export const getDashboard = async () => {
   return await fetchWithTimeout('/api/dashboard');
 };
 
+export const getSystemMetrics = async () => {
+  return await fetchWithTimeout('/api/system/metrics');
+};
+
+// §8 OEE / Canlı İzleme & Filo
 export const getFleetOee = async () => {
   return await fetchWithTimeout('/api/oee/fleet');
-};
-
-export const getDevices = async () => {
-  return await fetchWithTimeout('/api/devices');
-};
-
-export const getDeviceDetails = async (deviceId) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}`);
 };
 
 export const getDeviceLive = async (deviceId) => {
@@ -199,8 +287,98 @@ export const getDeviceTimeline = async (deviceId, hours = 24) => {
   return await fetchWithTimeout(`/api/devices/${deviceId}/timeline?hours=${hours}`);
 };
 
+// §4 Cihaz Yönetimi (Filo)
+export const getDevices = async () => {
+  return await fetchWithTimeout('/api/devices');
+};
+
+export const getDeviceDetails = async (deviceId) => {
+  return await fetchWithTimeout(`/api/devices/${deviceId}`);
+};
+
+export const addDevice = async (deviceData) => {
+  return await fetchWithTimeout('/api/devices', {
+    method: 'POST',
+    body: JSON.stringify(deviceData)
+  });
+};
+
+export const updateDevice = async (deviceId, deviceData) => {
+  return await fetchWithTimeout(`/api/devices/${deviceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(deviceData)
+  });
+};
+
+export const deleteDevice = async (deviceId) => {
+  return await fetchWithTimeout(`/api/devices/${deviceId}`, {
+    method: 'DELETE'
+  });
+};
+
+export const rescanDevice = async (deviceId) => {
+  return await fetchWithTimeout(`/api/devices/${deviceId}/rescan`, {
+    method: 'POST'
+  });
+};
+
+// §6 Ağ Keşfi (Subnet Tarama)
+export const getNetworkRanges = async () => {
+  return await fetchWithTimeout('/api/network/ranges');
+};
+
+export const scanNetwork = async (cidr = '') => {
+  return await fetchWithTimeout('/api/network/scan', {
+    method: 'POST',
+    body: JSON.stringify({ cidr })
+  });
+};
+
+// §9 İzleme & Kayıt Kontrolleri
+export const getMonitoringStatus = async () => {
+  return await fetchWithTimeout('/api/monitoring/status');
+};
+
+export const startMonitoring = async () => {
+  return await fetchWithTimeout('/api/monitoring/start', { method: 'POST' });
+};
+
+export const stopMonitoring = async () => {
+  return await fetchWithTimeout('/api/monitoring/stop', { method: 'POST' });
+};
+
+export const getRecordingStatus = async () => {
+  return await fetchWithTimeout('/api/recording');
+};
+
+export const setRecording = async (enabled) => {
+  return await fetchWithTimeout('/api/recording', {
+    method: 'POST',
+    body: JSON.stringify({ enabled })
+  });
+};
+
+// §10 Ayarlar
+export const getSettings = async () => {
+  return await fetchWithTimeout('/api/settings');
+};
+
+export const updateSettings = async (settings) => {
+  return await fetchWithTimeout('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  });
+};
+
+export const testDbConnection = async (connectionString) => {
+  return await fetchWithTimeout('/api/settings/test-connection', {
+    method: 'POST',
+    body: JSON.stringify({ connectionString })
+  });
+};
+
 // ==========================================
-// SIGNALR REAL-TIME CLIENT
+// SIGNALR REAL-TIME CLIENT (HUB: /hubs/discovery)
 // ==========================================
 
 let hubConnection = null;

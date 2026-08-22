@@ -1,16 +1,19 @@
+// src/pages/CanliDurum.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Monitor, Cpu, RefreshCw, Activity, AlertTriangle, CheckCircle2, 
   PlayCircle, PauseCircle, Wifi, WifiOff, Settings, Search, Filter, 
   Clock, Zap, X, ShieldCheck, Database, Server, Gauge, Radio, 
   ArrowUpRight, BarChart3, Wrench, Layers, Check, ChevronRight, Edit3,
-  PlusIcon, TrashIcon, Tag, MapPin, Sparkles, Sliders, ShieldAlert, FastForward
+  PlusIcon, TrashIcon, Tag, MapPin, Sliders, ShieldAlert, FastForward,
+  Globe, Building2, BellRing, Info
 } from 'lucide-react';
 import { 
   getBaseUrl, setBaseUrl, checkHealth, getServerInfo, getDashboard, 
   getFleetOee, getDevices, getDeviceLive, getDeviceOee, getDeviceTimeline, 
   startSignalR, stopSignalR, startKeepLiveLoop, stopKeepLiveLoop,
-  getMachineAliases, setMachineAliases, findAlias, generateDemoFleetData
+  getMachineAliases, setMachineAliases, findAlias,
+  INTERNAL_BASE_URL, EXTERNAL_BASE_URL, PRESET_BASE_URLS
 } from '../services/etkaOeeService';
 
 const CanliDurum = () => {
@@ -20,11 +23,8 @@ const CanliDurum = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // DEMO / EVDEN ÇALIŞMA SİMÜLASYON MODU STATE
-  const [isDemoMode, setIsDemoMode] = useState(false);
-
   // FİLTRE & ARAMA
-  const [filterState, setFilterState] = useState('ALL'); // 'ALL' | 'Running' | 'Idle' | 'Down' | 'Offline' | 'Reduced'
+  const [filterState, setFilterState] = useState('ALL'); // 'ALL' | 'Running' | 'Idle' | 'Down' | 'Offline' | 'Reduced' | 'Setup'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('ALL');
 
@@ -34,7 +34,7 @@ const CanliDurum = () => {
   const [deviceOeeStats, setDeviceOeeStats] = useState(null);
   const [deviceTimeline, setDeviceTimeline] = useState([]);
   const [liveRawPoints, setLiveRawPoints] = useState([]);
-  const [activeDetailTab, setActiveDetailTab] = useState('live'); // 'live' | 'oee' | 'timeline' | 'raw'
+  const [activeDetailTab, setActiveDetailTab] = useState('live'); // 'live' | 'oee' | 'timeline'
 
   // SIGNALR BAĞLANTI DURUMU
   const [signalRStatus, setSignalRStatus] = useState('disconnected');
@@ -55,24 +55,8 @@ const CanliDurum = () => {
     location: 'Kalıphane A Blok'
   });
 
-  // 1. TÜM FİLO VERİLERİNİ VE METRİKLERİ ÇEK (REST API VEYA DEMO SİMÜLASYON)
+  // 1. TÜM FİLO VERİLERİNİ VE METRİKLERİ ÇEK (REST API)
   const loadFleetData = useCallback(async () => {
-    if (isDemoMode) {
-      const demoData = generateDemoFleetData();
-      setFleetData(demoData);
-      setMetrics({
-        totalDevices: demoData.length,
-        connectedDevices: demoData.filter(d => d.currentState !== 'Offline').length,
-        offlineDevices: demoData.filter(d => d.currentState === 'Offline').length,
-        cpuPercent: 3.4,
-        ramMb: 112,
-        dataRatePerSec: 1.2
-      });
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(prev => fleetData.length === 0 ? true : prev);
       setError(null);
@@ -109,8 +93,11 @@ const CanliDurum = () => {
             runningPct: 0,
             runningSec: 0,
             idleSec: 0,
+            idlingSec: 0,
             downSec: 0,
-            offlineSec: 0
+            offlineSec: 0,
+            connected: d.connectionStatus === 'online',
+            lastDataUtc: d.lastUpdatedUtc
           }));
         } else {
           combinedFleet = combinedFleet.map(fItem => {
@@ -122,7 +109,9 @@ const CanliDurum = () => {
               vendor: devInfo?.vendor || fItem.vendor || '',
               feedOverridePct: fItem.feedOverridePct ?? 100,
               rapidOverridePct: fItem.rapidOverridePct ?? 100,
-              spindleOverridePct: fItem.spindleOverridePct ?? 100
+              spindleOverridePct: fItem.spindleOverridePct ?? 100,
+              connected: fItem.connected !== undefined ? fItem.connected : (devInfo?.connectionStatus === 'online'),
+              lastDataUtc: fItem.lastDataUtc || devInfo?.lastUpdatedUtc
             };
           });
         }
@@ -149,106 +138,81 @@ const CanliDurum = () => {
       }
     } catch (err) {
       console.error("ETKA OEE Veri Çekme Hatası:", err);
-      setError(err.message || "ETKA OEE Sunucusuna ulaşılamadı. Evden test için 'Demo Modu'nu açabilirsiniz.");
+      setError(err.message || "ETKA OEE Sunucusuna ulaşılamadı. Lütfen sunucu bağlantı ayarlarını kontrol ediniz.");
     } finally {
       setLoading(false);
     }
-  }, [isDemoMode, fleetData.length]);
-
-  // DEMO MODUNDA ANLIK DEĞERLERİ DİNAMİK CANLI HAREKET ETTİR
-  useEffect(() => {
-    if (!isDemoMode) return;
-
-    const interval = setInterval(() => {
-      setFleetData(prevFleet => {
-        return prevFleet.map(item => {
-          if (item.currentState === 'Running') {
-            const randomRpmDelta = Math.floor((Math.random() - 0.5) * 100);
-            const randomFeedDelta = Math.floor((Math.random() - 0.5) * 40);
-            return {
-              ...item,
-              spindleRpm: Math.max(1000, Math.min(8000, (item.spindleRpm || 3500) + randomRpmDelta)),
-              feedrate: Math.max(200, Math.min(3000, (item.feedrate || 800) + randomFeedDelta))
-            };
-          }
-          return item;
-        });
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isDemoMode]);
+  }, [fleetData.length]);
 
   // 2. İLK YÜKLEME VE SIGNALR CANLI YAYIN BAĞLANTISI
   useEffect(() => {
     loadFleetData();
     const pollInterval = setInterval(loadFleetData, 15000);
 
-    if (!isDemoMode) {
-      setSignalRStatus('connecting');
-      startSignalR({
-        onRawData: (payload) => {
-          if (payload) {
-            setLiveRawPoints(prev => [payload, ...prev.slice(0, 49)]);
+    setSignalRStatus('connecting');
+    startSignalR({
+      onRawData: (payload) => {
+        if (payload) {
+          setLiveRawPoints(prev => [payload, ...prev.slice(0, 49)]);
 
-            setFleetData(prevFleet => {
-              return prevFleet.map(item => {
-                if (item.id === payload.deviceId || item.ip === payload.deviceId) {
-                  const newSpindle = payload.data?.find(d => d.key === 'spindle_speed' || d.key === 'spindleRpm')?.value;
-                  const newFeed = payload.data?.find(d => d.key === 'feedrate')?.value;
-                  const newProg = payload.data?.find(d => d.key === 'selected_program' || d.key === 'program')?.value;
-                  const newFeedOverride = payload.data?.find(d => d.key === 'feed_override_pct' || d.key === 'feedOverridePct')?.value;
-                  const newRapidOverride = payload.data?.find(d => d.key === 'rapid_override_pct' || d.key === 'rapidOverridePct')?.value;
-                  const newSpindleOverride = payload.data?.find(d => d.key === 'spindle_override_pct' || d.key === 'spindleOverridePct')?.value;
-                  
-                  return {
-                    ...item,
-                    spindleRpm: newSpindle !== undefined ? newSpindle : item.spindleRpm,
-                    feedrate: newFeed !== undefined ? newFeed : item.feedrate,
-                    program: newProg !== undefined ? newProg : item.program,
-                    feedOverridePct: newFeedOverride !== undefined ? newFeedOverride : item.feedOverridePct,
-                    rapidOverridePct: newRapidOverride !== undefined ? newRapidOverride : item.rapidOverridePct,
-                    spindleOverridePct: newSpindleOverride !== undefined ? newSpindleOverride : item.spindleOverridePct
-                  };
-                }
-                return item;
-              });
+          setFleetData(prevFleet => {
+            return prevFleet.map(item => {
+              if (item.id === payload.deviceId || item.ip === payload.deviceId) {
+                const newSpindle = payload.data?.find(d => d.key === 'spindle_speed' || d.key === 'spindleRpm')?.value;
+                const newFeed = payload.data?.find(d => d.key === 'feedrate')?.value;
+                const newProg = payload.data?.find(d => d.key === 'selected_program' || d.key === 'program')?.value;
+                const newFeedOverride = payload.data?.find(d => d.key === 'feed_override_pct' || d.key === 'feedOverridePct')?.value;
+                const newRapidOverride = payload.data?.find(d => d.key === 'rapid_override_pct' || d.key === 'rapidOverridePct')?.value;
+                const newSpindleOverride = payload.data?.find(d => d.key === 'spindle_override_pct' || d.key === 'spindleOverridePct')?.value;
+                
+                return {
+                  ...item,
+                  spindleRpm: newSpindle !== undefined ? newSpindle : item.spindleRpm,
+                  feedrate: newFeed !== undefined ? newFeed : item.feedrate,
+                  program: newProg !== undefined ? newProg : item.program,
+                  feedOverridePct: newFeedOverride !== undefined ? newFeedOverride : item.feedOverridePct,
+                  rapidOverridePct: newRapidOverride !== undefined ? newRapidOverride : item.rapidOverridePct,
+                  spindleOverridePct: newSpindleOverride !== undefined ? newSpindleOverride : item.spindleOverridePct,
+                  connected: true,
+                  lastDataUtc: new Date().toISOString()
+                };
+              }
+              return item;
             });
-          }
-        },
-        onDeviceUpdated: (deviceSummary) => {
-          if (deviceSummary) {
-            setFleetData(prevFleet => {
-              return prevFleet.map(item => {
-                if (item.id === deviceSummary.id || item.ip === deviceSummary.host) {
-                  return {
-                    ...item,
-                    currentState: deviceSummary.isReachable ? (item.currentState || 'Running') : 'Offline'
-                  };
-                }
-                return item;
-              });
-            });
-          }
-        },
-        onConnectionStateChange: (state) => {
-          setSignalRStatus(state);
+          });
         }
-      }).catch(err => {
-        console.warn("SignalR bağlantısı kurulamadı:", err);
-        setSignalRStatus('error');
-      });
-    } else {
-      setSignalRStatus('connected');
-    }
+      },
+      onDeviceUpdated: (deviceSummary) => {
+        if (deviceSummary) {
+          setFleetData(prevFleet => {
+            return prevFleet.map(item => {
+              if (item.id === deviceSummary.id || item.ip === deviceSummary.host) {
+                return {
+                  ...item,
+                  currentState: deviceSummary.isReachable ? (item.currentState || 'Running') : 'Offline',
+                  connected: !!deviceSummary.isReachable
+                };
+              }
+              return item;
+            });
+          });
+        }
+      },
+      onConnectionStateChange: (state) => {
+        setSignalRStatus(state);
+      }
+    }).catch(err => {
+      console.warn("SignalR bağlantısı kurulamadı:", err);
+      setSignalRStatus('error');
+    });
 
     return () => {
       clearInterval(pollInterval);
       stopSignalR();
     };
-  }, [loadFleetData, isDemoMode]);
+  }, [loadFleetData]);
 
-  // 3. TEZGAH DETAY MODALI AÇILDIĞINDA
+  // 3. TEZGAH DETAY MODALI AÇILDIĞINDA (KEEPLIVE LOOP İLE CANLI AKIŞ)
   useEffect(() => {
     if (!selectedDevice) {
       stopKeepLiveLoop();
@@ -260,60 +224,32 @@ const CanliDurum = () => {
     }
 
     const deviceId = selectedDevice.id;
+    startKeepLiveLoop(deviceId, 3000);
 
-    if (!isDemoMode) {
-      startKeepLiveLoop(deviceId, 3000);
+    const fetchDetails = async () => {
+      try {
+        const [liveRes, oeeRes, timelineRes] = await Promise.allSettled([
+          getDeviceLive(deviceId),
+          getDeviceOee(deviceId, 24),
+          getDeviceTimeline(deviceId, 24)
+        ]);
 
-      const fetchDetails = async () => {
-        try {
-          const [liveRes, oeeRes, timelineRes] = await Promise.allSettled([
-            getDeviceLive(deviceId),
-            getDeviceOee(deviceId, 24),
-            getDeviceTimeline(deviceId, 24)
-          ]);
+        if (liveRes.status === 'fulfilled') setLiveDetails(liveRes.value);
+        if (oeeRes.status === 'fulfilled') setDeviceOeeStats(oeeRes.value);
+        if (timelineRes.status === 'fulfilled' && Array.isArray(timelineRes.value)) setDeviceTimeline(timelineRes.value);
+      } catch (err) {
+        console.error("Cihaz canlı detayı çekme hatası:", err);
+      }
+    };
 
-          if (liveRes.status === 'fulfilled') setLiveDetails(liveRes.value);
-          if (oeeRes.status === 'fulfilled') setDeviceOeeStats(oeeRes.value);
-          if (timelineRes.status === 'fulfilled' && Array.isArray(timelineRes.value)) setDeviceTimeline(timelineRes.value);
-        } catch (err) {
-          console.error("Cihaz canlı detayı çekme hatası:", err);
-        }
-      };
+    fetchDetails();
+    const detailInterval = setInterval(fetchDetails, 3000);
 
-      fetchDetails();
-      const detailInterval = setInterval(fetchDetails, 3000);
-
-      return () => {
-        clearInterval(detailInterval);
-        stopKeepLiveLoop();
-      };
-    } else {
-      setLiveDetails({
-        spindleRpm: selectedDevice.spindleRpm,
-        feedrate: selectedDevice.feedrate,
-        spindleOverridePct: selectedDevice.spindleOverridePct ?? 100,
-        feedOverridePct: selectedDevice.feedOverridePct ?? 100,
-        rapidOverridePct: selectedDevice.rapidOverridePct ?? 100,
-        axes: [
-          { name: 'X', position: (123.456 + Math.random() * 2).toFixed(3) },
-          { name: 'Y', position: (-45.210 + Math.random()).toFixed(3) },
-          { name: 'Z', position: (312.800 + Math.random() * 1.5).toFixed(3) },
-          { name: 'C', position: (0.000).toFixed(3) }
-        ],
-        protocols: ['FANUC FOCAS (Demo)']
-      });
-      setDeviceOeeStats({
-        availability: {
-          availability: selectedDevice.runningPct || 0.85,
-          utilization: selectedDevice.runningPct ? selectedDevice.runningPct * 0.9 : 0.75
-        }
-      });
-      setDeviceTimeline([
-        { state: 'Running', startUtc: new Date(Date.now() - 3600000).toISOString(), endUtc: null },
-        { state: 'Idle', startUtc: new Date(Date.now() - 7200000).toISOString(), endUtc: new Date(Date.now() - 3600000).toISOString() }
-      ]);
-    }
-  }, [selectedDevice, isDemoMode]);
+    return () => {
+      clearInterval(detailInterval);
+      stopKeepLiveLoop();
+    };
+  }, [selectedDevice]);
 
   // MEVCUT GRUPLARIN LİSTESİ
   const availableGroups = useMemo(() => {
@@ -329,13 +265,13 @@ const CanliDurum = () => {
         const targetState = filterState.toLowerCase();
         
         if (targetState === 'reduced') {
-          // Operatör Hızı Kısmış Mı? (Feed Override < 100 veya Rapid Override < 100)
           const fOv = device.feedOverridePct ?? 100;
           const rOv = device.rapidOverridePct ?? 100;
           if (fOv >= 100 && rOv >= 100) return false;
         } else if (targetState === 'running' && devState !== 'running') return false;
         else if (targetState === 'idle' && (devState !== 'idle' && devState !== 'idling')) return false;
         else if (targetState === 'down' && devState !== 'down') return false;
+        else if (targetState === 'setup' && devState !== 'setup') return false;
         else if (targetState === 'offline' && devState !== 'offline' && devState !== 'unknown') return false;
       }
 
@@ -358,15 +294,15 @@ const CanliDurum = () => {
 
   // TOPLAM DURUM SAYILARI
   const counts = useMemo(() => {
-    let running = 0, idle = 0, down = 0, offline = 0, reduced = 0;
+    let running = 0, idle = 0, down = 0, setup = 0, offline = 0, reduced = 0;
     fleetData.forEach(d => {
       const st = (d.currentState || 'Offline').toLowerCase();
       if (st === 'running') running++;
       else if (st === 'idle' || st === 'idling') idle++;
       else if (st === 'down') down++;
+      else if (st === 'setup') setup++;
       else offline++;
 
-      // Kısılan İlerleme Sayısı
       const fOv = d.feedOverridePct ?? 100;
       const rOv = d.rapidOverridePct ?? 100;
       if (fOv < 100 || rOv < 100) {
@@ -378,17 +314,19 @@ const CanliDurum = () => {
       running,
       idle,
       down,
+      setup,
       offline,
       reduced
     };
   }, [fleetData]);
 
   // SUNUCU AYARLARI TEST ET & KAYDET
-  const handleTestConnection = async () => {
+  const handleTestConnection = async (urlToTest = null) => {
+    const targetUrl = urlToTest || serverIpInput;
     setIsTesting(true);
     setTestResult(null);
     try {
-      const info = await getServerInfo(serverIpInput);
+      const info = await getServerInfo(targetUrl);
       setTestResult({
         success: true,
         message: `Bağlantı Başarılı! Sunucu: ${info.hostname || 'ETKA OEE Host'} (${info.version || 'v1'})`
@@ -396,7 +334,7 @@ const CanliDurum = () => {
     } catch (err) {
       setTestResult({
         success: false,
-        message: `Bağlantı Başarısız: ${err.message}`
+        message: `Bağlantı Başarısız (${targetUrl}): ${err.message}`
       });
     } finally {
       setIsTesting(false);
@@ -473,6 +411,9 @@ const CanliDurum = () => {
     return `${m} dk`;
   };
 
+  const currentBaseUrl = getBaseUrl();
+  const isInternalUrl = currentBaseUrl.includes('etkacrm.agdc.com.tr') || currentBaseUrl.includes('172.16.');
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
       
@@ -484,27 +425,17 @@ const CanliDurum = () => {
               <Monitor className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-pulse" />
               ETKA OEE — Canlı Tezgah İzleme Panosu
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Fabrika CNC tezgahlarının anlık durumu, spindle devirleri, kesme ve boşta ilerleme override yüzdeleri.
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Fabrika CNC tezgahlarının anlık durumu, spindle devirleri, kesme ve boşta ilerleme override yüzdeleri.
+              </p>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold border dark:border-slate-600">
+                {isInternalUrl ? '🏢 Kurum İçi Ağ / VPN' : '🌍 Kurum Dışı / İnternet'} ({currentBaseUrl})
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => {
-                setIsDemoMode(!isDemoMode);
-                loadFleetData();
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 border ${
-                isDemoMode 
-                  ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-500/30 animate-pulse' 
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
-              }`}
-              title="Evden çalışırken tezgah verilerini canlı simüle eder"
-            >
-              <Sparkles size={15} /> {isDemoMode ? '🧪 Demo Modu Açık (Evden Test)' : '⚡ Canlı Sunucu Modu'}
-            </button>
-
             <button
               onClick={() => setIsAliasModalOpen(true)}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5"
@@ -519,7 +450,7 @@ const CanliDurum = () => {
                 'bg-red-500'
               }`} />
               <span className="text-slate-600 dark:text-slate-300">
-                {isDemoMode ? '🧪 Demo Yayın' : (signalRStatus === 'connected' ? '⚡ SignalR Bağlı' : 'Çevrimdışı')}
+                {signalRStatus === 'connected' ? '⚡ SignalR Canlı Bağlı' : (signalRStatus === 'connecting' ? 'Bağlanıyor...' : 'Çevrimdışı')}
               </span>
             </div>
 
@@ -530,7 +461,7 @@ const CanliDurum = () => {
                 setIsSettingsOpen(true);
               }}
               className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition"
-              title="Sunucu IP Ayarları"
+              title="Sunucu Bağlantı ve URL Ayarları"
             >
               <Settings size={16} />
             </button>
@@ -541,18 +472,36 @@ const CanliDurum = () => {
       {/* ANA İÇERİK KONTEYNERİ */}
       <div className="max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6 flex-1">
 
-        {error && !isDemoMode && (
+        {error && (
           <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div className="flex items-center gap-2">
               <AlertTriangle size={18} className="text-amber-500 shrink-0" />
-              <span>Fabrika Yerel Sunucusuna ({getBaseUrl()}) Erişilemedi. Evden çalışıyorsanız <b>"Demo Modu"</b>nu açarak tezgah isimlendirmelerini ve ekranı test edebilirsiniz.</span>
+              <span>
+                Sunucuya ({getBaseUrl()}) erişilemedi. Kurum dışındaysanız Ayarlar'dan <b>"Kurum Dışı (195.46.142.179:1106)"</b> seçeneğini işaretleyebilirsiniz.
+              </span>
             </div>
-            <button 
-              onClick={() => setIsDemoMode(true)} 
-              className="px-3 py-1.5 bg-amber-600 text-white font-black rounded-xl text-xs shrink-0 shadow-xs"
-            >
-              🧪 Demo Modunu Aç
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setServerIpInput(EXTERNAL_BASE_URL);
+                  setBaseUrl(EXTERNAL_BASE_URL);
+                  loadFleetData();
+                }}
+                className="px-3 py-1.5 bg-blue-600 text-white font-black rounded-xl text-xs shadow-xs"
+              >
+                🌍 Kurum Dışına Geç
+              </button>
+              <button
+                onClick={() => {
+                  setServerIpInput(INTERNAL_BASE_URL);
+                  setBaseUrl(INTERNAL_BASE_URL);
+                  loadFleetData();
+                }}
+                className="px-3 py-1.5 bg-slate-700 text-white font-black rounded-xl text-xs shadow-xs"
+              >
+                🏢 Kurum İçi / VPN'e Geç
+              </button>
+            </div>
           </div>
         )}
 
@@ -707,14 +656,6 @@ const CanliDurum = () => {
           <div className="p-16 text-center text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 font-bold space-y-2">
             <Monitor size={32} className="mx-auto text-slate-400" />
             <p>Seçilen filtrelere uygun tezgah bulunamadı.</p>
-            {!isDemoMode && (
-              <button 
-                onClick={() => setIsDemoMode(true)}
-                className="px-4 py-2 bg-purple-600 text-white font-black text-xs rounded-xl shadow-xs mt-2"
-              >
-                🧪 Evden Test İçin Demo Modunu Aç
-              </button>
-            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -750,9 +691,16 @@ const CanliDurum = () => {
                         </span>
                       </div>
 
-                      <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider ${badge.badgeBg} text-white shadow-xs`}>
-                        {badge.label}
-                      </span>
+                      <div className="text-right flex flex-col items-end gap-1">
+                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider ${badge.badgeBg} text-white shadow-xs`}>
+                          {badge.label}
+                        </span>
+                        {device.currentStateSec > 0 && (
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            {formatSeconds(device.currentStateSec)}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* HIZ KISILDI UYARI ROZETİ (EĞER OPERATÖR İLERLEMEYİ KISTIYSA) */}
@@ -1055,6 +1003,17 @@ const CanliDurum = () => {
 
             {activeDetailTab === 'live' && (
               <div className="space-y-4">
+                {/* CNC Alarm Bildirimi */}
+                {liveDetails?.alarm ? (
+                  <div className="p-3 rounded-2xl bg-red-500/15 border-2 border-red-500 text-red-600 dark:text-red-400 text-xs font-black flex items-center justify-between animate-pulse">
+                    <span className="flex items-center gap-2">
+                      <BellRing size={18} className="text-red-500" />
+                      <span>TEZGAHTA AKTİF CNC ALARMI MEVCUT!</span>
+                    </span>
+                    <span className="font-mono font-black text-sm">Kod / Değer: {liveDetails.alarm}</span>
+                  </div>
+                ) : null}
+
                 {/* 3 TEMEL HIZ OVERRIDE METRİK KARTLARI */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
@@ -1179,7 +1138,7 @@ const CanliDurum = () => {
       {/* ========================================================================= */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-md w-full p-6 space-y-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-lg w-full p-6 space-y-4">
             
             <div className="flex justify-between items-start border-b dark:border-slate-700 pb-3">
               <div>
@@ -1187,7 +1146,7 @@ const CanliDurum = () => {
                   <Server className="text-blue-500 w-5 h-5" /> ETKA OEE Sunucu Bağlantısı
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Fabrikadaki OEE backend sunucusunun IP adresini ve portunu girin.
+                  Bağlantı ortamınıza uygun sunucu adresini seçin veya özel URL girin.
                 </p>
               </div>
               <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600">
@@ -1195,14 +1154,62 @@ const CanliDurum = () => {
               </button>
             </div>
 
-            <div className="space-y-3">
+            {/* HIZLI ADRES SEÇİMİ (PRESETS) */}
+            <div className="space-y-2">
+              <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
+                🎯 Hızlı Sunucu Konumu Seçin:
+              </span>
+
+              <div className="grid grid-cols-1 gap-2.5">
+                {PRESET_BASE_URLS.map(preset => {
+                  const isSelected = serverIpInput.trim().replace(/\/+$/, '') === preset.url;
+                  return (
+                    <div
+                      key={preset.id}
+                      onClick={() => {
+                        setServerIpInput(preset.url);
+                        handleTestConnection(preset.url);
+                      }}
+                      className={`p-3 rounded-2xl border-2 transition cursor-pointer flex justify-between items-center ${
+                        isSelected 
+                          ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 shadow-sm' 
+                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-400 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-xs">{preset.label}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {preset.badge}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                          {preset.url}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          {preset.description}
+                        </div>
+                      </div>
+
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                        isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400'
+                      }`}>
+                        {isSelected && <Check size={12} strokeWidth={3} />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
               <div>
                 <label className="block text-xs font-black text-slate-700 dark:text-slate-200 mb-1">
-                  🌐 Sunucu Base URL (IP & Port)
+                  🌐 Özel Sunucu Base URL
                 </label>
                 <input
                   type="text"
-                  placeholder="Örn: http://172.16.50.10:5185"
+                  placeholder="Örn: http://etkacrm.agdc.com.tr:1106"
                   value={serverIpInput}
                   onChange={(e) => setServerIpInput(e.target.value)}
                   className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
@@ -1221,7 +1228,7 @@ const CanliDurum = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={handleTestConnection}
+                  onClick={() => handleTestConnection()}
                   disabled={isTesting}
                   className="flex-1 py-2.5 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
                 >
