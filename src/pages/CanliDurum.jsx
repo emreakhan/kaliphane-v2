@@ -13,6 +13,7 @@ import {
   getFleetOee, getDevices, getDeviceLive, getDeviceOee, getDeviceTimeline, 
   startSignalR, stopSignalR, startKeepLiveLoop, stopKeepLiveLoop,
   getMachineAliases, setMachineAliases, findAlias,
+  getAdminToken, setAdminToken, loginEtka, logoutAdmin,
   INTERNAL_BASE_URL, EXTERNAL_BASE_URL, PRESET_BASE_URLS
 } from '../services/etkaOeeService';
 
@@ -36,14 +37,22 @@ const CanliDurum = () => {
   const [liveRawPoints, setLiveRawPoints] = useState([]);
   const [activeDetailTab, setActiveDetailTab] = useState('live'); // 'live' | 'oee' | 'timeline'
 
-  // SIGNALR BAĞLANTI DURUMU
+  // SIGNALR & REST API BAĞLANTI DURUMU
   const [signalRStatus, setSignalRStatus] = useState('disconnected');
+  const [apiConnected, setApiConnected] = useState(false);
 
   // SUNUCU AYARLARI MODAL
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [serverIpInput, setServerIpInput] = useState(() => getBaseUrl());
   const [testResult, setTestResult] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
+
+  // ETKA AUTH STATE
+  const [adminTokenState, setAdminTokenState] = useState(() => getAdminToken());
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authStatusMsg, setAuthStatusMsg] = useState(null);
 
   // TEZGAH İSİMLENDİRME & EŞLEŞTİRME MODAL STATE
   const [isAliasModalOpen, setIsAliasModalOpen] = useState(false);
@@ -60,6 +69,12 @@ const CanliDurum = () => {
     try {
       setLoading(prev => fleetData.length === 0 ? true : prev);
       setError(null);
+
+      // Sunucu sağlık kontrolü
+      const health = await checkHealth().catch(() => null);
+      if (health && health.status === 'ok') {
+        setApiConnected(true);
+      }
 
       const [fleetRes, dashboardRes, devicesRes] = await Promise.allSettled([
         getFleetOee(),
@@ -117,32 +132,117 @@ const CanliDurum = () => {
         }
       }
 
-      // Eşleştirmeleri (Aliases) Uygula
-      const mappedFleet = combinedFleet.map(item => {
+      // Eşleştirmeleri (Aliases) ve Filo Verilerini Akıllıca Birleştir
+      const aliases = getMachineAliases();
+      const processedKeys = new Set();
+      let mergedFleet = [];
+
+      // 1. API'den gelen cihazlar
+      combinedFleet.forEach(item => {
         const matchedAlias = findAlias(item.ip, item.id, item.name);
-        if (matchedAlias) {
-          return {
-            ...item,
-            name: matchedAlias.customName || item.name,
-            group: matchedAlias.group || item.group,
-            location: matchedAlias.location || item.location
-          };
-        }
-        return item;
+        const ipKey = (item.ip || '').trim().toLowerCase();
+        const idKey = (item.id || '').trim().toLowerCase();
+        if (ipKey) processedKeys.add(ipKey);
+        if (idKey) processedKeys.add(idKey);
+
+        mergedFleet.push({
+          ...item,
+          name: matchedAlias?.customName || item.name || item.ip,
+          group: matchedAlias?.group || item.group || 'CNC Dik İşleme',
+          location: matchedAlias?.location || item.location || 'Kalıphane A Blok'
+        });
       });
 
-      setFleetData(mappedFleet);
+      // 2. Kullanıcının tanımladığı 24 tezgahın eksik olanlarını listeye dahil et
+      aliases.forEach(alias => {
+        const key = (alias.ipOrId || '').trim().toLowerCase();
+        if (key && !processedKeys.has(key)) {
+          processedKeys.add(key);
+          // Varsa önceki state'teki canlı verileri koru
+          const existing = fleetData.find(f => 
+            (f.ip || '').toLowerCase() === key || 
+            (f.id || '').toLowerCase() === key
+          );
+
+          mergedFleet.push(existing || {
+            id: alias.ipOrId,
+            name: alias.customName || alias.ipOrId,
+            ip: alias.ipOrId,
+            group: alias.group || 'CNC Dik İşleme',
+            location: alias.location || 'Kalıphane A Blok',
+            currentState: 'Offline',
+            currentStateSec: 0,
+            spindleRpm: null,
+            feedrate: null,
+            feedOverridePct: 100,
+            rapidOverridePct: 100,
+            spindleOverridePct: 100,
+            program: null,
+            runningPct: 0,
+            runningSec: 0,
+            idleSec: 0,
+            idlingSec: 0,
+            downSec: 0,
+            offlineSec: 0,
+            connected: false,
+            lastDataUtc: null,
+            axes: []
+          });
+        }
+      });
+
+      setFleetData(prevFleet => {
+        const prevMap = new Map(prevFleet.map(f => [(f.ip || f.id || '').toLowerCase(), f]));
+        return mergedFleet.map(m => {
+          const prev = prevMap.get((m.ip || m.id || '').toLowerCase());
+          if (prev && prev.connected && !m.connected) {
+            return { ...prev, ...m, currentState: prev.currentState, spindleRpm: prev.spindleRpm, feedrate: prev.feedrate };
+          }
+          return m;
+        });
+      });
 
       if (dashboardRes.status === 'fulfilled' && dashboardRes.value) {
         setMetrics(dashboardRes.value);
       }
     } catch (err) {
       console.error("ETKA OEE Veri Çekme Hatası:", err);
+      // Hata olsa dahi kayıtlı 24 tezgahı göster
+      const aliases = getMachineAliases();
+      if (aliases.length > 0) {
+        setFleetData(prev => {
+          if (prev.length > 0) return prev;
+          return aliases.map(alias => ({
+            id: alias.ipOrId,
+            name: alias.customName || alias.ipOrId,
+            ip: alias.ipOrId,
+            group: alias.group || 'CNC Dik İşleme',
+            location: alias.location || 'Kalıphane A Blok',
+            currentState: 'Offline',
+            currentStateSec: 0,
+            spindleRpm: null,
+            feedrate: null,
+            feedOverridePct: 100,
+            rapidOverridePct: 100,
+            spindleOverridePct: 100,
+            program: null,
+            runningPct: 0,
+            runningSec: 0,
+            idleSec: 0,
+            idlingSec: 0,
+            downSec: 0,
+            offlineSec: 0,
+            connected: false,
+            lastDataUtc: null,
+            axes: []
+          }));
+        });
+      }
       setError(err.message || "ETKA OEE Sunucusuna ulaşılamadı. Lütfen sunucu bağlantı ayarlarını kontrol ediniz.");
     } finally {
       setLoading(false);
     }
-  }, [fleetData.length]);
+  }, []);
 
   // 2. İLK YÜKLEME VE SIGNALR CANLI YAYIN BAĞLANTISI
   useEffect(() => {
@@ -326,15 +426,15 @@ const CanliDurum = () => {
     setIsTesting(true);
     setTestResult(null);
     try {
-      const info = await getServerInfo(targetUrl);
+      const health = await checkHealth(targetUrl);
       setTestResult({
         success: true,
-        message: `Bağlantı Başarılı! Sunucu: ${info.hostname || 'ETKA OEE Host'} (${info.version || 'v1'})`
+        message: `Bağlantı Başarılı! (PostgreSQL: ${health.postgresConnected ? 'Bağlı' : 'Kapalı'}, Durum: ${health.status || 'OK'})`
       });
     } catch (err) {
       setTestResult({
         success: false,
-        message: `Bağlantı Başarısız (${targetUrl}): ${err.message}`
+        message: err.message
       });
     } finally {
       setIsTesting(false);
@@ -344,6 +444,34 @@ const CanliDurum = () => {
   const handleSaveSettings = () => {
     setBaseUrl(serverIpInput);
     setIsSettingsOpen(false);
+    loadFleetData();
+  };
+
+  // ETKA PORTAL / API GİRİŞİ
+  const handleAuthLogin = async (e) => {
+    e?.preventDefault();
+    if (!authUsername.trim() || !authPassword.trim()) {
+      setAuthStatusMsg({ success: false, message: 'Kullanıcı adı/email ve şifre gereklidir.' });
+      return;
+    }
+    setAuthLoading(true);
+    setAuthStatusMsg(null);
+    try {
+      const res = await loginEtka(authUsername, authPassword);
+      setAdminTokenState(getAdminToken());
+      setAuthStatusMsg({ success: true, message: 'Giriş Başarılı! Token kaydedildi.' });
+      loadFleetData();
+    } catch (err) {
+      setAuthStatusMsg({ success: false, message: `Giriş Hatası: ${err.message}` });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAuthLogout = async () => {
+    await logoutAdmin();
+    setAdminTokenState('');
+    setAuthStatusMsg({ success: true, message: 'Çıkış yapıldı.' });
     loadFleetData();
   };
 
@@ -445,12 +573,18 @@ const CanliDurum = () => {
 
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold">
               <span className={`w-2.5 h-2.5 rounded-full ${
-                signalRStatus === 'connected' ? 'bg-emerald-500 animate-pulse' :
-                signalRStatus === 'connecting' ? 'bg-amber-500 animate-ping' :
-                'bg-red-500'
+                signalRStatus === 'connected' 
+                  ? 'bg-emerald-500 animate-pulse' 
+                  : (apiConnected 
+                      ? 'bg-emerald-500' 
+                      : (signalRStatus === 'connecting' ? 'bg-amber-500 animate-ping' : 'bg-red-500'))
               }`} />
               <span className="text-slate-600 dark:text-slate-300">
-                {signalRStatus === 'connected' ? '⚡ SignalR Canlı Bağlı' : (signalRStatus === 'connecting' ? 'Bağlanıyor...' : 'Çevrimdışı')}
+                {signalRStatus === 'connected' 
+                  ? '⚡ Canlı SignalR Bağlı' 
+                  : (apiConnected 
+                      ? '🟢 Sunucu Bağlı (REST)' 
+                      : (signalRStatus === 'connecting' ? 'Bağlanıyor...' : 'Çevrimdışı'))}
               </span>
             </div>
 
@@ -1217,13 +1351,91 @@ const CanliDurum = () => {
               </div>
 
               {testResult && (
-                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                <div className={`p-3 rounded-xl text-xs font-bold flex flex-col gap-2 ${
                   testResult.success ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-300'
                 }`}>
-                  {testResult.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                  <span>{testResult.message}</span>
+                  <div className="flex items-start gap-2">
+                    {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-500" />}
+                    <span>{testResult.message}</span>
+                  </div>
+
+                  {!testResult.success && typeof window !== 'undefined' && window.location.protocol === 'https:' && (
+                    <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-[11px] font-medium space-y-1">
+                      <p className="font-bold flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                        <Info size={14} /> Tarayıcıda 10 Saniyede İzin Verme Çözümü:
+                      </p>
+                      <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                        <li>Tarayıcınızın adres çubuğundaki sol taraftaki <b>Kilit 🔒 / Ayarlar</b> simgesine tıklayın.</li>
+                        <li><b>Site Ayarları (Site Settings)</b> seçeneğine girin.</li>
+                        <li><b>Güvenli Olmayan İçerik (Insecure Content)</b> ayarını <b>"İzin Ver (Allow)"</b> yapın.</li>
+                        <li>Sayfayı yenileyin.</li>
+                      </ol>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* ETKA PORTAL / API GİRİŞİ (YETKİLENDİRME) */}
+              <div className="pt-2 border-t dark:border-slate-700 space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <ShieldCheck size={15} className="text-blue-500" /> ETKA Portal / API Yetkilendirmesi (Opsiyonel)
+                  </label>
+                  {adminTokenState && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                      ✅ Token Kayıtlı
+                    </span>
+                  )}
+                </div>
+
+                {adminTokenState ? (
+                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border dark:border-slate-700 flex justify-between items-center">
+                    <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300 truncate max-w-[240px]">
+                      Bearer Token: {adminTokenState.slice(0, 16)}...
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAuthLogout}
+                      className="px-2 py-1 text-[11px] font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg"
+                    >
+                      Çıkış Yap
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Kullanıcı Adı / Email"
+                      value={authUsername}
+                      onChange={e => setAuthUsername(e.target.value)}
+                      className="p-2 text-xs border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                    />
+                    <div className="flex gap-1.5">
+                      <input
+                        type="password"
+                        placeholder="Şifre"
+                        value={authPassword}
+                        onChange={e => setAuthPassword(e.target.value)}
+                        className="w-full p-2 text-xs border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAuthLogin}
+                        disabled={authLoading}
+                        className="px-3 py-2 bg-slate-800 dark:bg-slate-700 text-white font-bold text-xs rounded-xl hover:bg-slate-900 shrink-0"
+                      >
+                        {authLoading ? '...' : 'Giriş'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {authStatusMsg && (
+                  <p className={`text-[11px] font-bold ${authStatusMsg.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {authStatusMsg.message}
+                  </p>
+                )}
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button

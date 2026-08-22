@@ -182,7 +182,8 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
   };
 
   const adminToken = getAdminToken();
-  if (adminToken && !headers['X-Admin-Token']) {
+  if (adminToken) {
+    headers['Authorization'] = `Bearer ${adminToken}`;
     headers['X-Admin-Token'] = adminToken;
   }
 
@@ -216,6 +217,14 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
     if (err.name === 'AbortError') {
       throw new Error(`Sunucu yanıt vermedi (${baseUrl}). Zaman aşımı.`);
     }
+
+    const isHttpsPage = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:';
+    const isHttpTarget = baseUrl.startsWith('http://');
+
+    if ((err.message === 'Failed to fetch' || err.name === 'TypeError') && isHttpsPage && isHttpTarget) {
+      throw new Error(`Tarayıcı Güvenlik Engeli (Mixed Content): Sayfa HTTPS ile açıldığı için HTTP sunucusuna (${baseUrl}) istek engellendi. Tarayıcı ayarlarından (Site Ayarları -> Güvenli Olmayan İçerik -> İzin Ver) seçeneğini açabilir veya sunucuya HTTPS ekleyebilirsiniz.`);
+    }
+
     throw err;
   }
 };
@@ -237,25 +246,36 @@ export const getModules = async () => {
   return await fetchWithTimeout('/api/modules');
 };
 
-// §2 Kimlik Doğrulama (Admin)
+// §2 Kimlik Doğrulama (Admin / Portal)
 export const getAuthStatus = async () => {
   return await fetchWithTimeout('/api/auth/status');
 };
 
-export const loginAdmin = async (password) => {
+export const loginEtka = async (usernameOrEmail, password) => {
   const data = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ password })
+    body: JSON.stringify({
+      username: usernameOrEmail,
+      email: usernameOrEmail,
+      password
+    })
   });
-  if (data && data.token) {
-    setAdminToken(data.token);
+  const token = data?.data?.token || data?.token || data?.accessToken;
+  if (token) {
+    setAdminToken(token);
   }
   return data;
+};
+
+export const loginAdmin = async (password) => {
+  return await loginEtka('admin', password);
 };
 
 export const logoutAdmin = async () => {
   try {
     await fetchWithTimeout('/api/auth/logout', { method: 'POST' });
+  } catch (e) {
+    // ignore
   } finally {
     setAdminToken('');
   }
