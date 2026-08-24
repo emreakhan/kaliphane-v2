@@ -1,11 +1,10 @@
 // src/services/etkaOeeService.js
-import * as signalR from '@microsoft/signalr';
 
 // ==========================================
-// ETKA OEE — BASE URL VE BAĞLANTI SABİTLERİ
+// ETKA PORTAL — BASE URL & HOST PRESETS
 // ==========================================
-export const INTERNAL_BASE_URL = 'http://etkacrm.agdc.com.tr:1106'; // Kurum İçi / Şirket VPN
-export const EXTERNAL_BASE_URL = 'http://195.46.142.179:1106';     // Kurum Dışı / VPN'siz İnternet
+export const INTERNAL_BASE_URL = 'http://etkacrm.agdc.com.tr:1106/api';
+export const EXTERNAL_BASE_URL = 'http://195.46.142.179:1106/api';
 
 export const PRESET_BASE_URLS = [
   {
@@ -24,37 +23,66 @@ export const PRESET_BASE_URLS = [
   }
 ];
 
-const STORAGE_KEY = 'etka_oee_base_url';
-const ADMIN_TOKEN_KEY = 'etka_oee_admin_token';
+const BASE_URL_KEY = 'etka_portal_base_url';
+const ACCESS_TOKEN_KEY = 'etka_portal_access_token';
+const REFRESH_TOKEN_KEY = 'etka_portal_refresh_token';
+const USER_INFO_KEY = 'etka_portal_user_info';
 const ALIASES_STORAGE_KEY = 'etka_oee_machine_aliases';
 
-// Base URL Yönetimi
+// Base URL Normalizasyonu
 export const getBaseUrl = () => {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = localStorage.getItem(BASE_URL_KEY);
   if (!saved) return INTERNAL_BASE_URL;
-  return saved.trim().replace(/\/+$/, '');
+  let url = saved.trim().replace(/\/+$/, '');
+  if (!url.endsWith('/api')) {
+    url = `${url}/api`;
+  }
+  return url;
 };
 
 export const setBaseUrl = (url) => {
   if (!url) {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BASE_URL_KEY);
   } else {
-    const cleaned = url.trim().replace(/\/+$/, '');
-    localStorage.setItem(STORAGE_KEY, cleaned);
+    let cleaned = url.trim().replace(/\/+$/, '');
+    if (!cleaned.endsWith('/api')) {
+      cleaned = `${cleaned}/api`;
+    }
+    localStorage.setItem(BASE_URL_KEY, cleaned);
   }
 };
 
-// Admin Token Yönetimi
-export const getAdminToken = () => {
-  return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+// Token Yönetimi
+export const getAccessToken = () => localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+export const setAccessToken = (token) => {
+  if (!token) localStorage.removeItem(ACCESS_TOKEN_KEY);
+  else localStorage.setItem(ACCESS_TOKEN_KEY, token.trim());
 };
 
-export const setAdminToken = (token) => {
-  if (!token) {
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
-  } else {
-    localStorage.setItem(ADMIN_TOKEN_KEY, token.trim());
+export const getRefreshToken = () => localStorage.getItem(REFRESH_TOKEN_KEY) || '';
+export const setRefreshToken = (token) => {
+  if (!token) localStorage.removeItem(REFRESH_TOKEN_KEY);
+  else localStorage.setItem(REFRESH_TOKEN_KEY, token.trim());
+};
+
+export const getStoredUser = () => {
+  try {
+    const data = localStorage.getItem(USER_INFO_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
   }
+};
+
+export const setStoredUser = (user) => {
+  if (!user) localStorage.removeItem(USER_INFO_KEY);
+  else localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
+};
+
+export const clearAuth = () => {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(USER_INFO_KEY);
 };
 
 // ==========================================
@@ -100,79 +128,59 @@ export const findAlias = (ip, id, name) => {
 };
 
 // ==========================================
-// EVDEN TEST İÇİN DİNAMİK SİMÜLASYON VERİSİ
+// HTTP İSTEK VE OTOMATİK TOKEN YENİLEME
 // ==========================================
-export const generateDemoFleetData = () => {
-  const aliases = getMachineAliases();
-  
-  return aliases.map((alias, idx) => {
-    const states = ['Running', 'Running', 'Running', 'Idle', 'Down', 'Setup'];
-    const currentState = states[idx % states.length];
+let isRefreshing = false;
+let refreshSubscribers = [];
 
-    const isRunning = currentState === 'Running';
-    const isIdle = currentState === 'Idle' || currentState === 'Idling';
-
-    const spindleRpm = isRunning ? Math.floor(3000 + Math.random() * 2500) : (isIdle ? 0 : null);
-    const feedrate = isRunning ? Math.floor(600 + Math.random() * 1200) : (isIdle ? 0 : null);
-    const programs = ['O1234_MENTESE', 'MOLD_TOP_PLATE', 'O9012_DISI_CELIK', 'CORE_BOTTOM_504', 'AP200_SLIDE'];
-    
-    // Operatör Override Yüzdeleri
-    const feedOverrides = [100, 80, 60, 100, 50, 100];
-    const rapidOverrides = [100, 50, 100, 25, 100, 100];
-    const spindleOverrides = [100, 100, 90, 100, 100, 100];
-
-    const feedOverridePct = isRunning || isIdle ? feedOverrides[idx % feedOverrides.length] : 100;
-    const rapidOverridePct = isRunning || isIdle ? rapidOverrides[idx % rapidOverrides.length] : 100;
-    const spindleOverridePct = isRunning || isIdle ? spindleOverrides[idx % spindleOverrides.length] : 100;
-
-    const runningSec = isRunning ? 54000 + Math.floor(Math.random() * 10000) : 32000;
-    const idleSec = isIdle ? 18000 : 4000;
-    const idlingSec = 1200;
-    const downSec = currentState === 'Down' ? 12000 : 1000;
-    const totalSec = runningSec + idleSec + idlingSec + downSec || 1;
-
-    return {
-      id: `demo-device-${idx + 1}`,
-      name: alias.customName || alias.ipOrId,
-      ip: alias.ipOrId,
-      group: alias.group || 'CNC Dik İşleme',
-      location: alias.location || 'Kalıphane',
-      currentState,
-      currentStateSec: Math.floor(Math.random() * 3600),
-      spindleRpm,
-      feedrate,
-      feedOverridePct,
-      rapidOverridePct,
-      spindleOverridePct,
-      program: programs[idx % programs.length],
-      runningPct: runningSec / totalSec,
-      runningSec,
-      idleSec,
-      idlingSec,
-      downSec,
-      offlineSec: 0,
-      partsCount: Math.floor(15 + Math.random() * 80),
-      avgCycleSec: Math.floor(200 + Math.random() * 300),
-      connected: true,
-      lastDataUtc: new Date().toISOString(),
-      axes: [
-        { name: 'X', position: (123.456 + Math.random() * 2).toFixed(3) },
-        { name: 'Y', position: (-45.210 + Math.random()).toFixed(3) },
-        { name: 'Z', position: (312.800 + Math.random() * 1.5).toFixed(3) },
-        { name: 'C', position: '0.000' }
-      ],
-      vendor: alias.customName.includes('FANUC') ? 'FANUC' : (alias.customName.includes('HEIDENHAIN') ? 'HEIDENHAIN' : 'SIEMENS')
-    };
-  });
+const subscribeTokenRefresh = (cb) => {
+  refreshSubscribers.push(cb);
 };
 
-// ==========================================
-// HTTP İSTEK YARDIMCISI (TIMEOUT & ADMIN TOKEN)
-// ==========================================
-const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, customBaseUrl = null) => {
+const onRefreshed = (token) => {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+};
+
+export const refreshAccessToken = async () => {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearAuth();
+    throw new Error('Refresh token bulunamadı, lütfen tekrar giriş yapın.');
+  }
+
+  const baseUrl = getBaseUrl();
+  const url = `${baseUrl}/auth/refresh`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken })
+  });
+
+  if (!response.ok) {
+    clearAuth();
+    throw new Error('Oturum süresi doldu, lütfen tekrar giriş yapın.');
+  }
+
+  const result = await response.json();
+  if (result && result.accessToken) {
+    setAccessToken(result.accessToken);
+    if (result.refreshToken) {
+      setRefreshToken(result.refreshToken);
+    }
+    return result.accessToken;
+  } else {
+    clearAuth();
+    throw new Error('Token yenilenemedi.');
+  }
+};
+
+export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, customBaseUrl = null) => {
   const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
-  const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
-  
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${baseUrl}${cleanEndpoint}`;
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -181,19 +189,43 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
     ...(options.headers || {})
   };
 
-  const adminToken = getAdminToken();
-  if (adminToken) {
-    headers['Authorization'] = `Bearer ${adminToken}`;
-    headers['X-Admin-Token'] = adminToken;
+  const token = getAccessToken();
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   try {
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       ...options,
       headers,
       signal: controller.signal
     });
     clearTimeout(timeoutId);
+
+    // 401 Unauthorized durumunda Token Refresh Mekanizması
+    if (response.status === 401 && getRefreshToken() && !endpoint.includes('/auth/')) {
+      if (!isRefreshing) {
+        isRefreshing = true;
+        try {
+          const newToken = await refreshAccessToken();
+          isRefreshing = false;
+          onRefreshed(newToken);
+        } catch (refreshErr) {
+          isRefreshing = false;
+          refreshSubscribers = [];
+          throw refreshErr;
+        }
+      }
+
+      // Yeni token geldikten sonra isteği yeniden dene
+      const retryPromise = new Promise((resolve) => {
+        subscribeTokenRefresh((newToken) => {
+          headers['Authorization'] = `Bearer ${newToken}`;
+          resolve(fetch(url, { ...options, headers }));
+        });
+      });
+      response = await retryPromise;
+    }
 
     if (response.status === 204) {
       return null;
@@ -201,14 +233,25 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
 
     if (!response.ok) {
       const errText = await response.text();
-      let parsedErr = errText;
+      let parsedMsg = errText;
       try {
         const jsonErr = JSON.parse(errText);
-        parsedErr = jsonErr.error || jsonErr.message || errText;
+        parsedMsg = jsonErr.error || jsonErr.message || errText;
       } catch (e) {
-        // ignore json parse error
+        // ignore json parse
       }
-      throw new Error(`[HTTP ${response.status}] ${parsedErr}`);
+
+      if (response.status === 401) {
+        throw new Error('Yetkisiz Erişim (401): Lütfen ETKA Portal kullanıcı girişi yapınız.');
+      }
+      if (response.status === 403) {
+        throw new Error('Yetki Hatası (403): Kullanıcınıza Portal admin panelinden "OEE" modülü / "OEE_FILO" sayfa izni verilmelidir.');
+      }
+      if (response.status === 404) {
+        throw new Error(`Uç Nokta Bulunamadı (404): ${cleanEndpoint}`);
+      }
+
+      throw new Error(`[HTTP ${response.status}] ${parsedMsg}`);
     }
 
     return await response.json();
@@ -222,7 +265,7 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
     const isHttpTarget = baseUrl.startsWith('http://');
 
     if ((err.message === 'Failed to fetch' || err.name === 'TypeError') && isHttpsPage && isHttpTarget) {
-      throw new Error(`Tarayıcı Güvenlik Engeli (Mixed Content): Sayfa HTTPS ile açıldığı için HTTP sunucusuna (${baseUrl}) istek engellendi. Tarayıcı ayarlarından (Site Ayarları -> Güvenli Olmayan İçerik -> İzin Ver) seçeneğini açabilir veya sunucuya HTTPS ekleyebilirsiniz.`);
+      throw new Error(`Tarayıcı Güvenlik Engeli (Mixed Content): Sayfa HTTPS ile açıldığı için HTTP sunucusuna (${baseUrl}) istek engellendi. Tarayıcınızda Site Ayarları > Güvenli Olmayan İçerik > İzin Ver yapabilir veya HTTPS kullanabilirsiniz.`);
     }
 
     throw err;
@@ -230,279 +273,69 @@ const fetchWithTimeout = async (endpoint, options = {}, timeoutMs = 6000, custom
 };
 
 // ==========================================
-// REST API ENDPOINTS (ETKA OEE v1)
+// 1. KİMLİK DOĞRULAMA (AUTH) ENDPOINTS
 // ==========================================
 
-// §3 Sağlık / Meta
-export const checkHealth = async (customBaseUrl = null) => {
-  return await fetchWithTimeout('/api/health', {}, 4000, customBaseUrl);
-};
-
-export const getServerInfo = async (customBaseUrl = null) => {
-  return await fetchWithTimeout('/api/server/info', {}, 4000, customBaseUrl);
-};
-
-export const getModules = async () => {
-  return await fetchWithTimeout('/api/modules');
-};
-
-// §2 Kimlik Doğrulama (Admin / Portal)
-export const getAuthStatus = async () => {
-  return await fetchWithTimeout('/api/auth/status');
-};
-
-export const loginEtka = async (usernameOrEmail, password) => {
-  const data = await fetchWithTimeout('/api/auth/login', {
+export const loginPortal = async (usernameOrEmail, password, rememberMe = true) => {
+  const result = await fetchWithAuth('/auth/login', {
     method: 'POST',
     body: JSON.stringify({
-      username: usernameOrEmail,
-      email: usernameOrEmail,
-      password
+      usernameOrEmail: usernameOrEmail.trim(),
+      password,
+      rememberMe
     })
   });
-  const token = data?.data?.token || data?.token || data?.accessToken;
-  if (token) {
-    setAdminToken(token);
+
+  if (result && result.accessToken) {
+    setAccessToken(result.accessToken);
+    if (result.refreshToken) {
+      setRefreshToken(result.refreshToken);
+    }
+    if (result.user) {
+      setStoredUser(result.user);
+    }
   }
-  return data;
+  return result;
 };
 
-export const loginAdmin = async (password) => {
-  return await loginEtka('admin', password);
-};
-
-export const logoutAdmin = async () => {
+export const logoutPortal = async () => {
   try {
-    await fetchWithTimeout('/api/auth/logout', { method: 'POST' });
-  } catch (e) {
-    // ignore
+    await fetchWithAuth('/auth/logout', { method: 'POST' }).catch(() => {});
   } finally {
-    setAdminToken('');
+    clearAuth();
   }
 };
 
-// §7 Dashboard & Metrikler
-export const getDashboard = async () => {
-  return await fetchWithTimeout('/api/dashboard');
-};
-
-export const getSystemMetrics = async () => {
-  return await fetchWithTimeout('/api/system/metrics');
-};
-
-// §8 OEE / Canlı İzleme & Filo
-export const getFleetOee = async () => {
-  return await fetchWithTimeout('/api/oee/fleet');
-};
-
-export const getDeviceLive = async (deviceId) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}/live`);
-};
-
-export const getDeviceOee = async (deviceId, hours = 24) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}/oee?hours=${hours}`);
-};
-
-export const getDeviceTimeline = async (deviceId, hours = 24) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}/timeline?hours=${hours}`);
-};
-
-// §4 Cihaz Yönetimi (Filo)
-export const getDevices = async () => {
-  return await fetchWithTimeout('/api/devices');
-};
-
-export const getDeviceDetails = async (deviceId) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}`);
-};
-
-export const addDevice = async (deviceData) => {
-  return await fetchWithTimeout('/api/devices', {
-    method: 'POST',
-    body: JSON.stringify(deviceData)
-  });
-};
-
-export const updateDevice = async (deviceId, deviceData) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}`, {
-    method: 'PUT',
-    body: JSON.stringify(deviceData)
-  });
-};
-
-export const deleteDevice = async (deviceId) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}`, {
-    method: 'DELETE'
-  });
-};
-
-export const rescanDevice = async (deviceId) => {
-  return await fetchWithTimeout(`/api/devices/${deviceId}/rescan`, {
-    method: 'POST'
-  });
-};
-
-// §6 Ağ Keşfi (Subnet Tarama)
-export const getNetworkRanges = async () => {
-  return await fetchWithTimeout('/api/network/ranges');
-};
-
-export const scanNetwork = async (cidr = '') => {
-  return await fetchWithTimeout('/api/network/scan', {
-    method: 'POST',
-    body: JSON.stringify({ cidr })
-  });
-};
-
-// §9 İzleme & Kayıt Kontrolleri
-export const getMonitoringStatus = async () => {
-  return await fetchWithTimeout('/api/monitoring/status');
-};
-
-export const startMonitoring = async () => {
-  return await fetchWithTimeout('/api/monitoring/start', { method: 'POST' });
-};
-
-export const stopMonitoring = async () => {
-  return await fetchWithTimeout('/api/monitoring/stop', { method: 'POST' });
-};
-
-export const getRecordingStatus = async () => {
-  return await fetchWithTimeout('/api/recording');
-};
-
-export const setRecording = async (enabled) => {
-  return await fetchWithTimeout('/api/recording', {
-    method: 'POST',
-    body: JSON.stringify({ enabled })
-  });
-};
-
-// §10 Ayarlar
-export const getSettings = async () => {
-  return await fetchWithTimeout('/api/settings');
-};
-
-export const updateSettings = async (settings) => {
-  return await fetchWithTimeout('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify(settings)
-  });
-};
-
-export const testDbConnection = async (connectionString) => {
-  return await fetchWithTimeout('/api/settings/test-connection', {
-    method: 'POST',
-    body: JSON.stringify({ connectionString })
-  });
+export const checkPortalInfo = async (customBaseUrl = null) => {
+  return await fetchWithAuth('/portal/info', {}, 4000, customBaseUrl);
 };
 
 // ==========================================
-// SIGNALR REAL-TIME CLIENT (HUB: /hubs/discovery)
+// 2. OEE ENDPOINTS (ETKA PORTAL BACKEND)
 // ==========================================
 
-let hubConnection = null;
-let keepLiveInterval = null;
-
-export const startSignalR = async ({ onRawData, onDeviceUpdated, onDeviceLog, onConnectionStateChange }) => {
-  const baseUrl = getBaseUrl();
-  const hubUrl = `${baseUrl}/hubs/discovery`;
-
-  if (hubConnection) {
-    try {
-      await hubConnection.stop();
-    } catch (e) {
-      console.warn("SignalR stop warning:", e);
-    }
-    hubConnection = null;
-  }
-
-  const connection = new signalR.HubConnectionBuilder()
-    .withUrl(hubUrl, {
-      skipNegotiation: false,
-      transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling
-    })
-    .withAutomaticReconnect([0, 2000, 5000, 10000, 20000])
-    .configureLogging(signalR.LogLevel.Warning)
-    .build();
-
-  connection.onreconnecting((error) => {
-    console.warn("SignalR Reconnecting:", error);
-    if (onConnectionStateChange) onConnectionStateChange('reconnecting');
-  });
-
-  connection.onreconnected((connectionId) => {
-    console.log("SignalR Reconnected:", connectionId);
-    if (onConnectionStateChange) onConnectionStateChange('connected');
-  });
-
-  connection.onclose((error) => {
-    console.warn("SignalR Closed:", error);
-    if (onConnectionStateChange) onConnectionStateChange('disconnected');
-  });
-
-  if (onRawData) {
-    connection.on("rawData", (payload) => onRawData(payload));
-  }
-
-  if (onDeviceUpdated) {
-    connection.on("deviceUpdated", (device) => onDeviceUpdated(device));
-  }
-
-  if (onDeviceLog) {
-    connection.on("deviceLog", (log) => onDeviceLog(log));
-  }
-
-  try {
-    await connection.start();
-    console.log("ETKA OEE SignalR Connected:", hubUrl);
-    hubConnection = connection;
-    if (onConnectionStateChange) onConnectionStateChange('connected');
-    return connection;
-  } catch (err) {
-    console.error("SignalR Connection Error:", err);
-    if (onConnectionStateChange) onConnectionStateChange('error');
-    throw err;
-  }
+/**
+ * GET /api/oee/health
+ * Dış CNC servisinin durumunu döner.
+ * Yanıt formatı: { success: true, data: { configured, reachable, monitoringRunning, trackedDevices, error } }
+ */
+export const getOeeHealth = async (customBaseUrl = null) => {
+  const res = await fetchWithAuth('/oee/health', {}, 5000, customBaseUrl);
+  return res?.data || res;
 };
 
-export const sendKeepLiveSignal = async (managedDeviceId) => {
-  if (!hubConnection || hubConnection.state !== signalR.HubConnectionState.Connected) {
-    return;
+/**
+ * GET /api/oee/fleet
+ * Tüm tezgahların anlık durum ve çalışma metriklerini döner.
+ * Yanıt formatı: { success: true, count: number, data: Device[] }
+ */
+export const getOeeFleet = async (customBaseUrl = null) => {
+  const res = await fetchWithAuth('/oee/fleet', {}, 7000, customBaseUrl);
+  if (res && Array.isArray(res.data)) {
+    return res.data;
   }
-  try {
-    await hubConnection.invoke("KeepLive", managedDeviceId);
-  } catch (err) {
-    console.warn("KeepLive invoke error:", err);
+  if (Array.isArray(res)) {
+    return res;
   }
-};
-
-export const startKeepLiveLoop = (managedDeviceId, intervalMs = 3000) => {
-  stopKeepLiveLoop();
-  if (!managedDeviceId) return;
-
-  sendKeepLiveSignal(managedDeviceId);
-
-  keepLiveInterval = setInterval(() => {
-    sendKeepLiveSignal(managedDeviceId);
-  }, intervalMs);
-};
-
-export const stopKeepLiveLoop = () => {
-  if (keepLiveInterval) {
-    clearInterval(keepLiveInterval);
-    keepLiveInterval = null;
-  }
-};
-
-export const stopSignalR = async () => {
-  stopKeepLiveLoop();
-  if (hubConnection) {
-    try {
-      await hubConnection.stop();
-    } catch (e) {
-      console.warn("SignalR stop error:", e);
-    }
-    hubConnection = null;
-  }
+  return [];
 };

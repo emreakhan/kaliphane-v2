@@ -1,58 +1,52 @@
 // src/pages/CanliDurum.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Monitor, Cpu, RefreshCw, Activity, AlertTriangle, CheckCircle2, 
-  PlayCircle, PauseCircle, Wifi, WifiOff, Settings, Search, Filter, 
-  Clock, Zap, X, ShieldCheck, Database, Server, Gauge, Radio, 
-  ArrowUpRight, BarChart3, Wrench, Layers, Check, ChevronRight, Edit3,
-  PlusIcon, TrashIcon, Tag, MapPin, Sliders, ShieldAlert, FastForward,
-  Globe, Building2, BellRing, Info
+  Monitor, RefreshCw, AlertTriangle, CheckCircle2, 
+  PlayCircle, PauseCircle, WifiOff, Settings, Search,
+  Clock, X, ShieldCheck, Server, Gauge,
+  Wrench, Layers, Check, Edit3,
+  PlusIcon, TrashIcon, Tag, MapPin, Sliders, ShieldAlert,
+  Globe, Building2, Lock, LogIn, LogOut, UserCheck, AlertCircle, Info
 } from 'lucide-react';
 import { 
-  getBaseUrl, setBaseUrl, checkHealth, getServerInfo, getDashboard, 
-  getFleetOee, getDevices, getDeviceLive, getDeviceOee, getDeviceTimeline, 
-  startSignalR, stopSignalR, startKeepLiveLoop, stopKeepLiveLoop,
+  getBaseUrl, setBaseUrl, getOeeHealth, getOeeFleet, checkPortalInfo,
+  getAccessToken, getRefreshToken, getStoredUser, loginPortal, logoutPortal,
   getMachineAliases, setMachineAliases, findAlias,
-  getAdminToken, setAdminToken, loginEtka, logoutAdmin,
   INTERNAL_BASE_URL, EXTERNAL_BASE_URL, PRESET_BASE_URLS
 } from '../services/etkaOeeService';
 
 const CanliDurum = () => {
   // ANA STATE'LER
   const [fleetData, setFleetData] = useState([]);
-  const [metrics, setMetrics] = useState(null);
+  const [healthInfo, setHealthInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [lastUpdatedTime, setLastUpdatedTime] = useState(null);
+
+  // AUTH STATE
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
+  const [hasToken, setHasToken] = useState(() => !!getAccessToken());
+  const [loginForm, setLoginForm] = useState({
+    usernameOrEmail: '',
+    password: '',
+    rememberMe: true
+  });
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState(null);
 
   // FİLTRE & ARAMA
-  const [filterState, setFilterState] = useState('ALL'); // 'ALL' | 'Running' | 'Idle' | 'Down' | 'Offline' | 'Reduced' | 'Setup'
+  const [filterState, setFilterState] = useState('ALL'); // 'ALL' | 'Running' | 'Idle' | 'Down' | 'Offline'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('ALL');
 
-  // CANLI DETAY POPUP / MODAL STATE
+  // CANLI DETAY POPUP
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [liveDetails, setLiveDetails] = useState(null);
-  const [deviceOeeStats, setDeviceOeeStats] = useState(null);
-  const [deviceTimeline, setDeviceTimeline] = useState([]);
-  const [liveRawPoints, setLiveRawPoints] = useState([]);
-  const [activeDetailTab, setActiveDetailTab] = useState('live'); // 'live' | 'oee' | 'timeline'
-
-  // SIGNALR & REST API BAĞLANTI DURUMU
-  const [signalRStatus, setSignalRStatus] = useState('disconnected');
-  const [apiConnected, setApiConnected] = useState(false);
 
   // SUNUCU AYARLARI MODAL
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [serverIpInput, setServerIpInput] = useState(() => getBaseUrl());
+  const [serverUrlInput, setServerUrlInput] = useState(() => getBaseUrl());
   const [testResult, setTestResult] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
-
-  // ETKA AUTH STATE
-  const [adminTokenState, setAdminTokenState] = useState(() => getAdminToken());
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authStatusMsg, setAuthStatusMsg] = useState(null);
 
   // TEZGAH İSİMLENDİRME & EŞLEŞTİRME MODAL STATE
   const [isAliasModalOpen, setIsAliasModalOpen] = useState(false);
@@ -64,88 +58,46 @@ const CanliDurum = () => {
     location: 'Kalıphane A Blok'
   });
 
-  // 1. TÜM FİLO VERİLERİNİ VE METRİKLERİ ÇEK (REST API)
-  const loadFleetData = useCallback(async () => {
+  // 1. OEE FLEET & HEALTH VERİLERİNİ ÇEK (15 SANİYELİK HTTP POLLING)
+  const loadOeeData = useCallback(async (isManualRefresh = false) => {
     try {
-      setLoading(prev => fleetData.length === 0 ? true : prev);
+      if (isManualRefresh || fleetData.length === 0) {
+        setLoading(true);
+      }
       setError(null);
 
-      // Sunucu sağlık kontrolü
-      const health = await checkHealth().catch(() => null);
-      if (health && health.status === 'ok') {
-        setApiConnected(true);
-      }
-
-      const [fleetRes, dashboardRes, devicesRes] = await Promise.allSettled([
-        getFleetOee(),
-        getDashboard(),
-        getDevices()
+      // 1. Health ve Fleet sorgularını paralel çağır
+      const [healthRes, fleetRes] = await Promise.allSettled([
+        getOeeHealth(),
+        getOeeFleet()
       ]);
 
-      let combinedFleet = [];
+      if (healthRes.status === 'fulfilled' && healthRes.value) {
+        setHealthInfo(healthRes.value);
+      }
 
+      let rawFleet = [];
       if (fleetRes.status === 'fulfilled' && Array.isArray(fleetRes.value)) {
-        combinedFleet = fleetRes.value;
+        rawFleet = fleetRes.value;
+      } else if (fleetRes.status === 'rejected') {
+        const errMsg = fleetRes.reason?.message || 'Filo verisi çekilemedi.';
+        setError(errMsg);
       }
 
-      if (devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value)) {
-        const deviceMap = new Map(devicesRes.value.map(d => [d.id, d]));
-        
-        if (combinedFleet.length === 0) {
-          combinedFleet = devicesRes.value.map(d => ({
-            id: d.id,
-            name: d.name || d.ipAddress,
-            ip: d.ipAddress,
-            group: d.group || 'Genel',
-            currentState: d.connectionStatus === 'online' ? (d.state || 'Running') : 'Offline',
-            currentStateSec: 0,
-            spindleRpm: null,
-            feedrate: null,
-            feedOverridePct: 100,
-            rapidOverridePct: 100,
-            spindleOverridePct: 100,
-            program: null,
-            runningPct: 0,
-            runningSec: 0,
-            idleSec: 0,
-            idlingSec: 0,
-            downSec: 0,
-            offlineSec: 0,
-            connected: d.connectionStatus === 'online',
-            lastDataUtc: d.lastUpdatedUtc
-          }));
-        } else {
-          combinedFleet = combinedFleet.map(fItem => {
-            const devInfo = deviceMap.get(fItem.id);
-            return {
-              ...fItem,
-              group: fItem.group || devInfo?.group || 'Genel',
-              location: devInfo?.location || fItem.location || '',
-              vendor: devInfo?.vendor || fItem.vendor || '',
-              feedOverridePct: fItem.feedOverridePct ?? 100,
-              rapidOverridePct: fItem.rapidOverridePct ?? 100,
-              spindleOverridePct: fItem.spindleOverridePct ?? 100,
-              connected: fItem.connected !== undefined ? fItem.connected : (devInfo?.connectionStatus === 'online'),
-              lastDataUtc: fItem.lastDataUtc || devInfo?.lastUpdatedUtc
-            };
-          });
-        }
-      }
-
-      // Eşleştirmeleri (Aliases) ve Filo Verilerini Akıllıca Birleştir
+      // 2. Gelen verileri kayıtlı tezgah tanımları (aliases) ile birleştir
       const aliases = getMachineAliases();
       const processedKeys = new Set();
-      let mergedFleet = [];
+      const mergedList = [];
 
-      // 1. API'den gelen cihazlar
-      combinedFleet.forEach(item => {
+      // API'den gelen tezgahlar
+      rawFleet.forEach(item => {
         const matchedAlias = findAlias(item.ip, item.id, item.name);
         const ipKey = (item.ip || '').trim().toLowerCase();
         const idKey = (item.id || '').trim().toLowerCase();
         if (ipKey) processedKeys.add(ipKey);
         if (idKey) processedKeys.add(idKey);
 
-        mergedFleet.push({
+        mergedList.push({
           ...item,
           name: matchedAlias?.customName || item.name || item.ip,
           group: matchedAlias?.group || item.group || 'CNC Dik İşleme',
@@ -153,18 +105,12 @@ const CanliDurum = () => {
         });
       });
 
-      // 2. Kullanıcının tanımladığı 24 tezgahın eksik olanlarını listeye dahil et
+      // Kayıtlı listede olup API'de henüz görünmeyen tezgahları da ekle
       aliases.forEach(alias => {
         const key = (alias.ipOrId || '').trim().toLowerCase();
         if (key && !processedKeys.has(key)) {
           processedKeys.add(key);
-          // Varsa önceki state'teki canlı verileri koru
-          const existing = fleetData.find(f => 
-            (f.ip || '').toLowerCase() === key || 
-            (f.id || '').toLowerCase() === key
-          );
-
-          mergedFleet.push(existing || {
+          mergedList.push({
             id: alias.ipOrId,
             name: alias.customName || alias.ipOrId,
             ip: alias.ipOrId,
@@ -174,9 +120,6 @@ const CanliDurum = () => {
             currentStateSec: 0,
             spindleRpm: null,
             feedrate: null,
-            feedOverridePct: 100,
-            rapidOverridePct: 100,
-            spindleOverridePct: 100,
             program: null,
             runningPct: 0,
             runningSec: 0,
@@ -184,195 +127,62 @@ const CanliDurum = () => {
             idlingSec: 0,
             downSec: 0,
             offlineSec: 0,
+            partsCount: null,
+            avgCycleSec: null,
             connected: false,
-            lastDataUtc: null,
-            axes: []
+            lastDataUtc: null
           });
         }
       });
 
-      setFleetData(prevFleet => {
-        const prevMap = new Map(prevFleet.map(f => [(f.ip || f.id || '').toLowerCase(), f]));
-        return mergedFleet.map(m => {
-          const prev = prevMap.get((m.ip || m.id || '').toLowerCase());
-          if (prev && prev.connected && !m.connected) {
-            return { ...prev, ...m, currentState: prev.currentState, spindleRpm: prev.spindleRpm, feedrate: prev.feedrate };
-          }
-          return m;
-        });
-      });
-
-      if (dashboardRes.status === 'fulfilled' && dashboardRes.value) {
-        setMetrics(dashboardRes.value);
-      }
+      setFleetData(mergedList);
+      setLastUpdatedTime(new Date());
     } catch (err) {
-      console.error("ETKA OEE Veri Çekme Hatası:", err);
-      // Hata olsa dahi kayıtlı 24 tezgahı göster
-      const aliases = getMachineAliases();
-      if (aliases.length > 0) {
-        setFleetData(prev => {
-          if (prev.length > 0) return prev;
-          return aliases.map(alias => ({
-            id: alias.ipOrId,
-            name: alias.customName || alias.ipOrId,
-            ip: alias.ipOrId,
-            group: alias.group || 'CNC Dik İşleme',
-            location: alias.location || 'Kalıphane A Blok',
-            currentState: 'Offline',
-            currentStateSec: 0,
-            spindleRpm: null,
-            feedrate: null,
-            feedOverridePct: 100,
-            rapidOverridePct: 100,
-            spindleOverridePct: 100,
-            program: null,
-            runningPct: 0,
-            runningSec: 0,
-            idleSec: 0,
-            idlingSec: 0,
-            downSec: 0,
-            offlineSec: 0,
-            connected: false,
-            lastDataUtc: null,
-            axes: []
-          }));
-        });
-      }
-      setError(err.message || "ETKA OEE Sunucusuna ulaşılamadı. Lütfen sunucu bağlantı ayarlarını kontrol ediniz.");
+      console.error("OEE Veri Çekme Hatası:", err);
+      setError(err.message || 'ETKA Portal OEE servisine ulaşılamadı.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fleetData.length]);
 
-  // 2. İLK YÜKLEME VE SIGNALR CANLI YAYIN BAĞLANTISI
+  // 2. PERİYODİK 15 SANİYELİK POLLING DÖNGÜSÜ
   useEffect(() => {
-    loadFleetData();
-    const pollInterval = setInterval(loadFleetData, 15000);
+    loadOeeData();
+    const interval = setInterval(() => {
+      loadOeeData();
+    }, 15000); // 15 saniyede bir periyodik GET isteği
 
-    setSignalRStatus('connecting');
-    startSignalR({
-      onRawData: (payload) => {
-        if (payload) {
-          setLiveRawPoints(prev => [payload, ...prev.slice(0, 49)]);
+    return () => clearInterval(interval);
+  }, [loadOeeData]);
 
-          setFleetData(prevFleet => {
-            return prevFleet.map(item => {
-              if (item.id === payload.deviceId || item.ip === payload.deviceId) {
-                const newSpindle = payload.data?.find(d => d.key === 'spindle_speed' || d.key === 'spindleRpm')?.value;
-                const newFeed = payload.data?.find(d => d.key === 'feedrate')?.value;
-                const newProg = payload.data?.find(d => d.key === 'selected_program' || d.key === 'program')?.value;
-                const newFeedOverride = payload.data?.find(d => d.key === 'feed_override_pct' || d.key === 'feedOverridePct')?.value;
-                const newRapidOverride = payload.data?.find(d => d.key === 'rapid_override_pct' || d.key === 'rapidOverridePct')?.value;
-                const newSpindleOverride = payload.data?.find(d => d.key === 'spindle_override_pct' || d.key === 'spindleOverridePct')?.value;
-                
-                return {
-                  ...item,
-                  spindleRpm: newSpindle !== undefined ? newSpindle : item.spindleRpm,
-                  feedrate: newFeed !== undefined ? newFeed : item.feedrate,
-                  program: newProg !== undefined ? newProg : item.program,
-                  feedOverridePct: newFeedOverride !== undefined ? newFeedOverride : item.feedOverridePct,
-                  rapidOverridePct: newRapidOverride !== undefined ? newRapidOverride : item.rapidOverridePct,
-                  spindleOverridePct: newSpindleOverride !== undefined ? newSpindleOverride : item.spindleOverridePct,
-                  connected: true,
-                  lastDataUtc: new Date().toISOString()
-                };
-              }
-              return item;
-            });
-          });
-        }
-      },
-      onDeviceUpdated: (deviceSummary) => {
-        if (deviceSummary) {
-          setFleetData(prevFleet => {
-            return prevFleet.map(item => {
-              if (item.id === deviceSummary.id || item.ip === deviceSummary.host) {
-                return {
-                  ...item,
-                  currentState: deviceSummary.isReachable ? (item.currentState || 'Running') : 'Offline',
-                  connected: !!deviceSummary.isReachable
-                };
-              }
-              return item;
-            });
-          });
-        }
-      },
-      onConnectionStateChange: (state) => {
-        setSignalRStatus(state);
-      }
-    }).catch(err => {
-      console.warn("SignalR bağlantısı kurulamadı:", err);
-      setSignalRStatus('error');
-    });
-
-    return () => {
-      clearInterval(pollInterval);
-      stopSignalR();
-    };
-  }, [loadFleetData]);
-
-  // 3. TEZGAH DETAY MODALI AÇILDIĞINDA (KEEPLIVE LOOP İLE CANLI AKIŞ)
-  useEffect(() => {
-    if (!selectedDevice) {
-      stopKeepLiveLoop();
-      setLiveDetails(null);
-      setDeviceOeeStats(null);
-      setDeviceTimeline([]);
-      setLiveRawPoints([]);
-      return;
-    }
-
-    const deviceId = selectedDevice.id;
-    startKeepLiveLoop(deviceId, 3000);
-
-    const fetchDetails = async () => {
-      try {
-        const [liveRes, oeeRes, timelineRes] = await Promise.allSettled([
-          getDeviceLive(deviceId),
-          getDeviceOee(deviceId, 24),
-          getDeviceTimeline(deviceId, 24)
-        ]);
-
-        if (liveRes.status === 'fulfilled') setLiveDetails(liveRes.value);
-        if (oeeRes.status === 'fulfilled') setDeviceOeeStats(oeeRes.value);
-        if (timelineRes.status === 'fulfilled' && Array.isArray(timelineRes.value)) setDeviceTimeline(timelineRes.value);
-      } catch (err) {
-        console.error("Cihaz canlı detayı çekme hatası:", err);
-      }
-    };
-
-    fetchDetails();
-    const detailInterval = setInterval(fetchDetails, 3000);
-
-    return () => {
-      clearInterval(detailInterval);
-      stopKeepLiveLoop();
-    };
-  }, [selectedDevice]);
-
-  // MEVCUT GRUPLARIN LİSTESİ
+  // 3. MEVCUT GRUPLAR LİSTESİ
   const availableGroups = useMemo(() => {
     const groups = new Set(fleetData.map(d => d.group || 'Genel'));
     return Array.from(groups).sort();
   }, [fleetData]);
 
-  // FİLTRELENMİŞ TEZGAH LİSTESİ
+  // 4. TEZGAH DURUMUNU BELİRLE (connected=false İSE "Bağlantı Kopuk / Çevrimdışı")
+  // §5.2 Kuralı: connected === false ise ham currentState'e güvenme!
+  const getNormalizedState = (device) => {
+    if (device.connected === false) {
+      return 'offline';
+    }
+    const st = (device.currentState || 'Offline').toLowerCase();
+    if (st === 'running') return 'running';
+    if (st === 'idle' || st === 'idling') return 'idle';
+    if (st === 'down') return 'down';
+    if (st === 'setup') return 'setup';
+    return 'offline';
+  };
+
+  // 5. FİLTRELENMİŞ TEZGAH LİSTESİ
   const filteredFleet = useMemo(() => {
     return fleetData.filter(device => {
+      const normState = getNormalizedState(device);
+
       if (filterState !== 'ALL') {
-        const devState = (device.currentState || 'Offline').toLowerCase();
-        const targetState = filterState.toLowerCase();
-        
-        if (targetState === 'reduced') {
-          const fOv = device.feedOverridePct ?? 100;
-          const rOv = device.rapidOverridePct ?? 100;
-          if (fOv >= 100 && rOv >= 100) return false;
-        } else if (targetState === 'running' && devState !== 'running') return false;
-        else if (targetState === 'idle' && (devState !== 'idle' && devState !== 'idling')) return false;
-        else if (targetState === 'down' && devState !== 'down') return false;
-        else if (targetState === 'setup' && devState !== 'setup') return false;
-        else if (targetState === 'offline' && devState !== 'offline' && devState !== 'unknown') return false;
+        const target = filterState.toLowerCase();
+        if (normState !== target) return false;
       }
 
       if (selectedGroup !== 'ALL') {
@@ -392,45 +202,147 @@ const CanliDurum = () => {
     });
   }, [fleetData, filterState, selectedGroup, searchQuery]);
 
-  // TOPLAM DURUM SAYILARI
+  // 6. TOPLAM DURUM SAYILARI
   const counts = useMemo(() => {
-    let running = 0, idle = 0, down = 0, setup = 0, offline = 0, reduced = 0;
+    let running = 0, idle = 0, down = 0, offline = 0;
     fleetData.forEach(d => {
-      const st = (d.currentState || 'Offline').toLowerCase();
+      const st = getNormalizedState(d);
       if (st === 'running') running++;
-      else if (st === 'idle' || st === 'idling') idle++;
+      else if (st === 'idle') idle++;
       else if (st === 'down') down++;
-      else if (st === 'setup') setup++;
       else offline++;
-
-      const fOv = d.feedOverridePct ?? 100;
-      const rOv = d.rapidOverridePct ?? 100;
-      if (fOv < 100 || rOv < 100) {
-        reduced++;
-      }
     });
     return {
       total: fleetData.length,
       running,
       idle,
       down,
-      setup,
-      offline,
-      reduced
+      offline
     };
   }, [fleetData]);
 
-  // SUNUCU AYARLARI TEST ET & KAYDET
+  // 7. ZAMAN FORMATLAYICILAR
+  const formatSeconds = (sec) => {
+    if (!sec || isNaN(sec)) return "0 dk";
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h} sa ${m} dk`;
+    return `${m} dk`;
+  };
+
+  const formatTimeAgo = (utcString) => {
+    if (!utcString) return 'Bilinmiyor';
+    try {
+      const diffMs = Date.now() - new Date(utcString).getTime();
+      const diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) return `${Math.max(1, diffSec)} sn önce`;
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `${diffMin} dk önce`;
+      const diffHour = Math.floor(diffMin / 60);
+      if (diffHour < 24) return `${diffHour} sa önce`;
+      return new Date(utcString).toLocaleDateString('tr-TR');
+    } catch (e) {
+      return 'Bilinmiyor';
+    }
+  };
+
+  // 8. DURUM UI ROZETİ
+  const getStateBadge = (device) => {
+    const st = getNormalizedState(device);
+    switch (st) {
+      case 'running':
+        return { 
+          label: 'ÇALIŞIYOR', 
+          bg: 'bg-emerald-500/10 dark:bg-emerald-950/50', 
+          border: 'border-emerald-500/40', 
+          text: 'text-emerald-600 dark:text-emerald-400', 
+          badgeBg: 'bg-emerald-600', 
+          dot: 'bg-emerald-500 animate-ping' 
+        };
+      case 'idle':
+        return { 
+          label: 'BOŞTA / DURDU', 
+          bg: 'bg-amber-500/10 dark:bg-amber-950/50', 
+          border: 'border-amber-500/40', 
+          text: 'text-amber-600 dark:text-amber-400', 
+          badgeBg: 'bg-amber-500', 
+          dot: 'bg-amber-500' 
+        };
+      case 'down':
+        return { 
+          label: 'ALARM / PROBLEM', 
+          bg: 'bg-red-500/10 dark:bg-red-950/50', 
+          border: 'border-red-500/40', 
+          text: 'text-red-600 dark:text-red-400', 
+          badgeBg: 'bg-red-600', 
+          dot: 'bg-red-500 animate-pulse' 
+        };
+      default:
+        return { 
+          label: device.connected === false ? 'BAĞLANTI KOPUK' : 'ÇEVRİMDİŞİ', 
+          bg: 'bg-slate-100 dark:bg-slate-800/80', 
+          border: 'border-slate-300 dark:border-slate-700', 
+          text: 'text-slate-500 dark:text-slate-400', 
+          badgeBg: 'bg-slate-500', 
+          dot: 'bg-slate-400' 
+        };
+    }
+  };
+
+  // 9. KULLANICI GİRİŞİ / ÇIKIŞI
+  const handleLogin = async (e) => {
+    e?.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const res = await loginPortal(
+        loginForm.usernameOrEmail,
+        loginForm.password,
+        loginForm.rememberMe
+      );
+      setHasToken(true);
+      setCurrentUser(res.user || { username: loginForm.usernameOrEmail });
+      setLoginForm({ usernameOrEmail: '', password: '', rememberMe: true });
+      loadOeeData(true);
+    } catch (err) {
+      setLoginError(err.message || 'Giriş yapılamadı.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutPortal();
+    setHasToken(false);
+    setCurrentUser(null);
+    loadOeeData(true);
+  };
+
+  // 10. SUNUCU BAĞLANTI TESTİ
   const handleTestConnection = async (urlToTest = null) => {
-    const targetUrl = urlToTest || serverIpInput;
+    const target = urlToTest || serverUrlInput;
     setIsTesting(true);
     setTestResult(null);
     try {
-      const health = await checkHealth(targetUrl);
-      setTestResult({
-        success: true,
-        message: `Bağlantı Başarılı! (PostgreSQL: ${health.postgresConnected ? 'Bağlı' : 'Kapalı'}, Durum: ${health.status || 'OK'})`
-      });
+      const info = await checkPortalInfo(target).catch(() => null);
+      const health = await getOeeHealth(target).catch(() => null);
+
+      if (health) {
+        setTestResult({
+          success: true,
+          message: `Bağlantı Başarılı! (Takip Edilen Cihaz: ${health.trackedDevices ?? 0}, Servis Durumu: ${health.reachable ? 'Aktif' : 'Dış Servis Kapalı'})`
+        });
+      } else if (info) {
+        setTestResult({
+          success: true,
+          message: `Portal Bağlantısı Başarılı! (Sürüm: ${info?.data?.portalVersion || 'v3.0'})`
+        });
+      } else {
+        setTestResult({
+          success: true,
+          message: `Sunucuya Ulaşıldı (${target})`
+        });
+      }
     } catch (err) {
       setTestResult({
         success: false,
@@ -442,40 +354,12 @@ const CanliDurum = () => {
   };
 
   const handleSaveSettings = () => {
-    setBaseUrl(serverIpInput);
+    setBaseUrl(serverUrlInput);
     setIsSettingsOpen(false);
-    loadFleetData();
+    loadOeeData(true);
   };
 
-  // ETKA PORTAL / API GİRİŞİ
-  const handleAuthLogin = async (e) => {
-    e?.preventDefault();
-    if (!authUsername.trim() || !authPassword.trim()) {
-      setAuthStatusMsg({ success: false, message: 'Kullanıcı adı/email ve şifre gereklidir.' });
-      return;
-    }
-    setAuthLoading(true);
-    setAuthStatusMsg(null);
-    try {
-      const res = await loginEtka(authUsername, authPassword);
-      setAdminTokenState(getAdminToken());
-      setAuthStatusMsg({ success: true, message: 'Giriş Başarılı! Token kaydedildi.' });
-      loadFleetData();
-    } catch (err) {
-      setAuthStatusMsg({ success: false, message: `Giriş Hatası: ${err.message}` });
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleAuthLogout = async () => {
-    await logoutAdmin();
-    setAdminTokenState('');
-    setAuthStatusMsg({ success: true, message: 'Çıkış yapıldı.' });
-    loadFleetData();
-  };
-
-  // TEZGAH İSİMLENDİRME (ALIAS) İŞLEMLERİ
+  // 11. TEZGAH İSİMLENDİRME EŞLEŞTİRMELERİ
   const handleSaveAlias = (e) => {
     e.preventDefault();
     if (!newAliasInput.ipOrId.trim() || !newAliasInput.customName.trim()) {
@@ -485,7 +369,6 @@ const CanliDurum = () => {
 
     const updated = [...aliasList];
     const existingIdx = updated.findIndex(a => a.ipOrId.toLowerCase() === newAliasInput.ipOrId.toLowerCase().trim());
-    
     if (existingIdx >= 0) {
       updated[existingIdx] = { ...newAliasInput };
     } else {
@@ -494,14 +377,13 @@ const CanliDurum = () => {
 
     setAliasList(updated);
     setMachineAliases(updated);
-
     setNewAliasInput({
       ipOrId: '',
       customName: '',
       group: 'CNC Dik İşleme',
       location: 'Kalıphane A Blok'
     });
-    loadFleetData();
+    loadOeeData(true);
   };
 
   const handleDeleteAlias = (ipOrId) => {
@@ -509,61 +391,36 @@ const CanliDurum = () => {
       const updated = aliasList.filter(a => a.ipOrId !== ipOrId);
       setAliasList(updated);
       setMachineAliases(updated);
-      loadFleetData();
+      loadOeeData(true);
     }
-  };
-
-  // DURUM UI ROZETİ VE RENK HARİTASI
-  const getStateBadge = (stateStr) => {
-    const st = (stateStr || 'Offline').toLowerCase();
-    switch (st) {
-      case 'running':
-        return { label: 'ÇALIŞIYOR', bg: 'bg-emerald-500/10 dark:bg-emerald-950/50', border: 'border-emerald-500/40', text: 'text-emerald-600 dark:text-emerald-400', badgeBg: 'bg-emerald-600', icon: PlayCircle, dot: 'bg-emerald-500 animate-ping' };
-      case 'idle':
-      case 'idling':
-        return { label: 'BOŞTA / DURDU', bg: 'bg-amber-500/10 dark:bg-amber-950/50', border: 'border-amber-500/40', text: 'text-amber-600 dark:text-amber-400', badgeBg: 'bg-amber-500', icon: PauseCircle, dot: 'bg-amber-500' };
-      case 'down':
-        return { label: 'ALARM / PROBLEM', bg: 'bg-red-500/10 dark:bg-red-950/50', border: 'border-red-500/40', text: 'text-red-600 dark:text-red-400', badgeBg: 'bg-red-600', icon: AlertTriangle, dot: 'bg-red-500 animate-pulse' };
-      case 'setup':
-        return { label: 'KURULUM / SETUP', bg: 'bg-blue-500/10 dark:bg-blue-950/50', border: 'border-blue-500/40', text: 'text-blue-600 dark:text-blue-400', badgeBg: 'bg-blue-600', icon: Wrench, dot: 'bg-blue-500' };
-      default:
-        return { label: 'ÇEVRİMDİŞİ', bg: 'bg-slate-100 dark:bg-slate-800/80', border: 'border-slate-300 dark:border-slate-700', text: 'text-slate-500 dark:text-slate-400', badgeBg: 'bg-slate-500', icon: WifiOff, dot: 'bg-slate-400' };
-    }
-  };
-
-  const formatSeconds = (sec) => {
-    if (!sec || isNaN(sec)) return "0 dk";
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    if (h > 0) return `${h} sa ${m} dk`;
-    return `${m} dk`;
   };
 
   const currentBaseUrl = getBaseUrl();
-  const isInternalUrl = currentBaseUrl.includes('etkacrm.agdc.com.tr') || currentBaseUrl.includes('172.16.');
+  const isInternal = currentBaseUrl.includes('etkacrm.agdc.com.tr') || currentBaseUrl.includes('172.16.');
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
       
-      {/* ÜST BİLGİ VE BAŞLIK BARI */}
+      {/* 1. ÜST BAŞLIK VE AKSİYON BARI */}
       <div className="bg-white dark:bg-slate-800 border-b dark:border-slate-700 px-6 py-4 shadow-xs">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
           <div>
             <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
-              <Monitor className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-pulse" />
-              ETKA OEE — Canlı Tezgah İzleme Panosu
+              <Monitor className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              ETKA Portal — Canlı Tezgah İzleme Panosu
             </h1>
             <div className="flex flex-wrap items-center gap-2 mt-1">
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Fabrika CNC tezgahlarının anlık durumu, spindle devirleri, kesme ve boşta ilerleme override yüzdeleri.
+                CNC tezgahlarının anlık çalışma durumları, spindle devirleri, kesme ilerlemeleri ve verimlilik oranları (15sn Polling).
               </p>
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold border dark:border-slate-600">
-                {isInternalUrl ? '🏢 Kurum İçi Ağ / VPN' : '🌍 Kurum Dışı / İnternet'} ({currentBaseUrl})
+                {isInternal ? '🏢 Kurum İçi / VPN' : '🌍 Kurum Dışı / İnternet'} ({currentBaseUrl})
               </span>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Tezgah İsimlendirme Butonu */}
             <button
               onClick={() => setIsAliasModalOpen(true)}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5"
@@ -571,31 +428,48 @@ const CanliDurum = () => {
               <Edit3 size={15} /> ⚙️ Tezgah İsimlendirme ({aliasList.length})
             </button>
 
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold">
-              <span className={`w-2.5 h-2.5 rounded-full ${
-                signalRStatus === 'connected' 
-                  ? 'bg-emerald-500 animate-pulse' 
-                  : (apiConnected 
-                      ? 'bg-emerald-500' 
-                      : (signalRStatus === 'connecting' ? 'bg-amber-500 animate-ping' : 'bg-red-500'))
-              }`} />
-              <span className="text-slate-600 dark:text-slate-300">
-                {signalRStatus === 'connected' 
-                  ? '⚡ Canlı SignalR Bağlı' 
-                  : (apiConnected 
-                      ? '🟢 Sunucu Bağlı (REST)' 
-                      : (signalRStatus === 'connecting' ? 'Bağlanıyor...' : 'Çevrimdışı'))}
-              </span>
-            </div>
+            {/* Yenileme Butonu */}
+            <button
+              onClick={() => loadOeeData(true)}
+              disabled={loading}
+              className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+              title="Verileri Hemen Yenile"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin text-blue-500' : ''} />
+              <span>{lastUpdatedTime ? lastUpdatedTime.toLocaleTimeString('tr-TR') : 'Yenile'}</span>
+            </button>
 
+            {/* Kullanıcı Giriş Rozeti */}
+            {hasToken ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs font-bold text-blue-700 dark:text-blue-300">
+                <UserCheck size={14} />
+                <span>{currentUser?.name || currentUser?.username || 'Oturum Açık'}</span>
+                <button
+                  onClick={handleLogout}
+                  className="ml-1 text-slate-400 hover:text-red-500"
+                  title="Çıkış Yap"
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5"
+              >
+                <LogIn size={14} /> Giriş Yap
+              </button>
+            )}
+
+            {/* Sunucu Ayarları Butonu */}
             <button
               onClick={() => {
-                setServerIpInput(getBaseUrl());
+                setServerUrlInput(getBaseUrl());
                 setTestResult(null);
                 setIsSettingsOpen(true);
               }}
-              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition"
-              title="Sunucu Bağlantı ve URL Ayarları"
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition"
+              title="Sunucu Bağlantı ve Giriş Ayarları"
             >
               <Settings size={16} />
             </button>
@@ -603,49 +477,53 @@ const CanliDurum = () => {
         </div>
       </div>
 
-      {/* ANA İÇERİK KONTEYNERİ */}
-      <div className="max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6 flex-1">
-
-        {error && (
-          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-amber-500 shrink-0" />
-              <span>
-                Sunucuya ({getBaseUrl()}) erişilemedi. Kurum dışındaysanız Ayarlar'dan <b>"Kurum Dışı (195.46.142.179:1106)"</b> seçeneğini işaretleyebilirsiniz.
-              </span>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button
-                onClick={() => {
-                  setServerIpInput(EXTERNAL_BASE_URL);
-                  setBaseUrl(EXTERNAL_BASE_URL);
-                  loadFleetData();
-                }}
-                className="px-3 py-1.5 bg-blue-600 text-white font-black rounded-xl text-xs shadow-xs"
-              >
-                🌍 Kurum Dışına Geç
-              </button>
-              <button
-                onClick={() => {
-                  setServerIpInput(INTERNAL_BASE_URL);
-                  setBaseUrl(INTERNAL_BASE_URL);
-                  loadFleetData();
-                }}
-                className="px-3 py-1.5 bg-slate-700 text-white font-black rounded-xl text-xs shadow-xs"
-              >
-                🏢 Kurum İçi / VPN'e Geç
-              </button>
+      {/* 2. UYARI VE BİLGİ BANTLARI */}
+      <div className="max-w-7xl mx-auto w-full p-4 md:p-6 space-y-4 flex-1">
+        
+        {/* Dış CNC Servisi Ulaşılamıyor Uyarısı (§5.1) */}
+        {healthInfo && healthInfo.reachable === false && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center gap-3">
+            <AlertTriangle size={20} className="text-amber-500 shrink-0" />
+            <div>
+              <span className="font-black text-amber-700 dark:text-amber-300 block">Dış CNC Veri Toplayıcı Servisine Ulaşılamıyor:</span>
+              <span>{healthInfo.error || 'Portal backend hazır fakat fabrikanın yerel CNC servis kutusuyla iletişim kurulamıyor.'}</span>
             </div>
           </div>
         )}
 
-        {/* 1. KPİ ÖZET KARTLARI */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* 401 Unauthorized Giriş Uyarısı */}
+        {!hasToken && (
+          <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 text-xs font-bold flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Lock size={18} className="text-blue-500 shrink-0" />
+              <span>
+                Canlı tezgah verilerini izlemek için ETKA Portal kullanıcı girişi yapılması gerekmektedir.
+              </span>
+            </div>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs shrink-0 flex items-center gap-1.5"
+            >
+              <LogIn size={14} /> Giriş Yap
+            </button>
+          </div>
+        )}
+
+        {/* Genel Hata Uyarısı */}
+        {error && hasToken && (
+          <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-800 text-red-900 dark:text-red-200 text-xs font-bold flex items-center gap-3">
+            <AlertCircle size={18} className="text-red-500 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* 3. KPİ ÖZET KARTLARI */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
           <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border dark:border-slate-700 shadow-xs flex flex-col justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Toplam Cihaz</span>
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Toplam Tezgah</span>
             <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 flex items-baseline justify-between">
               <span>{counts.total}</span>
-              <span className="text-[11px] font-bold text-slate-400">Tezgah</span>
+              <span className="text-[11px] font-bold text-slate-400">Adet</span>
             </div>
           </div>
 
@@ -668,18 +546,6 @@ const CanliDurum = () => {
             </div>
           </div>
 
-          {/* KISILMIŞ İLERLEME UYARI KPİ KARTI */}
-          <div className="p-3.5 rounded-2xl bg-orange-500/10 dark:bg-orange-950/40 border border-orange-500/30 text-orange-900 dark:text-orange-100 shadow-xs flex flex-col justify-between">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-extrabold uppercase text-orange-600 dark:text-orange-400">📉 Düşük Override</span>
-              {counts.reduced > 0 && <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse" />}
-            </div>
-            <div className="text-2xl font-black text-orange-600 dark:text-orange-400 mt-1 flex items-baseline justify-between">
-              <span>{counts.reduced}</span>
-              <span className="text-[11px] font-bold opacity-80">Tezgah</span>
-            </div>
-          </div>
-
           <div className="p-3.5 rounded-2xl bg-red-500/10 dark:bg-red-950/40 border border-red-500/30 text-red-900 dark:text-red-100 shadow-xs flex flex-col justify-between">
             <span className="text-[10px] font-extrabold uppercase text-red-600 dark:text-red-400">⚠️ Problem / Alarm</span>
             <div className="text-2xl font-black text-red-600 dark:text-red-400 mt-1 flex items-baseline justify-between">
@@ -689,7 +555,7 @@ const CanliDurum = () => {
           </div>
 
           <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border dark:border-slate-700 shadow-xs flex flex-col justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">🔌 Çevrimdışı</span>
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">🔌 Bağlantı Kopuk</span>
             <div className="text-2xl font-black text-slate-400 mt-1 flex items-baseline justify-between">
               <span>{counts.offline}</span>
               <span className="text-[11px] font-bold opacity-80">Tezgah</span>
@@ -697,7 +563,7 @@ const CanliDurum = () => {
           </div>
         </div>
 
-        {/* 2. FİLTRE VE ARAMA BARI */}
+        {/* 4. FİLTRE VE ARAMA BARI */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border dark:border-slate-700 shadow-xs flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
           <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
             <button
@@ -715,14 +581,6 @@ const CanliDurum = () => {
               }`}
             >
               ✅ Çalışan ({counts.running})
-            </button>
-            <button
-              onClick={() => setFilterState('Reduced')}
-              className={`px-3 py-1.5 text-xs font-black rounded-lg transition ${
-                filterState === 'Reduced' ? 'bg-orange-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              📉 Hızı Kısılanlar ({counts.reduced})
             </button>
             <button
               onClick={() => setFilterState('Idle')}
@@ -780,11 +638,11 @@ const CanliDurum = () => {
           </div>
         </div>
 
-        {/* 3. TEZGAH KARTLARI GRİDİ */}
+        {/* 5. TEZGAH KARTLARI GRİDİ */}
         {loading && fleetData.length === 0 ? (
           <div className="p-16 text-center text-slate-500 font-bold space-y-3">
             <RefreshCw size={28} className="animate-spin text-blue-600 mx-auto" />
-            <p>ETKA OEE Sunucusuna Bağlanılıyor ve Tezgah Verileri Yükleniyor...</p>
+            <p>ETKA Portal OEE Filo Verileri Yükleniyor...</p>
           </div>
         ) : filteredFleet.length === 0 ? (
           <div className="p-16 text-center text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border dark:border-slate-700 font-bold space-y-2">
@@ -794,16 +652,10 @@ const CanliDurum = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredFleet.map(device => {
-              const badge = getStateBadge(device.currentState);
+              const badge = getStateBadge(device);
               const runningPctVal = (device.runningPct !== undefined && device.runningPct !== null) 
-                ? (device.runningPct * 100).toFixed(0) 
+                ? (device.runningPct > 1 ? device.runningPct.toFixed(0) : (device.runningPct * 100).toFixed(0))
                 : 0;
-
-              const fOv = device.feedOverridePct ?? 100;
-              const rOv = device.rapidOverridePct ?? 100;
-              const sOv = device.spindleOverridePct ?? 100;
-
-              const isSpeedReduced = fOv < 100 || rOv < 100;
 
               return (
                 <div
@@ -829,7 +681,7 @@ const CanliDurum = () => {
                         <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider ${badge.badgeBg} text-white shadow-xs`}>
                           {badge.label}
                         </span>
-                        {device.currentStateSec > 0 && (
+                        {device.currentStateSec > 0 && device.connected !== false && (
                           <span className="text-[10px] text-slate-400 font-bold">
                             {formatSeconds(device.currentStateSec)}
                           </span>
@@ -837,58 +689,24 @@ const CanliDurum = () => {
                       </div>
                     </div>
 
-                    {/* HIZ KISILDI UYARI ROZETİ (EĞER OPERATÖR İLERLEMEYİ KISTIYSA) */}
-                    {isSpeedReduced && (
-                      <div className="mt-2.5 p-2 rounded-xl bg-orange-500/10 border border-orange-500/40 text-orange-700 dark:text-orange-300 text-[11px] font-extrabold flex items-center justify-between animate-pulse">
-                        <span className="flex items-center gap-1.5">
-                          <ShieldAlert size={14} className="text-orange-500 shrink-0" />
-                          <span>OPERATÖR HIZI KISTI!</span>
-                        </span>
-                        <span className="font-mono font-black text-xs">Feed: %{fOv}</span>
-                      </div>
-                    )}
-
                     {/* METRİKLER (SPINDLE RPM & FEEDRATE) */}
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                         <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Spindle Devir</span>
                         <div className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          {device.spindleRpm !== null && device.spindleRpm !== undefined ? `${device.spindleRpm} RPM` : '-'}
+                          {device.spindleRpm !== null && device.spindleRpm !== undefined && device.connected !== false 
+                            ? `${device.spindleRpm} RPM` 
+                            : '-'}
                         </div>
                       </div>
 
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                         <span className="text-[10px] font-extrabold text-slate-400 uppercase block">İlerleme (Feed)</span>
                         <div className="text-sm font-mono font-black text-blue-600 dark:text-blue-400 mt-0.5">
-                          {device.feedrate !== null && device.feedrate !== undefined ? `${device.feedrate} mm/min` : '-'}
+                          {device.feedrate !== null && device.feedrate !== undefined && device.connected !== false 
+                            ? `${device.feedrate} mm/min` 
+                            : '-'}
                         </div>
-                      </div>
-                    </div>
-
-                    {/* CANLI OVERRIDE ÇARPANLARI (FEED %, RAPID %, SPINDLE %) */}
-                    <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
-                      {/* Feed Override */}
-                      <div className={`p-1.5 rounded-xl border text-[10px] font-bold ${
-                        fOv < 100 ? 'bg-orange-500/10 border-orange-500/40 text-orange-600 dark:text-orange-400 font-black' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}>
-                        <span className="block text-[9px] text-slate-400 uppercase">⚡ İlerleme %</span>
-                        <span className="font-mono text-xs font-black">%{fOv}</span>
-                      </div>
-
-                      {/* Rapid / Boşta Override */}
-                      <div className={`p-1.5 rounded-xl border text-[10px] font-bold ${
-                        rOv < 100 ? 'bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 font-black' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}>
-                        <span className="block text-[9px] text-slate-400 uppercase">🚀 Boşta Hız %</span>
-                        <span className="font-mono text-xs font-black">%{rOv}</span>
-                      </div>
-
-                      {/* Spindle Override */}
-                      <div className={`p-1.5 rounded-xl border text-[10px] font-bold ${
-                        sOv < 100 ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 dark:text-purple-400 font-black' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}>
-                        <span className="block text-[9px] text-slate-400 uppercase">🔄 Devir %</span>
-                        <span className="font-mono text-xs font-black">%{sOv}</span>
                       </div>
                     </div>
 
@@ -896,9 +714,17 @@ const CanliDurum = () => {
                     <div className="mt-2 p-2 rounded-xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs">
                       <span className="font-extrabold text-slate-500">NC Program:</span>
                       <span className="font-mono font-black text-yellow-600 dark:text-yellow-400 truncate max-w-[130px]" title={device.program}>
-                        {device.program || 'Seçili Değil'}
+                        {device.program && device.connected !== false ? device.program : 'Seçili Değil'}
                       </span>
                     </div>
+
+                    {/* SON VERİ ALINMA ZAMANI (§5.2) */}
+                    {device.lastDataUtc && (
+                      <div className="mt-1.5 flex justify-between items-center text-[10px] text-slate-400 px-1">
+                        <span>Son Veri:</span>
+                        <span className="font-medium font-mono">{formatTimeAgo(device.lastDataUtc)}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* 24 SAATLİK ÇALIŞMA VE VERİMLİLİK BAR */}
@@ -931,7 +757,7 @@ const CanliDurum = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* 4. TEZGAH İSİMLENDİRME & EŞLEŞTİRME MODALI (ALIAS MANAGER) */}
+      {/* 6. TEZGAH İSİMLENDİRME & EŞLEŞTİRME MODALI (ALIAS MANAGER) */}
       {/* ========================================================================= */}
       {isAliasModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
@@ -1073,22 +899,22 @@ const CanliDurum = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* 5. TEZGAH CANLI DETAY POPUP MODALI */}
+      {/* 7. TEZGAH DETAY POPUP MODALI */}
       {/* ========================================================================= */}
       {selectedDevice && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-3xl w-full p-6 space-y-4 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-xl w-full p-6 space-y-4 my-8">
             
             <div className="flex justify-between items-start border-b dark:border-slate-700 pb-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping" />
+                  <span className={`w-3 h-3 rounded-full ${getStateBadge(selectedDevice).dot}`} />
                   <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase font-mono">
                     {selectedDevice.name || selectedDevice.ip}
                   </h2>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-                  IP: {selectedDevice.ip} • Grup: {selectedDevice.group || 'Genel'} • Protokol: {liveDetails?.protocols?.join(', ') || 'FANUC / Modbus'}
+                  IP: {selectedDevice.ip} • Grup: {selectedDevice.group || 'Genel'} • Konum: {selectedDevice.location || '-'}
                 </p>
               </div>
 
@@ -1100,158 +926,60 @@ const CanliDurum = () => {
               </button>
             </div>
 
-            <div className="flex border-b dark:border-slate-700 gap-2">
-              <button
-                onClick={() => setActiveDetailTab('live')}
-                className={`px-4 py-2 text-xs font-black rounded-t-xl transition border-b-2 ${
-                  activeDetailTab === 'live' 
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' 
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                ⚡ Canlı Eksen & Devir Verileri
-              </button>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase">Durum</span>
+                <div className="text-base font-black text-slate-900 dark:text-white mt-1">
+                  {getStateBadge(selectedDevice).label}
+                </div>
+              </div>
 
-              <button
-                onClick={() => setActiveDetailTab('oee')}
-                className={`px-4 py-2 text-xs font-black rounded-t-xl transition border-b-2 ${
-                  activeDetailTab === 'oee' 
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' 
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                📊 24s OEE & Verimlilik
-              </button>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase">Aktif NC Program</span>
+                <div className="text-base font-mono font-black text-yellow-600 dark:text-yellow-400 mt-1 truncate">
+                  {selectedDevice.program || 'Seçili Değil'}
+                </div>
+              </div>
 
-              <button
-                onClick={() => setActiveDetailTab('timeline')}
-                className={`px-4 py-2 text-xs font-black rounded-t-xl transition border-b-2 ${
-                  activeDetailTab === 'timeline' 
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' 
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                📜 Zaman Çizelgesi ({deviceTimeline.length})
-              </button>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase">Spindle Devir</span>
+                <div className="text-xl font-mono font-black text-emerald-500 mt-1">
+                  {selectedDevice.spindleRpm ? `${selectedDevice.spindleRpm} RPM` : '-'}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase">İlerleme (Feed)</span>
+                <div className="text-xl font-mono font-black text-blue-500 mt-1">
+                  {selectedDevice.feedrate ? `${selectedDevice.feedrate} mm/min` : '-'}
+                </div>
+              </div>
             </div>
 
-            {activeDetailTab === 'live' && (
-              <div className="space-y-4">
-                {/* CNC Alarm Bildirimi */}
-                {liveDetails?.alarm ? (
-                  <div className="p-3 rounded-2xl bg-red-500/15 border-2 border-red-500 text-red-600 dark:text-red-400 text-xs font-black flex items-center justify-between animate-pulse">
-                    <span className="flex items-center gap-2">
-                      <BellRing size={18} className="text-red-500" />
-                      <span>TEZGAHTA AKTİF CNC ALARMI MEVCUT!</span>
-                    </span>
-                    <span className="font-mono font-black text-sm">Kod / Değer: {liveDetails.alarm}</span>
-                  </div>
-                ) : null}
-
-                {/* 3 TEMEL HIZ OVERRIDE METRİK KARTLARI */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase">Spindle RPM</span>
-                    <div className="text-xl font-mono font-black text-emerald-500 mt-1">
-                      {liveDetails?.spindleRpm ?? selectedDevice.spindleRpm ?? '-'}
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase">İlerleme (Feed)</span>
-                    <div className="text-xl font-mono font-black text-blue-500 mt-1">
-                      {liveDetails?.feedrate ?? selectedDevice.feedrate ?? '-'} <span className="text-xs">mm/min</span>
-                    </div>
-                  </div>
-
-                  {/* Feed Override */}
-                  <div className={`p-3 rounded-2xl border ${
-                    (liveDetails?.feedOverridePct ?? selectedDevice.feedOverridePct ?? 100) < 100 
-                      ? 'bg-orange-500/10 border-orange-500/50 text-orange-600 dark:text-orange-400' 
-                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'
-                  }`}>
-                    <span className="text-[10px] font-extrabold uppercase block">⚡ Kesme İlerleme %</span>
-                    <div className="text-xl font-mono font-black mt-1">
-                      %{liveDetails?.feedOverridePct ?? selectedDevice.feedOverridePct ?? 100}
-                    </div>
-                  </div>
-
-                  {/* Rapid (Boşta İlerleme) Override */}
-                  <div className={`p-3 rounded-2xl border ${
-                    (liveDetails?.rapidOverridePct ?? selectedDevice.rapidOverridePct ?? 100) < 100 
-                      ? 'bg-amber-500/10 border-amber-500/50 text-amber-600 dark:text-amber-400' 
-                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'
-                  }`}>
-                    <span className="text-[10px] font-extrabold uppercase block">🚀 Boşta (Rapid) %</span>
-                    <div className="text-xl font-mono font-black mt-1">
-                      %{liveDetails?.rapidOverridePct ?? selectedDevice.rapidOverridePct ?? 100}
-                    </div>
-                  </div>
+            {/* Çalışma Süreleri Tablosu */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700 space-y-2">
+              <span className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                24 Saatlik Süre Dağılımı
+              </span>
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <span className="text-[10px] font-bold text-emerald-600 block">Çalışma</span>
+                  <span className="font-mono font-black text-emerald-700 dark:text-emerald-300">{formatSeconds(selectedDevice.runningSec)}</span>
                 </div>
-
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
-                  <h4 className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
-                    <Gauge size={15} className="text-blue-500" /> Canlı Eksen Pozisyonları
-                  </h4>
-
-                  {liveDetails?.axes && liveDetails.axes.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {liveDetails.axes.map(axis => (
-                        <div key={axis.name} className="p-3 rounded-xl bg-white dark:bg-slate-800 border dark:border-slate-700 text-center">
-                          <span className="text-xs font-mono font-black text-blue-500 block">Eksen {axis.name}</span>
-                          <span className="text-lg font-mono font-black text-slate-900 dark:text-white mt-0.5 block">
-                            {typeof axis.position === 'number' ? axis.position.toFixed(3) : axis.position}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Eksen pozisyon verisi bekleniyor...</p>
-                  )}
+                <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                  <span className="text-[10px] font-bold text-amber-600 block">Boşta</span>
+                  <span className="font-mono font-black text-amber-700 dark:text-amber-300">{formatSeconds(selectedDevice.idleSec)}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/30">
+                  <span className="text-[10px] font-bold text-red-600 block">Duruş</span>
+                  <span className="font-mono font-black text-red-700 dark:text-red-300">{formatSeconds(selectedDevice.downSec)}</span>
                 </div>
               </div>
-            )}
+            </div>
 
-            {activeDetailTab === 'oee' && (
-              <div className="space-y-4">
-                {deviceOeeStats?.availability ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
-                      <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 uppercase">Kullanılabilirlik (Availability)</span>
-                      <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-                        %{(deviceOeeStats.availability.availability * 100).toFixed(1)}
-                      </div>
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30">
-                      <span className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase">Faydalanma (Utilization)</span>
-                      <div className="text-3xl font-black text-blue-600 dark:text-blue-400 mt-1 font-mono">
-                        %{(deviceOeeStats.availability.utilization * 100).toFixed(1)}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 italic">OEE İstatistikleri çekiliyor...</p>
-                )}
-              </div>
-            )}
-
-            {activeDetailTab === 'timeline' && (
-              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-                {deviceTimeline.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">Zaman çizelgesi geçmiş kaydı bulunmuyor.</p>
-                ) : (
-                  deviceTimeline.map((item, idx) => (
-                    <div key={idx} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700 flex justify-between items-center text-xs">
-                      <span className="font-mono font-bold text-slate-400">
-                        {new Date(item.startUtc).toLocaleTimeString()} - {item.endUtc ? new Date(item.endUtc).toLocaleTimeString() : 'Devam Ediyor'}
-                      </span>
-                      <span className="font-black uppercase px-2 py-0.5 rounded bg-blue-600 text-white">
-                        {item.state}
-                      </span>
-                    </div>
-                  ))
-                )}
+            {selectedDevice.lastDataUtc && (
+              <div className="text-[11px] text-slate-400 text-right">
+                Son Veri Alınma Tarihi: <b>{new Date(selectedDevice.lastDataUtc).toLocaleString('tr-TR')}</b>
               </div>
             )}
 
@@ -1268,19 +996,19 @@ const CanliDurum = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* 6. SUNUCU BAĞLANTI AYARLARI MODALI */}
+      {/* 8. SUNUCU BAĞLANTI & PORTAL GİRİŞ AYARLARI MODALI */}
       {/* ========================================================================= */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-lg w-full p-6 space-y-4">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border dark:border-slate-700 max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
             
             <div className="flex justify-between items-start border-b dark:border-slate-700 pb-3">
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <Server className="text-blue-500 w-5 h-5" /> ETKA OEE Sunucu Bağlantısı
+                  <Server className="text-blue-500 w-5 h-5" /> ETKA Portal Bağlantı ve Giriş Ayarları
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bağlantı ortamınıza uygun sunucu adresini seçin veya özel URL girin.
+                  Portal backend adresini seçin ve canlı veri akışı için kullanıcı girişi yapın.
                 </p>
               </div>
               <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600">
@@ -1288,20 +1016,20 @@ const CanliDurum = () => {
               </button>
             </div>
 
-            {/* HIZLI ADRES SEÇİMİ (PRESETS) */}
+            {/* 1. HIZLI HOST SEÇİMİ */}
             <div className="space-y-2">
               <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                🎯 Hızlı Sunucu Konumu Seçin:
+                🎯 Portal Sunucu Konumu:
               </span>
 
-              <div className="grid grid-cols-1 gap-2.5">
+              <div className="grid grid-cols-1 gap-2">
                 {PRESET_BASE_URLS.map(preset => {
-                  const isSelected = serverIpInput.trim().replace(/\/+$/, '') === preset.url;
+                  const isSelected = serverUrlInput.trim().replace(/\/+$/, '') === preset.url;
                   return (
                     <div
                       key={preset.id}
                       onClick={() => {
-                        setServerIpInput(preset.url);
+                        setServerUrlInput(preset.url);
                         handleTestConnection(preset.url);
                       }}
                       className={`p-3 rounded-2xl border-2 transition cursor-pointer flex justify-between items-center ${
@@ -1320,9 +1048,6 @@ const CanliDurum = () => {
                         <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
                           {preset.url}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          {preset.description}
-                        </div>
                       </div>
 
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
@@ -1336,125 +1061,130 @@ const CanliDurum = () => {
               </div>
             </div>
 
-            <div className="space-y-3 pt-2">
-              <div>
-                <label className="block text-xs font-black text-slate-700 dark:text-slate-200 mb-1">
-                  🌐 Özel Sunucu Base URL
+            {/* 2. ÖZEL URL GİRİŞİ */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-700 dark:text-slate-200">
+                🌐 Portal API Base URL
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: http://etkacrm.agdc.com.tr:1106/api"
+                value={serverUrlInput}
+                onChange={(e) => setServerUrlInput(e.target.value)}
+                className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Bağlantı Test Sonucu */}
+            {testResult && (
+              <div className={`p-3 rounded-xl text-xs font-bold flex items-start gap-2 ${
+                testResult.success ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-300'
+              }`}>
+                {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-500" />}
+                <span>{testResult.message}</span>
+              </div>
+            )}
+
+            {/* 3. ETKA PORTAL KULLANICI GİRİŞİ (§4) */}
+            <div className="pt-3 border-t dark:border-slate-700 space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <ShieldCheck size={16} className="text-blue-500" /> ETKA Portal Kullanıcı Girişi (JWT Auth)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Örn: http://etkacrm.agdc.com.tr:1106"
-                  value={serverIpInput}
-                  onChange={(e) => setServerIpInput(e.target.value)}
-                  className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
+                {hasToken && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                    ✅ Oturum Açık
+                  </span>
+                )}
               </div>
 
-              {testResult && (
-                <div className={`p-3 rounded-xl text-xs font-bold flex flex-col gap-2 ${
-                  testResult.success ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-300'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-500" />}
-                    <span>{testResult.message}</span>
-                  </div>
-
-                  {!testResult.success && typeof window !== 'undefined' && window.location.protocol === 'https:' && (
-                    <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-[11px] font-medium space-y-1">
-                      <p className="font-bold flex items-center gap-1 text-amber-700 dark:text-amber-300">
-                        <Info size={14} /> Tarayıcıda 10 Saniyede İzin Verme Çözümü:
-                      </p>
-                      <ol className="list-decimal list-inside space-y-0.5 pl-1">
-                        <li>Tarayıcınızın adres çubuğundaki sol taraftaki <b>Kilit 🔒 / Ayarlar</b> simgesine tıklayın.</li>
-                        <li><b>Site Ayarları (Site Settings)</b> seçeneğine girin.</li>
-                        <li><b>Güvenli Olmayan İçerik (Insecure Content)</b> ayarını <b>"İzin Ver (Allow)"</b> yapın.</li>
-                        <li>Sayfayı yenileyin.</li>
-                      </ol>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ETKA PORTAL / API GİRİŞİ (YETKİLENDİRME) */}
-              <div className="pt-2 border-t dark:border-slate-700 space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                    <ShieldCheck size={15} className="text-blue-500" /> ETKA Portal / API Yetkilendirmesi (Opsiyonel)
-                  </label>
-                  {adminTokenState && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                      ✅ Token Kayıtlı
+              {hasToken ? (
+                <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border dark:border-slate-700 flex justify-between items-center">
+                  <div>
+                    <span className="text-xs font-black text-slate-900 dark:text-white block">
+                      {currentUser?.name || currentUser?.username || 'ETKA Kullanıcısı'}
                     </span>
-                  )}
-                </div>
-
-                {adminTokenState ? (
-                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border dark:border-slate-700 flex justify-between items-center">
-                    <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300 truncate max-w-[240px]">
-                      Bearer Token: {adminTokenState.slice(0, 16)}...
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleAuthLogout}
-                      className="px-2 py-1 text-[11px] font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg"
-                    >
-                      Çıkış Yap
-                    </button>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                      {currentUser?.email || 'Yetkili OEE Erişimi'}
+                    </span>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl border border-red-200 dark:border-red-800 transition flex items-center gap-1"
+                  >
+                    <LogOut size={13} /> Çıkış Yap
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleLogin} className="space-y-2 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
+                  <div className="space-y-2">
                     <input
                       type="text"
-                      placeholder="Kullanıcı Adı / Email"
-                      value={authUsername}
-                      onChange={e => setAuthUsername(e.target.value)}
-                      className="p-2 text-xs border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                      required
+                      placeholder="Kullanıcı Adı veya Email"
+                      value={loginForm.usernameOrEmail}
+                      onChange={e => setLoginForm({ ...loginForm, usernameOrEmail: e.target.value })}
+                      className="w-full p-2.5 text-xs border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                     />
-                    <div className="flex gap-1.5">
-                      <input
-                        type="password"
-                        placeholder="Şifre"
-                        value={authPassword}
-                        onChange={e => setAuthPassword(e.target.value)}
-                        className="w-full p-2 text-xs border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAuthLogin}
-                        disabled={authLoading}
-                        className="px-3 py-2 bg-slate-800 dark:bg-slate-700 text-white font-bold text-xs rounded-xl hover:bg-slate-900 shrink-0"
-                      >
-                        {authLoading ? '...' : 'Giriş'}
-                      </button>
-                    </div>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Şifre"
+                      value={loginForm.password}
+                      onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
+                      className="w-full p-2.5 text-xs border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
                   </div>
-                )}
 
-                {authStatusMsg && (
-                  <p className={`text-[11px] font-bold ${authStatusMsg.success ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {authStatusMsg.message}
-                  </p>
-                )}
-              </div>
+                  {loginError && (
+                    <p className="text-[11px] font-bold text-red-500">
+                      {loginError}
+                    </p>
+                  )}
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleTestConnection()}
-                  disabled={isTesting}
-                  className="flex-1 py-2.5 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
-                >
-                  <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} /> Test Et
-                </button>
+                  <div className="flex justify-between items-center pt-1">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={loginForm.rememberMe}
+                        onChange={e => setLoginForm({ ...loginForm, rememberMe: e.target.checked })}
+                        className="rounded text-blue-600"
+                      />
+                      <span>Beni Hatırla</span>
+                    </label>
 
-                <button
-                  type="button"
-                  onClick={handleSaveSettings}
-                  className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5"
-                >
-                  <Check size={16} /> Kaydet ve Bağlan
-                </button>
-              </div>
+                    <button
+                      type="submit"
+                      disabled={loginLoading}
+                      className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs flex items-center gap-1.5"
+                    >
+                      {loginLoading ? <RefreshCw size={13} className="animate-spin" /> : <LogIn size={13} />}
+                      <span>Giriş Yap</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Butonlar */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => handleTestConnection()}
+                disabled={isTesting}
+                className="flex-1 py-2.5 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
+              >
+                <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} /> Test Et
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5"
+              >
+                <Check size={16} /> Kaydet ve Bağlan
+              </button>
             </div>
 
           </div>
