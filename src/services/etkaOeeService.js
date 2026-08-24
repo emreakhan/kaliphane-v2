@@ -89,11 +89,13 @@ export const clearAuth = () => {
 // TEZGAH İSİMLENDİRME & EŞLEŞTİRME (ALIASES)
 // ==========================================
 const DEFAULT_ALIASES = [
-  { ipOrId: '192.168.2.72', customName: 'K22 — FANUC 0i-M', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.2.73', customName: 'K40 — HEIDENHAIN 530', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.2.74', customName: 'K15 — SIEMENS S7', group: 'CNC Torna', location: 'Kalıphane B Blok' },
-  { ipOrId: '192.168.2.75', customName: 'K08 — FANUC Robodrill', group: 'CNC Hızlı İşleme', location: 'Kalıphane C Blok' },
-  { ipOrId: '192.168.2.76', customName: 'K03 — MITSUBISHI EDM', group: 'Dalma Erezyon', location: 'Erezyon Bölümü' }
+  { ipOrId: '192.168.2.73', systemMachineCode: 'K27', customName: 'K27', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.135', systemMachineCode: 'K45', customName: 'K45', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.170', systemMachineCode: 'K43', customName: 'K43', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.72', systemMachineCode: 'K22', customName: 'K22 — FANUC 0i-M', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.74', systemMachineCode: 'K15', customName: 'K15 — SIEMENS S7', group: 'CNC Torna', location: 'Kalıphane B Blok' },
+  { ipOrId: '192.168.2.75', systemMachineCode: 'K08', customName: 'K08 — FANUC Robodrill', group: 'CNC Hızlı İşleme', location: 'Kalıphane C Blok' },
+  { ipOrId: '192.168.2.76', systemMachineCode: 'K03', customName: 'K03 — MITSUBISHI EDM', group: 'Dalma Erezyon', location: 'Erezyon Bölümü' }
 ];
 
 export const getMachineAliases = () => {
@@ -115,15 +117,27 @@ export const setMachineAliases = (aliases) => {
   }
 };
 
+export const cleanMachineStr = (str) => {
+  return String(str || '').replace(/[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]/g, '').toLowerCase();
+};
+
 export const findAlias = (ip, id, name) => {
   const aliases = getMachineAliases();
   const searchIp = (ip || '').trim().toLowerCase();
   const searchId = (id || '').trim().toLowerCase();
   const searchName = (name || '').trim().toLowerCase();
+  const cleanSearch = cleanMachineStr(name || id || ip);
 
   return aliases.find(a => {
     const key = (a.ipOrId || '').trim().toLowerCase();
-    return key === searchIp || key === searchId || key === searchName;
+    const cName = (a.customName || '').trim().toLowerCase();
+    const sCode = (a.systemMachineCode || '').trim().toLowerCase();
+    const cleanSys = cleanMachineStr(a.systemMachineCode || a.customName || a.ipOrId);
+
+    return key === searchIp || key === searchId || key === searchName ||
+           cName === searchIp || cName === searchName ||
+           sCode === searchIp || sCode === searchName || sCode === searchId ||
+           (cleanSearch && cleanSys && (cleanSearch === cleanSys || cleanSys.includes(cleanSearch) || cleanSearch.includes(cleanSys)));
   });
 };
 
