@@ -88,13 +88,19 @@ export const clearAuth = () => {
 // ==========================================
 // TEZGAH İSİMLENDİRME & EŞLEŞTİRME (ALIASES)
 // ==========================================
-const DEFAULT_ALIASES = [
+export const DEFAULT_ALIASES = [
   { ipOrId: '192.168.2.73', systemMachineCode: 'K27', customName: 'K27', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.135', systemMachineCode: 'K45', customName: 'K45', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.75', systemMachineCode: 'K18', customName: 'K18', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.1.170', systemMachineCode: 'K43', customName: 'K43', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.66', systemMachineCode: 'K15', customName: 'K15', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.171', systemMachineCode: 'K26', customName: 'K26', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.36', systemMachineCode: 'K36', customName: 'K36', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.37', systemMachineCode: 'K28', customName: 'K28', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.155', systemMachineCode: 'K17', customName: 'K17', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.68', systemMachineCode: 'K09', customName: 'K09', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.72', systemMachineCode: 'K22', customName: 'K22 — FANUC 0i-M', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.2.74', systemMachineCode: 'K15', customName: 'K15 — SIEMENS S7', group: 'CNC Torna', location: 'Kalıphane B Blok' },
-  { ipOrId: '192.168.2.75', systemMachineCode: 'K08', customName: 'K08 — FANUC Robodrill', group: 'CNC Hızlı İşleme', location: 'Kalıphane C Blok' },
+  { ipOrId: '192.168.2.74', systemMachineCode: 'K15-2', customName: 'K15-2', group: 'CNC Torna', location: 'Kalıphane B Blok' },
   { ipOrId: '192.168.2.76', systemMachineCode: 'K03', customName: 'K03 — MITSUBISHI EDM', group: 'Dalma Erezyon', location: 'Erezyon Bölümü' }
 ];
 
@@ -103,7 +109,7 @@ export const getMachineAliases = () => {
     const saved = localStorage.getItem(ALIASES_STORAGE_KEY);
     if (!saved) return DEFAULT_ALIASES;
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : DEFAULT_ALIASES;
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_ALIASES;
   } catch (e) {
     return DEFAULT_ALIASES;
   }
@@ -190,6 +196,27 @@ export const refreshAccessToken = async () => {
   }
 };
 
+// ==========================================
+// OTOMATİK GİRİŞ BİLGİLERİ (SILENT AUTH)
+// ==========================================
+export const DEFAULT_CREDENTIALS = {
+  usernameOrEmail: 'KALIPHANE',
+  password: '1234'
+};
+
+export const ensureAuthenticated = async () => {
+  const token = getAccessToken();
+  if (token) return token;
+
+  try {
+    const res = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
+    return res?.accessToken || '';
+  } catch (err) {
+    console.warn("Otomatik ETKA Portal girişi uyarısı:", err?.message);
+    return '';
+  }
+};
+
 export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, customBaseUrl = null) => {
   const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -203,7 +230,15 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
     ...(options.headers || {})
   };
 
-  const token = getAccessToken();
+  let token = getAccessToken();
+  if (!token && !endpoint.includes('/auth/login')) {
+    try {
+      token = await ensureAuthenticated();
+    } catch (e) {
+      // ignore
+    }
+  }
+
   if (token && !headers['Authorization']) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -216,12 +251,24 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
     });
     clearTimeout(timeoutId);
 
-    // 401 Unauthorized durumunda Token Refresh Mekanizması
-    if (response.status === 401 && getRefreshToken() && !endpoint.includes('/auth/')) {
+    // 401 Unauthorized durumunda Token Refresh ve Otomatik Giriş Mekanizması
+    if (response.status === 401 && !endpoint.includes('/auth/login')) {
       if (!isRefreshing) {
         isRefreshing = true;
         try {
-          const newToken = await refreshAccessToken();
+          let newToken = '';
+          if (getRefreshToken()) {
+            try {
+              newToken = await refreshAccessToken();
+            } catch (rErr) {
+              // Refresh başarısızsa otomatik yeniden login dene
+              const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
+              newToken = autoLoginRes?.accessToken || '';
+            }
+          } else {
+            const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
+            newToken = autoLoginRes?.accessToken || '';
+          }
           isRefreshing = false;
           onRefreshed(newToken);
         } catch (refreshErr) {
@@ -256,7 +303,7 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
       }
 
       if (response.status === 401) {
-        throw new Error('Yetkisiz Erişim (401): Lütfen ETKA Portal kullanıcı girişi yapınız.');
+        throw new Error('Yetkisiz Erişim (401): Kullanıcı yetkilendirilemedi.');
       }
       if (response.status === 403) {
         throw new Error('Yetki Hatası (403): Kullanıcınıza Portal admin panelinden "OEE" modülü / "OEE_FILO" sayfa izni verilmelidir.');

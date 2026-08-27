@@ -10,13 +10,14 @@ import {
 import { 
   getBaseUrl, setBaseUrl, getOeeHealth, getOeeFleet, checkPortalInfo,
   getAccessToken, getRefreshToken, getStoredUser, loginPortal, logoutPortal,
-  getMachineAliases, setMachineAliases, findAlias,
+  getMachineAliases, setMachineAliases, findAlias, ensureAuthenticated, DEFAULT_CREDENTIALS,
   INTERNAL_BASE_URL, EXTERNAL_BASE_URL, PRESET_BASE_URLS
 } from '../services/etkaOeeService.js';
 import { 
   getActiveAssignments, saveActiveAssignments, assignPartToMachine,
   updateAssignmentDurations, recordLogbookSnapshot
 } from '../services/oeeTrackingService.js';
+import { doc, setDoc, onSnapshot } from '../config/firebase.js';
 
 // Sekme Bileşenleri
 import { OeeLiveFleetTab } from '../components/OEE/OeeLiveFleetTab.jsx';
@@ -72,6 +73,44 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
     location: 'Kalıphane A Blok'
   });
 
+  // BULUTTAN TEZGAH EŞLEŞTİRMELERİNİ TÜM BİLGİSAYARLAR İÇİN OTOMATİK SENKRONİZE ET
+  useEffect(() => {
+    if (!db) return;
+    try {
+      const unsub = onSnapshot(doc(db, 'config', 'oee_machine_mappings'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && Array.isArray(data.mappings) && data.mappings.length > 0) {
+            setAliasList(data.mappings);
+            setMachineAliases(data.mappings);
+          }
+        }
+      }, (err) => {
+        console.warn("Cloud machine mapping sync error:", err);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn("Cloud machine mapping setup error:", e);
+    }
+  }, [db]);
+
+  const handleSaveAliasesCloud = async (newAliases) => {
+    setAliasList(newAliases);
+    setMachineAliases(newAliases);
+    if (db) {
+      try {
+        await setDoc(doc(db, 'config', 'oee_machine_mappings'), {
+          mappings: newAliases,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.name || currentUser?.username || 'User'
+        }, { merge: true });
+      } catch (err) {
+        console.error("Firestore machine mappings save error:", err);
+      }
+    }
+    loadOeeData(true);
+  };
+
   // TEZGAHA PARÇA / İŞ EMRİ ATAMA MODALI STATE
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignForm, setAssignForm] = useState({
@@ -119,6 +158,14 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
       const processedKeys = new Set();
       const mergedList = [];
 
+      const parseOverrideVal = (val) => {
+        if (val === null || val === undefined || val === '') return null;
+        const num = Number(val);
+        if (isNaN(num)) return null;
+        if (num > 0 && num <= 2.5) return Math.round(num * 100);
+        return Math.round(num);
+      };
+
       rawFleet.forEach(item => {
         const matchedAlias = findAlias(item.ip, item.id, item.name);
         const ipKey = (item.ip || '').trim().toLowerCase();
@@ -126,8 +173,38 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
         if (ipKey) processedKeys.add(ipKey);
         if (idKey) processedKeys.add(idKey);
 
+        const feedOv = parseOverrideVal(item.feedOverridePct) ??
+                       parseOverrideVal(item.feedOverride) ??
+                       parseOverrideVal(item.feedRateOverride) ??
+                       parseOverrideVal(item.feedrateOverride) ??
+                       parseOverrideVal(item.feed_override) ??
+                       parseOverrideVal(item.ovFeed) ??
+                       parseOverrideVal(item.feed_ov) ??
+                       parseOverrideVal(item.override) ??
+                       parseOverrideVal(item.overridePct) ??
+                       100;
+
+        const rapidOv = parseOverrideVal(item.rapidOverridePct) ??
+                        parseOverrideVal(item.rapidOverride) ??
+                        parseOverrideVal(item.rapidRateOverride) ??
+                        parseOverrideVal(item.rapid_override) ??
+                        parseOverrideVal(item.ovRapid) ??
+                        parseOverrideVal(item.rapid_ov) ??
+                        100;
+
+        const spindleOv = parseOverrideVal(item.spindleOverridePct) ??
+                          parseOverrideVal(item.spindleOverride) ??
+                          parseOverrideVal(item.spindleRateOverride) ??
+                          parseOverrideVal(item.spindle_override) ??
+                          parseOverrideVal(item.ovSpindle) ??
+                          parseOverrideVal(item.spindle_ov) ??
+                          100;
+
         mergedList.push({
           ...item,
+          feedOverridePct: feedOv,
+          rapidOverridePct: rapidOv,
+          spindleOverridePct: spindleOv,
           name: matchedAlias?.customName || item.name || item.ip,
           group: matchedAlias?.group || item.group || 'CNC Dik İşleme',
           location: matchedAlias?.location || item.location || 'Kalıphane A Blok'
@@ -180,9 +257,16 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
     }
   }, [fleetData.length]);
 
-  // 2. PERİYODİK 15 SANİYELİK POLLING
+  // 2. PERİYODİK 15 SANİYELİK POLLING & OTOMATİK SESSİZ GİRİŞ (SILENT AUTH)
   useEffect(() => {
-    loadOeeData();
+    ensureAuthenticated().then(() => {
+      setHasToken(!!getAccessToken());
+      setCurrentUser(getStoredUser());
+      loadOeeData();
+    }).catch(() => {
+      loadOeeData();
+    });
+
     const interval = setInterval(() => {
       loadOeeData();
     }, 15000);
@@ -864,11 +948,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
         fleetData={fleetData}
         projects={projects}
         aliasList={aliasList}
-        onSaveAliases={(newAliases) => {
-          setAliasList(newAliases);
-          setMachineAliases(newAliases);
-          loadOeeData(true);
-        }}
+        onSaveAliases={handleSaveAliasesCloud}
       />
 
       {/* ========================================================================= */}

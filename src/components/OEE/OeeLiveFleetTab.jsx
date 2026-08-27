@@ -111,6 +111,23 @@ export const OeeLiveFleetTab = ({
     });
   };
 
+  const resolveOverrides = (device) => {
+    if (!device) return { fOv: 100, rOv: 100, sOv: 100, isSpeedReduced: false };
+    const parse = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      if (isNaN(n)) return null;
+      if (n > 0 && n <= 2.5) return Math.round(n * 100);
+      return Math.round(n);
+    };
+
+    const f = parse(device.feedOverridePct) ?? parse(device.feedOverride) ?? parse(device.feedRateOverride) ?? parse(device.feedrateOverride) ?? parse(device.feed_override) ?? parse(device.ovFeed) ?? parse(device.override) ?? 100;
+    const r = parse(device.rapidOverridePct) ?? parse(device.rapidOverride) ?? parse(device.rapidRateOverride) ?? parse(device.rapid_override) ?? parse(device.ovRapid) ?? 100;
+    const s = parse(device.spindleOverridePct) ?? parse(device.spindleOverride) ?? parse(device.spindleRateOverride) ?? parse(device.spindle_override) ?? parse(device.ovSpindle) ?? 100;
+
+    return { fOv: f, rOv: r, sOv: s, isSpeedReduced: f < 100 || r < 100 };
+  };
+
   // Filtrelenmiş Liste
   const filteredFleet = fleetData.filter(device => {
     const isConn = device.connected !== false;
@@ -119,9 +136,8 @@ export const OeeLiveFleetTab = ({
     if (filterState !== 'ALL') {
       const target = filterState.toLowerCase();
       if (target === 'reduced') {
-        const fOv = device.feedOverridePct ?? 100;
-        const rOv = device.rapidOverridePct ?? 100;
-        if (fOv >= 100 && rOv >= 100) return false;
+        const { isSpeedReduced } = resolveOverrides(device);
+        if (!isSpeedReduced) return false;
       } else if (target === 'running' && st !== 'running') return false;
       else if (target === 'idle' && (st !== 'idle' && st !== 'idling')) return false;
       else if (target === 'down' && st !== 'down') return false;
@@ -426,11 +442,7 @@ export const OeeLiveFleetTab = ({
               ? (device.runningPct > 1 ? device.runningPct.toFixed(0) : (device.runningPct * 100).toFixed(0))
               : 0;
 
-            const fOv = device.feedOverridePct ?? 100;
-            const rOv = device.rapidOverridePct ?? 100;
-            const sOv = device.spindleOverridePct ?? 100;
-
-            const isSpeedReduced = fOv < 100 || rOv < 100;
+            const { fOv, rOv, sOv, isSpeedReduced } = resolveOverrides(device);
 
             return (
               <div
