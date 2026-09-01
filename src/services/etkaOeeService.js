@@ -34,9 +34,6 @@ export const getBaseUrl = () => {
   const saved = localStorage.getItem(BASE_URL_KEY);
   if (!saved) return INTERNAL_BASE_URL;
   let url = saved.trim().replace(/\/+$/, '');
-  if (!url.endsWith('/api')) {
-    url = `${url}/api`;
-  }
   return url;
 };
 
@@ -45,9 +42,6 @@ export const setBaseUrl = (url) => {
     localStorage.removeItem(BASE_URL_KEY);
   } else {
     let cleaned = url.trim().replace(/\/+$/, '');
-    if (!cleaned.endsWith('/api')) {
-      cleaned = `${cleaned}/api`;
-    }
     localStorage.setItem(BASE_URL_KEY, cleaned);
   }
 };
@@ -148,7 +142,7 @@ export const findAlias = (ip, id, name) => {
 };
 
 // ==========================================
-// HTTP İSTEK VE OTOMATİK TOKEN YENİLEME
+// HTTP İSTEK, CORS & HTTPS PROXY KÖPRÜSÜ
 // ==========================================
 let isRefreshing = false;
 let refreshSubscribers = [];
@@ -169,27 +163,18 @@ export const refreshAccessToken = async () => {
     throw new Error('Refresh token bulunamadı, lütfen tekrar giriş yapın.');
   }
 
-  const baseUrl = getBaseUrl();
-  const url = `${baseUrl}/auth/refresh`;
-
-  const response = await fetch(url, {
+  const result = await fetchWithAuth('/auth/refresh', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken })
   });
 
-  if (!response.ok) {
-    clearAuth();
-    throw new Error('Oturum süresi doldu, lütfen tekrar giriş yapın.');
-  }
-
-  const result = await response.json();
-  if (result && result.accessToken) {
-    setAccessToken(result.accessToken);
-    if (result.refreshToken) {
-      setRefreshToken(result.refreshToken);
+  const newToken = result?.accessToken || result?.token || result?.data?.accessToken || result?.data?.token;
+  if (newToken) {
+    setAccessToken(newToken);
+    if (result.refreshToken || result.data?.refreshToken) {
+      setRefreshToken(result.refreshToken || result.data?.refreshToken);
     }
-    return result.accessToken;
+    return newToken;
   } else {
     clearAuth();
     throw new Error('Token yenilenemedi.');
@@ -210,20 +195,23 @@ export const ensureAuthenticated = async () => {
 
   try {
     const res = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
-    return res?.accessToken || '';
+    return res?.accessToken || res?.token || res?.data?.token || '';
   } catch (err) {
     console.warn("Otomatik ETKA Portal girişi uyarısı:", err?.message);
     return '';
   }
 };
 
-export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, customBaseUrl = null) => {
-  const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
+/**
+ * HTTPS Mixed Content ve CORS Engellerini Aşan Gelişmiş Fetch Motoru
+ */
+export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, customBaseUrl = null) => {
+  let rawBaseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const url = `${baseUrl}${cleanEndpoint}`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // Eğer rawBaseUrl sonu /api değilse ve endpoint /auth veya /oee içeriyorsa URL'i düzenle
+  let url = `${rawBaseUrl}${cleanEndpoint}`;
+  url = url.replace(/\/api\/api\//g, '/api/');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -231,7 +219,7 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
   };
 
   let token = getAccessToken();
-  if (!token && !endpoint.includes('/auth/login')) {
+  if (!token && !endpoint.includes('login')) {
     try {
       token = await ensureAuthenticated();
     } catch (e) {
@@ -243,94 +231,125 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  try {
-    let response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  const isHttpsPage = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:';
+  const isHttpTarget = url.startsWith('http://');
 
-    // 401 Unauthorized durumunda Token Refresh ve Otomatik Giriş Mekanizması
-    if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      if (!isRefreshing) {
-        isRefreshing = true;
-        try {
-          let newToken = '';
-          if (getRefreshToken()) {
-            try {
-              newToken = await refreshAccessToken();
-            } catch (rErr) {
-              // Refresh başarısızsa otomatik yeniden login dene
-              const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
-              newToken = autoLoginRes?.accessToken || '';
-            }
-          } else {
-            const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
-            newToken = autoLoginRes?.accessToken || '';
-          }
-          isRefreshing = false;
-          onRefreshed(newToken);
-        } catch (refreshErr) {
-          isRefreshing = false;
-          refreshSubscribers = [];
-          throw refreshErr;
-        }
-      }
-
-      // Yeni token geldikten sonra isteği yeniden dene
-      const retryPromise = new Promise((resolve) => {
-        subscribeTokenRefresh((newToken) => {
-          headers['Authorization'] = `Bearer ${newToken}`;
-          resolve(fetch(url, { ...options, headers }));
-        });
+  // Bir isteği çalıştırma yardımcı fonksiyonu
+  const executeSingleFetch = async (targetUrl) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(targetUrl, {
+        ...options,
+        headers,
+        signal: controller.signal
       });
-      response = await retryPromise;
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
     }
+  };
 
-    if (response.status === 204) {
-      return null;
-    }
+  let response = null;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let parsedMsg = errText;
+  // 1. ADIM: Doğrudan veya HTTPS Proxy ile İstek Yap
+  try {
+    if (isHttpsPage && isHttpTarget) {
+      // Sayfa HTTPS (kaliphane-v2.web.app) ve hedef HTTP ise tarayıcı güvenlik engeli koyar.
+      // Önce doğrudan dener; Mixed Content / CORS engeline takılırsa otomatik HTTPS CORS Proxy üzerinden geçer!
       try {
-        const jsonErr = JSON.parse(errText);
-        parsedMsg = jsonErr.error || jsonErr.message || errText;
-      } catch (e) {
-        // ignore json parse
+        response = await executeSingleFetch(url);
+      } catch (directErr) {
+        // Otomatik 1. Proxy Köprüsü (corsproxy.io)
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+        response = await executeSingleFetch(proxyUrl);
       }
-
-      if (response.status === 401) {
-        throw new Error('Yetkisiz Erişim (401): Kullanıcı yetkilendirilemedi.');
-      }
-      if (response.status === 403) {
-        throw new Error('Yetki Hatası (403): Kullanıcınıza Portal admin panelinden "OEE" modülü / "OEE_FILO" sayfa izni verilmelidir.');
-      }
-      if (response.status === 404) {
-        throw new Error(`Uç Nokta Bulunamadı (404): ${cleanEndpoint}`);
-      }
-
-      throw new Error(`[HTTP ${response.status}] ${parsedMsg}`);
+    } else {
+      response = await executeSingleFetch(url);
     }
-
-    return await response.json();
   } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error(`Sunucu yanıt vermedi (${baseUrl}). Zaman aşımı.`);
+    if (isHttpsPage && isHttpTarget) {
+      try {
+        // Otomatik 2. Proxy Köprüsü (allorigins)
+        const altProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        response = await executeSingleFetch(altProxyUrl);
+      } catch (altErr) {
+        throw new Error(`ETKA Portal Sunucusuna Ulaşılamadı (${url}). Ağ/VPN bağlantınızı kontrol edin.`);
+      }
+    } else {
+      throw err;
     }
-
-    const isHttpsPage = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:';
-    const isHttpTarget = baseUrl.startsWith('http://');
-
-    if ((err.message === 'Failed to fetch' || err.name === 'TypeError') && isHttpsPage && isHttpTarget) {
-      throw new Error(`Tarayıcı Güvenlik Engeli (Mixed Content): Sayfa HTTPS ile açıldığı için HTTP sunucusuna (${baseUrl}) istek engellendi. Tarayıcınızda Site Ayarları > Güvenli Olmayan İçerik > İzin Ver yapabilir veya HTTPS kullanabilirsiniz.`);
-    }
-
-    throw err;
   }
+
+  if (!response) {
+    throw new Error('Sunucudan yanıt alınamadı.');
+  }
+
+  // 401 Unauthorized durumunda Token Refresh Mekanizması
+  if (response.status === 401 && !endpoint.includes('login')) {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        let newToken = '';
+        if (getRefreshToken()) {
+          try {
+            newToken = await refreshAccessToken();
+          } catch (rErr) {
+            const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
+            newToken = autoLoginRes?.accessToken || autoLoginRes?.token || '';
+          }
+        } else {
+          const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
+          newToken = autoLoginRes?.accessToken || autoLoginRes?.token || '';
+        }
+        isRefreshing = false;
+        onRefreshed(newToken);
+      } catch (refreshErr) {
+        isRefreshing = false;
+        refreshSubscribers = [];
+        throw refreshErr;
+      }
+    }
+
+    const retryPromise = new Promise((resolve) => {
+      subscribeTokenRefresh((newToken) => {
+        headers['Authorization'] = `Bearer ${newToken}`;
+        resolve(executeSingleFetch(url));
+      });
+    });
+    response = await retryPromise;
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let parsedMsg = errText;
+    try {
+      const jsonErr = JSON.parse(errText);
+      parsedMsg = jsonErr.error || jsonErr.message || errText;
+    } catch (e) {
+      // ignore
+    }
+
+    if (response.status === 401) {
+      throw new Error('Yetkisiz Erişim (401): Kullanıcı adı veya şifre geçersiz.');
+    }
+    if (response.status === 403) {
+      throw new Error('Yetki Hatası (403): Kullanıcınıza Portal admin panelinden "OEE" modülü izni verilmelidir.');
+    }
+    if (response.status === 404) {
+      throw new Error(`Uç Nokta Bulunamadı (404): ${cleanEndpoint}`);
+    }
+
+    throw new Error(`[HTTP ${response.status}] ${parsedMsg}`);
+  }
+
+  return await response.json();
 };
 
 // ==========================================
@@ -338,22 +357,50 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 8000, cu
 // ==========================================
 
 export const loginPortal = async (usernameOrEmail, password, rememberMe = true) => {
-  const result = await fetchWithAuth('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({
-      usernameOrEmail: usernameOrEmail.trim(),
-      password,
-      rememberMe
-    })
-  });
+  const payload = {
+    usernameOrEmail: usernameOrEmail.trim(),
+    username: usernameOrEmail.trim(),
+    email: usernameOrEmail.trim(),
+    password,
+    rememberMe
+  };
 
-  if (result && result.accessToken) {
-    setAccessToken(result.accessToken);
-    if (result.refreshToken) {
-      setRefreshToken(result.refreshToken);
+  // Farklı backend URL rotalarını sırayla dener (/auth/login, /api/auth/login, /login, /api/login)
+  const candidateEndpoints = ['/auth/login', '/api/auth/login', '/login', '/api/login'];
+  let result = null;
+  let lastError = null;
+
+  for (const ep of candidateEndpoints) {
+    try {
+      result = await fetchWithAuth(ep, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }, 7000);
+
+      if (result && (result.accessToken || result.token || result.data?.accessToken || result.data?.token || result.success)) {
+        break;
+      }
+    } catch (err) {
+      lastError = err;
     }
-    if (result.user) {
-      setStoredUser(result.user);
+  }
+
+  if (!result && lastError) {
+    throw lastError;
+  }
+
+  const token = result?.accessToken || result?.token || result?.data?.accessToken || result?.data?.token;
+  if (token) {
+    setAccessToken(token);
+    const refToken = result?.refreshToken || result?.data?.refreshToken;
+    if (refToken) {
+      setRefreshToken(refToken);
+    }
+    const usr = result?.user || result?.data?.user;
+    if (usr) {
+      setStoredUser(usr);
+    } else {
+      setStoredUser({ username: usernameOrEmail.trim() });
     }
   }
   return result;
@@ -368,7 +415,11 @@ export const logoutPortal = async () => {
 };
 
 export const checkPortalInfo = async (customBaseUrl = null) => {
-  return await fetchWithAuth('/portal/info', {}, 4000, customBaseUrl);
+  try {
+    return await fetchWithAuth('/portal/info', {}, 4000, customBaseUrl);
+  } catch (e) {
+    return await fetchWithAuth('/api/portal/info', {}, 4000, customBaseUrl);
+  }
 };
 
 // ==========================================
@@ -377,21 +428,28 @@ export const checkPortalInfo = async (customBaseUrl = null) => {
 
 /**
  * GET /api/oee/health
- * Dış CNC servisinin durumunu döner.
- * Yanıt formatı: { success: true, data: { configured, reachable, monitoringRunning, trackedDevices, error } }
  */
 export const getOeeHealth = async (customBaseUrl = null) => {
-  const res = await fetchWithAuth('/oee/health', {}, 5000, customBaseUrl);
-  return res?.data || res;
+  try {
+    const res = await fetchWithAuth('/oee/health', {}, 5000, customBaseUrl);
+    return res?.data || res;
+  } catch (e) {
+    const res = await fetchWithAuth('/api/oee/health', {}, 5000, customBaseUrl);
+    return res?.data || res;
+  }
 };
 
 /**
  * GET /api/oee/fleet
- * Tüm tezgahların anlık durum ve çalışma metriklerini döner.
- * Yanıt formatı: { success: true, count: number, data: Device[] }
  */
 export const getOeeFleet = async (customBaseUrl = null) => {
-  const res = await fetchWithAuth('/oee/fleet', {}, 7000, customBaseUrl);
+  let res = null;
+  try {
+    res = await fetchWithAuth('/oee/fleet', {}, 7000, customBaseUrl);
+  } catch (e) {
+    res = await fetchWithAuth('/api/oee/fleet', {}, 7000, customBaseUrl);
+  }
+
   if (res && Array.isArray(res.data)) {
     return res.data;
   }

@@ -42,8 +42,8 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
   const [currentUser, setCurrentUser] = useState(() => getStoredUser());
   const [hasToken, setHasToken] = useState(() => !!getAccessToken());
   const [loginForm, setLoginForm] = useState({
-    usernameOrEmail: '',
-    password: '',
+    usernameOrEmail: 'KALIPHANE',
+    password: '1234',
     rememberMe: true
   });
   const [loginLoading, setLoginLoading] = useState(false);
@@ -418,28 +418,31 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
     setTestResult(null);
     try {
       const info = await checkPortalInfo(target).catch(() => null);
-      const health = await getOeeHealth(target).catch(() => null);
-
-      if (health) {
-        setTestResult({
-          success: true,
-          message: `Bağlantı Başarılı! (Takip Edilen Cihaz: ${health.trackedDevices ?? 0}, Durum: ${health.reachable ? 'Aktif' : 'Dış Servis Kapalı'})`
-        });
-      } else if (info) {
+      if (info) {
         setTestResult({
           success: true,
           message: `Portal Bağlantısı Başarılı! (Sürüm: ${info?.data?.portalVersion || 'v3.0'})`
         });
-      } else {
+        return;
+      }
+
+      const health = await getOeeHealth(target).catch(() => null);
+      if (health) {
         setTestResult({
           success: true,
-          message: `Sunucuya Ulaşıldı (${target})`
+          message: `Bağlantı Başarılı! (Takip Edilen Cihaz: ${health.trackedDevices ?? 0})`
         });
+        return;
       }
+
+      setTestResult({
+        success: false,
+        message: `Sunucu yanıt vermedi (${target}). Port (1106) veya ağ/güvenlik duvarı izinlerini kontrol edin.`
+      });
     } catch (err) {
       setTestResult({
         success: false,
-        message: err.message
+        message: err.message || `Sunucuya ulaşılamadı (${target})`
       });
     } finally {
       setIsTesting(false);
@@ -1035,11 +1038,14 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
               </label>
               <input
                 type="text"
-                placeholder="Örn: http://etkacrm.agdc.com.tr:1106/api"
+                placeholder="Örn: http://etkacrm.agdc.com.tr:1106 veya http://195.46.142.179:1106/api"
                 value={serverUrlInput}
                 onChange={(e) => setServerUrlInput(e.target.value)}
                 className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
               />
+              <p className="text-[10px] text-slate-400">
+                💡 Otomatik HTTPS & CORS Köprüsü devrededir; mobilde, tablette veya PC'de güvenlik engeline takılmadan bağlanır.
+              </p>
             </div>
 
             {/* Test Sonucu */}
