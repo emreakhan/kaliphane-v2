@@ -1488,8 +1488,40 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
         }, [completedMoldsRawList, selectedYear, completedChartTypeFilter, months]);
 
         const chartData = useMemo(() => {
-            const monthlyAcc = Array(12).fill(0).map(() => ({ ops: 0, hours: 0 }));
+            const monthlyAcc = Array(12).fill(0).map(() => ({ ops: 0, hours: 0, completedParts: 0 }));
 
+            // 1. O ayda tamamlanan parçaları (Tasks) hesapla
+            validMoldProjects.forEach(mold => {
+                if (chartTypeFilter !== 'all') {
+                    const normType = normalizeMoldType(mold.projectType || mold.type);
+                    if (normType !== chartTypeFilter) return;
+                }
+
+                (mold.tasks || []).forEach(task => {
+                    const ops = task.operations || [];
+                    if (ops.length === 0) return;
+
+                    const allCompleted = ops.every(op => op.status === OPERATION_STATUS.COMPLETED);
+                    let finishDate = task.completedDate || task.finishDate;
+                    if (!finishDate && allCompleted) {
+                        const finishTimes = ops.map(op => op.finishDate ? new Date(op.finishDate).getTime() : 0);
+                        const maxFinish = Math.max(...finishTimes);
+                        if (maxFinish > 0) finishDate = new Date(maxFinish);
+                    }
+
+                    if (finishDate) {
+                        const d = new Date(finishDate);
+                        if (!isNaN(d.getTime()) && d.getFullYear() === parseInt(selectedYear)) {
+                            const monthIdx = d.getMonth();
+                            if (monthIdx >= 0 && monthIdx < 12) {
+                                monthlyAcc[monthIdx].completedParts += 1;
+                            }
+                        }
+                    }
+                });
+            });
+
+            // 2. O ayda harcanan işçilik saatlerini hesapla
             allCompletedOperations.forEach(op => {
                 if (!op.finishDate) return;
                 const d = new Date(op.finishDate);
@@ -1509,9 +1541,10 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
             return monthlyAcc.map((data, index) => ({
                 name: months[index],
                 "İşçilik Saati (Saat)": parseFloat(data.hours.toFixed(0)),
+                "Tamamlanan Parça (Adet)": data.completedParts,
                 "Operasyon Sayısı (Adet)": data.ops
             }));
-        }, [allCompletedOperations, validMoldProjects, selectedYear, chartTypeFilter, months]);
+        }, [allCompletedOperations, validMoldProjects, selectedYear, chartTypeFilter, months, OPERATION_STATUS]);
 
         const completedMoldsList = useMemo(() => {
             let list = completedMoldsRawList;
@@ -1871,7 +1904,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                         Aylık Üretim & İşçilik Yoğunluğu ({selectedYear})
                                     </h4>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                        Kalıp türüne göre aylık harcanan işçilik saatlerini ve tamamlanan operasyon adetlerini grafik üzerinde inceleyin.
+                                        Kalıp türüne göre aylık harcanan işçilik saatlerini ve tamamlanan parça adetlerini grafik üzerinde inceleyin.
                                     </p>
                                 </div>
 
@@ -1931,7 +1964,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                         <YAxis 
                                             yAxisId="right" 
                                             orientation="right" 
-                                            label={{ value: 'Operasyon Sayısı (Adet)', angle: 90, position: 'insideRight', offset: 15, className: 'fill-blue-600 dark:fill-blue-400 font-bold' }} 
+                                            label={{ value: 'Tamamlanan Parça (Adet)', angle: 90, position: 'insideRight', offset: 15, className: 'fill-blue-600 dark:fill-blue-400 font-bold' }} 
                                             className="fill-gray-600 dark:fill-gray-400 font-bold" 
                                         />
                                         <Tooltip 
@@ -1945,7 +1978,7 @@ const AnalysisPage = ({ projects, personnel, loggedInUser }) => {
                                         />
                                         <Legend wrapperStyle={{ paddingTop: '10px' }} />
                                         <Line yAxisId="left" type="monotone" dataKey="İşçilik Saati (Saat)" stroke="#a855f7" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
-                                        <Line yAxisId="right" type="monotone" dataKey="Operasyon Sayısı (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
+                                        <Line yAxisId="right" type="monotone" dataKey="Tamamlanan Parça (Adet)" stroke="#3b82f6" strokeWidth={3} activeDot={{ r: 8 }} dot={{ r: 4 }} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>

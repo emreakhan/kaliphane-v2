@@ -12,8 +12,9 @@ import { MACHINES_COLLECTION, ROLES } from '../config/constants.js';
 
 import CamOperatorAnalysis from './CamOperatorAnalysis.js';
 import CamOperatorEvaluationTab from '../components/Analysis/CamOperatorEvaluationTab.js';
+import CamMonthlyComparisonTab from '../components/Analysis/CamMonthlyComparisonTab.js';
 
-const CamOperatorDashboard = ({ db, loggedInUser }) => {
+const CamOperatorDashboard = ({ db, loggedInUser, projects = [] }) => {
     const [activeTab, setActiveTab] = useState('ENTRY');
     const [todayLogs, setTodayLogs] = useState([]);
     const [saving, setSaving] = useState(false);
@@ -192,6 +193,9 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                 <button onClick={() => setActiveTab('ANALYSIS')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap ${activeTab === 'ANALYSIS' ? 'bg-indigo-100 text-indigo-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                     <BarChart2 className="w-4 h-4 mr-2" /> Analiz & Raporlar
                 </button>
+                <button onClick={() => setActiveTab('MONTHLY_COMPARISON')} className={`px-6 py-2.5 rounded-lg font-bold transition flex items-center whitespace-nowrap ${activeTab === 'MONTHLY_COMPARISON' ? 'bg-purple-100 text-purple-800' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    <BarChart2 className="w-4 h-4 mr-2 text-purple-600" /> 📊 Aylık CAM vs Tezgah Süreleri
+                </button>
                 
                 {/* YÖNETİCİ SEKME BUTONU (Artık kesinlikle görünecek) */}
                 {isAdminOrSupervisor && (
@@ -204,6 +208,8 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
             {/* İÇERİK RENDER ALANI */}
             {activeTab === 'ANALYSIS' ? (
                 <CamOperatorAnalysis db={db} />
+            ) : activeTab === 'MONTHLY_COMPARISON' ? (
+                <CamMonthlyComparisonTab db={db} projects={projects} loggedInUser={loggedInUser} />
             ) : activeTab === 'EVALUATION' ? (
                 <CamOperatorEvaluationTab db={db} loggedInUser={loggedInUser} />
             ) : (
@@ -358,7 +364,9 @@ const CamOperatorDashboard = ({ db, loggedInUser }) => {
                                                     <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${log.category === 'CAM' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
                                                         {log.category}
                                                     </span>
-                                                    <span className="text-[10px] text-gray-400">{new Date(log.timestamp).toLocaleTimeString('tr-TR')}</span>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {log.timestamp && !isNaN(new Date(log.timestamp).getTime()) ? new Date(log.timestamp).toLocaleTimeString('tr-TR') : ''}
+                                                    </span>
                                                 </div>
                                                 
                                                 {log.category === 'CAM' && (

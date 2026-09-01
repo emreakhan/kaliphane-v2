@@ -25,6 +25,7 @@ export const EVALUATION_TEAMS_COLLECTION = `artifacts/${appId}/public/data/evalu
 export const PART_TRANSFER_MARKET_COLLECTION = `artifacts/${appId}/public/data/partTransferMarket`;
 export const MEMBER_POINT_LOGS_COLLECTION = `artifacts/${appId}/public/data/memberPointLogs`;
 export const EVALUATION_SETTINGS_COLLECTION = `artifacts/${appId}/public/data/evaluationSettings`;
+export const CAM_SETTINGS_COLLECTION = `artifacts/${appId}/public/data/camSettings`;
 
 export const DEFAULT_MOLD_STATUSES = [
     { name: 'BEKLEMEDE', color: 'yellow', icon: 'RefreshCw', orderIndex: 1 },

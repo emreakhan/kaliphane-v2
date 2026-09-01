@@ -9,11 +9,26 @@ import {
 import { Clock, Filter, Layers, Zap, TrendingUp, Calendar, ListOrdered, Monitor, Percent, Calculator, Target, Trophy, ArrowRight } from 'lucide-react';
 
 const getISOWeek = (d) => {
+    if (!d || !(d instanceof Date) || isNaN(d.getTime())) return 1;
     const date = new Date(d.getTime());
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
     const week1 = new Date(date.getFullYear(), 0, 4);
     return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+};
+
+const parseSafeDate = (dateVal) => {
+    if (!dateVal) return null;
+    let d = null;
+    if (typeof dateVal === 'object' && typeof dateVal.seconds === 'number') {
+        d = new Date(dateVal.seconds * 1000);
+    } else if (typeof dateVal === 'object' && typeof dateVal.toDate === 'function') {
+        d = dateVal.toDate();
+    } else {
+        d = new Date(dateVal);
+    }
+    if (!d || isNaN(d.getTime())) return null;
+    return d;
 };
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
@@ -26,7 +41,7 @@ const CamOperatorAnalysis = ({ db }) => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
     const [selectedWeek, setSelectedWeek] = useState(getISOWeek(new Date()).toString());
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); 
+    const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]); 
     const [selectedOperator, setSelectedOperator] = useState('ALL');
     
     // --- KALICI AYARLAR (localStorage) ---
@@ -51,7 +66,7 @@ const CamOperatorAnalysis = ({ db }) => {
         return () => unsubscribe();
     }, [db]);
 
-    const uniqueOperators = useMemo(() => Array.from(new Set(logs.map(log => log.operatorName))), [logs]);
+    const uniqueOperators = useMemo(() => Array.from(new Set(logs.map(log => log.operatorName).filter(Boolean))), [logs]);
 
     // --- VERİ İŞLEME VE HESAPLAMALAR ---
     const stats = useMemo(() => {
@@ -62,7 +77,10 @@ const CamOperatorAnalysis = ({ db }) => {
         const machineMap = {};
 
         logs.forEach(log => {
-            const logDate = new Date(log.date);
+            if (!log) return;
+            const logDate = parseSafeDate(log.date || log.timestamp || log.createdAt);
+            if (!logDate) return; // Geçersiz veya eksik tarihleri güvenle atla
+
             const logDateStr = logDate.toISOString().split('T')[0];
             const logYear = logDate.getFullYear().toString();
             const logMonth = (logDate.getMonth() + 1).toString();
@@ -86,9 +104,10 @@ const CamOperatorAnalysis = ({ db }) => {
             totalCam += camMins;
             totalOther += otherMins;
 
-            if (!operatorMap[log.operatorName]) {
-                operatorMap[log.operatorName] = { 
-                    name: log.operatorName, 
+            const opName = log.operatorName || 'Belirtilmedi';
+            if (!operatorMap[opName]) {
+                operatorMap[opName] = { 
+                    name: opName, 
                     Hazırlık: 0, 
                     CAM: 0, 
                     Diğer: 0, 
@@ -96,13 +115,13 @@ const CamOperatorAnalysis = ({ db }) => {
                     workedMachines: new Set() 
                 };
             }
-            operatorMap[log.operatorName].Hazırlık += prepMins / 60;
-            operatorMap[log.operatorName].CAM += camMins / 60;
-            operatorMap[log.operatorName].Diğer += otherMins / 60;
-            operatorMap[log.operatorName].totalMins += (prepMins + camMins + otherMins);
+            operatorMap[opName].Hazırlık += prepMins / 60;
+            operatorMap[opName].CAM += camMins / 60;
+            operatorMap[opName].Diğer += otherMins / 60;
+            operatorMap[opName].totalMins += (prepMins + camMins + otherMins);
             
             if (log.machineName) {
-                operatorMap[log.operatorName].workedMachines.add(log.machineName);
+                operatorMap[opName].workedMachines.add(log.machineName);
             }
 
             if (log.category === 'CAM' && log.machineName) {
@@ -145,7 +164,10 @@ const CamOperatorAnalysis = ({ db }) => {
     const trendData = useMemo(() => {
         const map = {};
         logs.forEach(log => {
-            const logDate = new Date(log.date);
+            if (!log) return;
+            const logDate = parseSafeDate(log.date || log.timestamp || log.createdAt);
+            if (!logDate) return;
+
             if (selectedOperator !== 'ALL' && log.operatorName !== selectedOperator) return;
 
             let periodKey, periodLabel;
@@ -160,7 +182,7 @@ const CamOperatorAnalysis = ({ db }) => {
                 periodKey = w;
                 periodLabel = `${w}. Hf`;
             } else {
-                const targetDate = new Date(selectedDate);
+                const targetDate = parseSafeDate(selectedDate) || new Date();
                 if (logDate.getMonth() !== targetDate.getMonth() || logDate.getFullYear() !== targetDate.getFullYear()) return;
                 const d = logDate.getDate();
                 periodKey = d;
@@ -184,7 +206,7 @@ const CamOperatorAnalysis = ({ db }) => {
     const formatH = (mins) => `${Math.floor(mins / 60)}s ${mins % 60}dk`;
 
     return (
-        <div className="space-y-8 animate-in fade-in pb-20 text-sm">
+        <div className="space-y-8 animate-in fade-in pb-20 text-sm min-w-0">
             
             {/* FİLTRE PANELİ */}
             <div className="grid grid-cols-1 md:grid-cols-7 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl items-end">
@@ -267,10 +289,10 @@ const CamOperatorAnalysis = ({ db }) => {
             </div>
 
             {/* 1. GRAFİK (OPERATÖR KIYASLAMA) - LABELLAR EKLENDİ */}
-            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm min-w-0">
                 <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><TrendingUp className="w-4 h-4 mr-2 text-indigo-500"/> Dönemsel Karşılaştırma Analizi</h3>
-                <div className="h-[500px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
+                <div className="h-[500px] w-full min-w-0" style={{ minHeight: '400px' }}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
                         {/* Margin-top 30 yapıldı ki sütun üstü yazılar kesilmesin */}
                         <BarChart data={stats.chartData} margin={{ top: 30, right: 30, left: 0, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.05} vertical={false} />
@@ -369,10 +391,10 @@ const CamOperatorAnalysis = ({ db }) => {
             </div>
 
             {/* 2. GRAFİK (DÖNEMSEL PERFORMANS AKIŞI) */}
-            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-200 shadow-sm min-w-0">
                 <h3 className="font-black text-gray-800 dark:text-white mb-8 flex items-center uppercase text-xs tracking-widest border-b pb-4"><Calculator className="w-5 h-5 mr-2 text-green-500"/> Dönemsel Performans Akış Eğrisi</h3>
-                <div className="h-80 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
+                <div className="h-80 w-full min-w-0" style={{ minHeight: '320px' }}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
                         <LineChart data={trendData}>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.05} />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 10, fontWeight: 'bold'}} />

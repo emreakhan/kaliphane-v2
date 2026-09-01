@@ -1210,7 +1210,7 @@ const App = () => {
                         
                         <Route path="/cam-operator-dashboard" element={
                             activeUserPermissions['/cam-operator-dashboard']?.view
-                            ? <CamOperatorDashboard db={db} loggedInUser={loggedInUser} />
+                            ? <CamOperatorDashboard db={db} loggedInUser={loggedInUser} projects={projects} />
                             : <Navigate to="/" replace />
                         } />
 
