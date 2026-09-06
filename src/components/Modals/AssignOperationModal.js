@@ -128,17 +128,29 @@ const AssignOperationModal = ({ isOpen, onClose, mold, task, operation, loggedIn
             let isBusy = false;
             let busyInfo = '';
 
-            for (const p of projects) {
-                for (const t of p.tasks) {
-                    const activeOp = t.operations.find(op => 
+            for (const p of (projects || [])) {
+                for (const t of (p.tasks || [])) {
+                    const activeOp = (t.operations || []).find(op => 
                         op.status === OPERATION_STATUS.IN_PROGRESS && 
                         op.machineName === selectedMachine &&
-                        op.id !== operation.id 
+                        op.id !== operation?.id 
                     );
 
                     if (activeOp) {
                         isBusy = true;
-                        busyInfo = `${p.moldName} - ${t.taskName}`;
+                        const camOp = activeOp.assignedOperator || 
+                                      t.assignedOperator || 
+                                      t.camOperator || 
+                                      t.camPreparation?.operator || 
+                                      activeOp.camOperator || 
+                                      activeOp.camOperatorName || 
+                                      t.camOperatorName || '';
+
+                        const camOpDisplay = (camOp && camOp !== 'SEÇ' && camOp !== 'Belirtilmedi') 
+                            ? ` | CAM Op: ${camOp}` 
+                            : '';
+
+                        busyInfo = `${p.moldName} - ${t.taskName}${camOpDisplay}`;
                         break; 
                     }
                 }
