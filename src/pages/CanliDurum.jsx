@@ -24,6 +24,7 @@ import { OeeLiveFleetTab } from '../components/OEE/OeeLiveFleetTab.jsx';
 import { OeePartTrackingTab } from '../components/OEE/OeePartTrackingTab.jsx';
 import { OeeCamOperatorAnalysisTab } from '../components/OEE/OeeCamOperatorAnalysisTab.jsx';
 import { OeeMachineLogbookTab } from '../components/OEE/OeeMachineLogbookTab.jsx';
+import { OeeExternalFeedInspectorTab } from '../components/OEE/OeeExternalFeedInspectorTab.jsx';
 import { OeeMachineMappingModal } from '../components/OEE/OeeMachineMappingModal.jsx';
 import { OeeMachineDetailModal } from '../components/OEE/OeeMachineDetailModal.jsx';
 
@@ -33,6 +34,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
 
   // TELEMETRİ STATE'LERİ
   const [fleetData, setFleetData] = useState([]);
+  const [rawFleetData, setRawFleetData] = useState([]);
   const [healthInfo, setHealthInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -152,6 +154,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
         const errMsg = fleetRes.reason?.message || 'Filo verisi çekilemedi.';
         setError(errMsg);
       }
+      setRawFleetData(rawFleet);
 
       // Alias birleştirme
       const aliases = getMachineAliases();
@@ -543,7 +546,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
               <span>{lastUpdatedTime ? lastUpdatedTime.toLocaleTimeString('tr-TR') : 'Yenile'}</span>
             </button>
 
-            {/* Kullanıcı Oturum Durumu */}
+            {/* Canlı Akış & Oturum Durumu */}
             {hasToken ? (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs font-bold text-blue-700 dark:text-blue-300">
                 <UserCheck size={14} />
@@ -557,12 +560,10 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5"
-              >
-                <LogIn size={14} /> Giriş Yap
-              </button>
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs font-black text-emerald-700 dark:text-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>⚡ Şifresiz Canlı Akış (Public Feed)</span>
+              </div>
             )}
 
             {/* Sunucu Ayarları */}
@@ -625,6 +626,17 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
           >
             <Calendar size={15} /> 📅 Tezgah Kayıt Defteri (24s Zaman Çizelgesi)
           </button>
+
+          <button
+            onClick={() => setActiveTab('inspector')}
+            className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 shrink-0 ${
+              activeTab === 'inspector'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Server size={15} /> 📡 Dış Veri & Cihaz Kontrolü ({rawFleetData.length > 0 ? rawFleetData.length : fleetData.length})
+          </button>
         </div>
       </div>
 
@@ -642,27 +654,23 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
           </div>
         )}
 
-        {/* 401 Unauthorized Giriş Uyarısı */}
-        {!hasToken && (
-          <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 text-xs font-bold flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Lock size={18} className="text-blue-500 shrink-0" />
-              <span>Canlı tezgah verilerini izlemek için ETKA Portal kullanıcı girişi yapılması gerekmektedir.</span>
+        {/* Telemetri / Ağ Uyarısı */}
+        {error && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle size={18} className="text-amber-500 shrink-0" />
+              <div>
+                <span className="block font-black">Dış OEE Telemetri Uyarısı:</span>
+                <span className="font-normal opacity-90">{error}</span>
+              </div>
             </div>
             <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs shrink-0 flex items-center gap-1.5"
+              onClick={() => setActiveTab('inspector')}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-sm"
             >
-              <LogIn size={14} /> Giriş Yap
+              <span>Dış Veri Kontrol Sekmesini Aç</span>
+              <ChevronRight size={14} />
             </button>
-          </div>
-        )}
-
-        {/* Hata Uyarısı */}
-        {error && hasToken && (
-          <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-800 text-red-900 dark:text-red-200 text-xs font-bold flex items-center gap-3">
-            <AlertCircle size={18} className="text-red-500 shrink-0" />
-            <span>{error}</span>
           </div>
         )}
 
@@ -718,6 +726,32 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
           <OeeMachineLogbookTab
             fleetData={fleetData}
             projects={projects}
+          />
+        )}
+
+        {/* ========================================================================= */}
+        {/* SEKME 5: DIŞ VERİ & CİHAZ KONTROLÜ (TANIMLI / TANIMSIZ) */}
+        {/* ========================================================================= */}
+        {activeTab === 'inspector' && (
+          <OeeExternalFeedInspectorTab
+            rawFleet={rawFleetData.length > 0 ? rawFleetData : fleetData}
+            fleetData={fleetData}
+            aliases={aliasList}
+            onOpenAliasModal={(device) => {
+              if (device) {
+                setNewAliasInput({
+                  ipOrId: device.ip || device.id || '',
+                  customName: device.displayName || device.name || '',
+                  group: device.group || 'CNC Dik İşleme',
+                  location: device.location || 'Kalıphane A Blok'
+                });
+              }
+              setIsAliasModalOpen(true);
+            }}
+            onReload={() => loadOeeData(true)}
+            loading={loading}
+            error={error}
+            lastUpdatedTime={lastUpdatedTime}
           />
         )}
 
@@ -986,66 +1020,41 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
               </button>
             </div>
 
-            {/* Host Seçimi */}
-            <div className="space-y-2">
-              <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                🎯 Portal Sunucu Konumu:
-              </span>
-
-              <div className="grid grid-cols-1 gap-2">
-                {PRESET_BASE_URLS.map(preset => {
-                  const isSelected = serverUrlInput.trim().replace(/\/+$/, '') === preset.url;
-                  return (
-                    <div
-                      key={preset.id}
-                      onClick={() => {
-                        setServerUrlInput(preset.url);
-                        handleTestConnection(preset.url);
-                      }}
-                      className={`p-3 rounded-2xl border-2 transition cursor-pointer flex justify-between items-center ${
-                        isSelected 
-                          ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 shadow-sm' 
-                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-400 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-xs">{preset.label}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                            {preset.badge}
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
-                          {preset.url}
-                        </div>
-                      </div>
-
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                        isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400'
-                      }`}>
-                        {isSelected && <Check size={12} strokeWidth={3} />}
-                      </div>
-                    </div>
-                  );
-                })}
+            {/* Canlı Yayın & Sunucu Bilgisi */}
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">
+                  ⚡ Kesintisiz Canlı Yayın (Public Feed) Devrede
+                </span>
               </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                Şifre girmeye veya ağ değiştirmeye gerek kalmadan hem fabrika içinden hem de dışarıdan tüm cihazlardan otomatik bağlanır.
+              </p>
             </div>
 
-            {/* URL Input */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-black text-slate-700 dark:text-slate-200">
-                🌐 Portal API Base URL
-              </label>
-              <input
-                type="text"
-                placeholder="Örn: http://etkacrm.agdc.com.tr:1106 veya http://195.46.142.179:1106/api"
-                value={serverUrlInput}
-                onChange={(e) => setServerUrlInput(e.target.value)}
-                className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-[10px] text-slate-400">
-                💡 Otomatik HTTPS & CORS Köprüsü devrededir; mobilde, tablette veya PC'de güvenlik engeline takılmadan bağlanır.
-              </p>
+            {/* Sunucu ve Anahtar Bilgileri */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-200 mb-1">
+                  🌐 Canlı Akış Sunucu Adresi
+                </label>
+                <input
+                  type="text"
+                  value={serverUrlInput}
+                  onChange={(e) => setServerUrlInput(e.target.value)}
+                  className="w-full p-2.5 text-xs font-mono font-bold border dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-200 mb-1">
+                  🔑 Genel API Anahtarı (Public Feed Key)
+                </label>
+                <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border dark:border-slate-700 font-mono text-xs text-slate-700 dark:text-slate-300 truncate">
+                  7ff3263e9bb0d9d051fa23bf7535b9343316ababa5588baa
+                </div>
+              </div>
             </div>
 
             {/* Test Sonucu */}
@@ -1053,92 +1062,10 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
               <div className={`p-3 rounded-xl text-xs font-bold flex items-start gap-2 ${
                 testResult.success ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-300'
               }`}>
-                {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-500" />}
+                {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-500" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-500" />}
                 <span>{testResult.message}</span>
               </div>
             )}
-
-            {/* Portal Kullanıcı Girişi */}
-            <div className="pt-3 border-t dark:border-slate-700 space-y-3">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                  <ShieldCheck size={16} className="text-blue-500" /> ETKA Portal Kullanıcı Girişi (JWT Auth)
-                </label>
-                {hasToken && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                    ✅ Oturum Açık
-                  </span>
-                )}
-              </div>
-
-              {hasToken ? (
-                <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border dark:border-slate-700 flex justify-between items-center">
-                  <div>
-                    <span className="text-xs font-black text-slate-900 dark:text-white block">
-                      {currentUser?.name || currentUser?.username || 'ETKA Kullanıcısı'}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                      {currentUser?.email || 'Yetkili OEE Erişimi'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl border border-red-200 dark:border-red-800 transition flex items-center gap-1"
-                  >
-                    <LogOut size={13} /> Çıkış Yap
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleLogin} className="space-y-2 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border dark:border-slate-700">
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      required
-                      placeholder="Kullanıcı Adı veya Email"
-                      value={loginForm.usernameOrEmail}
-                      onChange={e => setLoginForm({ ...loginForm, usernameOrEmail: e.target.value })}
-                      className="w-full p-2.5 text-xs border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    />
-                    <input
-                      type="password"
-                      required
-                      placeholder="Şifre"
-                      value={loginForm.password}
-                      onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
-                      className="w-full p-2.5 text-xs border dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  {loginError && (
-                    <p className="text-[11px] font-bold text-red-500">
-                      {loginError}
-                    </p>
-                  )}
-
-                  <div className="flex justify-between items-center pt-1">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={loginForm.rememberMe}
-                        onChange={e => setLoginForm({ ...loginForm, rememberMe: e.target.checked })}
-                        className="rounded text-blue-600"
-                      />
-                      <span>Beni Hatırla</span>
-                    </label>
-
-                    <button
-                      type="submit"
-                      disabled={loginLoading}
-                      className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs flex items-center gap-1.5"
-                    >
-                      {loginLoading ? <RefreshCw size={13} className="animate-spin" /> : <LogIn size={13} />}
-                      <span>Giriş Yap</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
 
             {/* Butonlar */}
             <div className="flex gap-2 pt-2">
@@ -1148,7 +1075,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
                 disabled={isTesting}
                 className="flex-1 py-2.5 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
               >
-                <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} /> Test Et
+                <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} /> Bağlantıyı Test Et
               </button>
 
               <button
@@ -1156,7 +1083,7 @@ const CanliDurum = ({ db, projects = [], machines = [], personnel = [] }) => {
                 onClick={handleSaveSettings}
                 className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5"
               >
-                <Check size={16} /> Kaydet ve Bağlan
+                <Check size={16} /> Kaydet ve Kapat
               </button>
             </div>
 

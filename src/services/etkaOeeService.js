@@ -5,21 +5,22 @@
 // ==========================================
 export const INTERNAL_BASE_URL = 'http://etkacrm.agdc.com.tr:1106/api';
 export const EXTERNAL_BASE_URL = 'http://195.46.142.179:1106/api';
+export const DEFAULT_PUBLIC_FEED_KEY = '7ff3263e9bb0d9d051fa23bf7535b9343316ababa5588baa';
 
 export const PRESET_BASE_URLS = [
+  {
+    id: 'external',
+    label: 'Kurum Dışı / İnternet (Genel IP)',
+    url: EXTERNAL_BASE_URL,
+    badge: '🌍 Dış Ağ / Canlı Akış',
+    description: 'Şifresiz doğrudan public-feed akışı ile tüm cihazlardan erişilir.'
+  },
   {
     id: 'internal',
     label: 'Kurum İçi / Şirket VPN',
     url: INTERNAL_BASE_URL,
     badge: '🏢 Fabrika / VPN Ağında',
     description: 'Şirket yerel ağında veya kurumsal VPN açıkken kullanılır.'
-  },
-  {
-    id: 'external',
-    label: 'Kurum Dışı / İnternet (VPN\'siz)',
-    url: EXTERNAL_BASE_URL,
-    badge: '🌍 Dış Ağ / Mobil Veri',
-    description: 'Ofis dışından, evden veya mobil cihazdan doğrudan internet üzerinden erişilir.'
   }
 ];
 
@@ -28,11 +29,12 @@ const ACCESS_TOKEN_KEY = 'etka_portal_access_token';
 const REFRESH_TOKEN_KEY = 'etka_portal_refresh_token';
 const USER_INFO_KEY = 'etka_portal_user_info';
 const ALIASES_STORAGE_KEY = 'etka_oee_machine_aliases';
+const PUBLIC_FEED_KEY_STORAGE = 'etka_oee_public_feed_key';
 
 // Base URL Normalizasyonu
 export const getBaseUrl = () => {
   const saved = localStorage.getItem(BASE_URL_KEY);
-  if (!saved) return INTERNAL_BASE_URL;
+  if (!saved) return EXTERNAL_BASE_URL;
   let url = saved.trim().replace(/\/+$/, '');
   return url;
 };
@@ -44,6 +46,15 @@ export const setBaseUrl = (url) => {
     let cleaned = url.trim().replace(/\/+$/, '');
     localStorage.setItem(BASE_URL_KEY, cleaned);
   }
+};
+
+export const getPublicFeedKey = () => {
+  return localStorage.getItem(PUBLIC_FEED_KEY_STORAGE) || DEFAULT_PUBLIC_FEED_KEY;
+};
+
+export const setPublicFeedKey = (key) => {
+  if (!key) localStorage.removeItem(PUBLIC_FEED_KEY_STORAGE);
+  else localStorage.setItem(PUBLIC_FEED_KEY_STORAGE, key.trim());
 };
 
 // Token Yönetimi
@@ -84,19 +95,55 @@ export const clearAuth = () => {
 // ==========================================
 export const DEFAULT_ALIASES = [
   { ipOrId: '192.168.2.73', systemMachineCode: 'K27', customName: 'K27', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.2.135', systemMachineCode: 'K45', customName: 'K45', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.135', systemMachineCode: 'Gantry', customName: 'Gantry (K45)', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.75', systemMachineCode: 'K18', customName: 'K18', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.1.170', systemMachineCode: 'K43', customName: 'K43', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.170', systemMachineCode: 'HH-170', customName: 'HH-170 (K43)', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.66', systemMachineCode: 'K15', customName: 'K15', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.1.171', systemMachineCode: 'K26', customName: 'K26', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.171', systemMachineCode: 'HH-171', customName: 'HH-171 (K26)', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.36', systemMachineCode: 'K36', customName: 'K36', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.37', systemMachineCode: 'K28', customName: 'K28', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.1.155', systemMachineCode: 'K17', customName: 'K17', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.155', systemMachineCode: 'HH-155', customName: 'HH-155 (K17)', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.68', systemMachineCode: 'K09', customName: 'K09', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.72', systemMachineCode: 'K22', customName: 'K22 — FANUC 0i-M', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
-  { ipOrId: '192.168.2.74', systemMachineCode: 'K15-2', customName: 'K15-2', group: 'CNC Torna', location: 'Kalıphane B Blok' },
+  { ipOrId: '192.168.2.45', systemMachineCode: 'K24', customName: 'K24', group: 'CNC Dik İşleme', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.2.74', systemMachineCode: 'K33', customName: 'K33', group: 'CNC Torna', location: 'Kalıphane B Blok' },
+  { ipOrId: '192.168.1.154', systemMachineCode: 'HH-154', customName: 'HH-154', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.167', systemMachineCode: 'HH-167', customName: 'HH-167', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.156', systemMachineCode: 'HH-156', customName: 'HH-156', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.147', systemMachineCode: 'HH-147', customName: 'HH-147', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.99', systemMachineCode: 'HH-99', customName: 'HH-99', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.166', systemMachineCode: 'HH-166', customName: 'HH-166', group: 'Heidenhain', location: 'Kalıphane A Blok' },
+  { ipOrId: '192.168.1.151', systemMachineCode: 'HH-151', customName: 'HH-151', group: 'Heidenhain', location: 'Kalıphane A Blok' },
   { ipOrId: '192.168.2.76', systemMachineCode: 'K03', customName: 'K03 — MITSUBISHI EDM', group: 'Dalma Erezyon', location: 'Erezyon Bölümü' }
 ];
+
+export const IT_NGINX_CORS_SNIPPET = `# ETKA OEE Portal - Nginx CORS ve HTTPS Yapılandırması (Port 1106 veya 443)
+# Nginx site ayar dosyasında location bloğuna eklenmelidir:
+
+location /api/oee/ {
+    # 1. CORS Başlıkları (Web Tarayıcıları için)
+    add_header 'Access-Control-Allow-Origin' '*' always;
+    add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+    add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+    add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin' '*';
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+        add_header 'Access-Control-Allow-Headers' '*';
+        add_header 'Access-Control-Max-Age' 1728000;
+        add_header 'Content-Type' 'text/plain; charset=utf-8';
+        add_header 'Content-Length' 0;
+        return 204;
+    }
+
+    # 2. Proxy Yönlendirmesi
+    proxy_pass http://127.0.0.1:1106/api/oee/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+`;
 
 export const getMachineAliases = () => {
   try {
@@ -160,7 +207,7 @@ export const refreshAccessToken = async () => {
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
     clearAuth();
-    throw new Error('Refresh token bulunamadı, lütfen tekrar giriş yapın.');
+    throw new Error('Refresh token bulunamadı.');
   }
 
   const result = await fetchWithAuth('/auth/refresh', {
@@ -181,9 +228,6 @@ export const refreshAccessToken = async () => {
   }
 };
 
-// ==========================================
-// OTOMATİK GİRİŞ BİLGİLERİ (SILENT AUTH)
-// ==========================================
 export const DEFAULT_CREDENTIALS = {
   usernameOrEmail: 'KALIPHANE',
   password: '1234'
@@ -197,7 +241,6 @@ export const ensureAuthenticated = async () => {
     const res = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
     return res?.accessToken || res?.token || res?.data?.token || '';
   } catch (err) {
-    console.warn("Otomatik ETKA Portal girişi uyarısı:", err?.message);
     return '';
   }
 };
@@ -209,9 +252,10 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
   let rawBaseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/+$/, '') : getBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // Eğer rawBaseUrl sonu /api değilse ve endpoint /auth veya /oee içeriyorsa URL'i düzenle
   let url = `${rawBaseUrl}${cleanEndpoint}`;
   url = url.replace(/\/api\/api\//g, '/api/');
+
+  const isPublicFeed = endpoint.includes('public-feed');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -219,7 +263,7 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
   };
 
   let token = getAccessToken();
-  if (!token && !endpoint.includes('login')) {
+  if (!token && !endpoint.includes('login') && !isPublicFeed) {
     try {
       token = await ensureAuthenticated();
     } catch (e) {
@@ -227,14 +271,13 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
     }
   }
 
-  if (token && !headers['Authorization']) {
+  if (token && !headers['Authorization'] && !isPublicFeed) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
   const isHttpsPage = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:';
   const isHttpTarget = url.startsWith('http://');
 
-  // Bir isteği çalıştırma yardımcı fonksiyonu
   const executeSingleFetch = async (targetUrl) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -254,11 +297,8 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
 
   let response = null;
 
-  // 1. ADIM: Doğrudan veya HTTPS Proxy ile İstek Yap
   try {
     if (isHttpsPage && isHttpTarget) {
-      // Sayfa HTTPS (kaliphane-v2.web.app) ve hedef HTTP ise tarayıcı güvenlik engeli koyar.
-      // Önce doğrudan dener; Mixed Content / CORS engeline takılırsa otomatik HTTPS CORS Proxy üzerinden geçer!
       try {
         response = await executeSingleFetch(url);
       } catch (directErr) {
@@ -276,7 +316,7 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
         const altProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
         response = await executeSingleFetch(altProxyUrl);
       } catch (altErr) {
-        throw new Error(`ETKA Portal Sunucusuna Ulaşılamadı (${url}). Ağ/VPN bağlantınızı kontrol edin.`);
+        throw new Error(`ETKA Portal Sunucusuna Ulaşılamadı (${url}).`);
       }
     } else {
       throw err;
@@ -285,41 +325,6 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
 
   if (!response) {
     throw new Error('Sunucudan yanıt alınamadı.');
-  }
-
-  // 401 Unauthorized durumunda Token Refresh Mekanizması
-  if (response.status === 401 && !endpoint.includes('login')) {
-    if (!isRefreshing) {
-      isRefreshing = true;
-      try {
-        let newToken = '';
-        if (getRefreshToken()) {
-          try {
-            newToken = await refreshAccessToken();
-          } catch (rErr) {
-            const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
-            newToken = autoLoginRes?.accessToken || autoLoginRes?.token || '';
-          }
-        } else {
-          const autoLoginRes = await loginPortal(DEFAULT_CREDENTIALS.usernameOrEmail, DEFAULT_CREDENTIALS.password, true);
-          newToken = autoLoginRes?.accessToken || autoLoginRes?.token || '';
-        }
-        isRefreshing = false;
-        onRefreshed(newToken);
-      } catch (refreshErr) {
-        isRefreshing = false;
-        refreshSubscribers = [];
-        throw refreshErr;
-      }
-    }
-
-    const retryPromise = new Promise((resolve) => {
-      subscribeTokenRefresh((newToken) => {
-        headers['Authorization'] = `Bearer ${newToken}`;
-        resolve(executeSingleFetch(url));
-      });
-    });
-    response = await retryPromise;
   }
 
   if (response.status === 204) {
@@ -332,15 +337,13 @@ export const fetchWithAuth = async (endpoint, options = {}, timeoutMs = 9000, cu
     try {
       const jsonErr = JSON.parse(errText);
       parsedMsg = jsonErr.error || jsonErr.message || errText;
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
 
     if (response.status === 401) {
-      throw new Error('Yetkisiz Erişim (401): Kullanıcı adı veya şifre geçersiz.');
+      throw new Error('Yetkisiz Erişim (401)');
     }
     if (response.status === 403) {
-      throw new Error('Yetki Hatası (403): Kullanıcınıza Portal admin panelinden "OEE" modülü izni verilmelidir.');
+      throw new Error('Yetki Hatası (403)');
     }
     if (response.status === 404) {
       throw new Error(`Uç Nokta Bulunamadı (404): ${cleanEndpoint}`);
@@ -365,7 +368,6 @@ export const loginPortal = async (usernameOrEmail, password, rememberMe = true) 
     rememberMe
   };
 
-  // Farklı backend URL rotalarını sırayla dener (/auth/login, /api/auth/login, /login, /api/login)
   const candidateEndpoints = ['/auth/login', '/api/auth/login', '/login', '/api/login'];
   let result = null;
   let lastError = null;
@@ -415,6 +417,23 @@ export const logoutPortal = async () => {
 };
 
 export const checkPortalInfo = async (customBaseUrl = null) => {
+  const key = getPublicFeedKey();
+  if (key) {
+    try {
+      const feedRes = await fetchWithAuth(`/oee/public-feed?key=${key}`, {}, 6000, customBaseUrl);
+      if (feedRes) {
+        const count = Array.isArray(feedRes.data) ? feedRes.data.length : Array.isArray(feedRes) ? feedRes.length : (feedRes.count || 0);
+        return {
+          success: true,
+          portalVersion: 'v3.0 (Public Feed)',
+          count
+        };
+      }
+    } catch (e) {
+      // fallback
+    }
+  }
+
   try {
     return await fetchWithAuth('/portal/info', {}, 4000, customBaseUrl);
   } catch (e) {
@@ -426,9 +445,6 @@ export const checkPortalInfo = async (customBaseUrl = null) => {
 // 2. OEE ENDPOINTS (ETKA PORTAL BACKEND)
 // ==========================================
 
-/**
- * GET /api/oee/health
- */
 export const getOeeHealth = async (customBaseUrl = null) => {
   try {
     const res = await fetchWithAuth('/oee/health', {}, 5000, customBaseUrl);
@@ -440,10 +456,28 @@ export const getOeeHealth = async (customBaseUrl = null) => {
 };
 
 /**
- * GET /api/oee/fleet
+ * GET /api/oee/public-feed?key=... veya /api/oee/fleet
+ * Şifre gerekmeden genel API anahtarı ile veya oturum ile tezgahların anlık durum ve telemetrilerini döner.
  */
 export const getOeeFleet = async (customBaseUrl = null) => {
+  const key = getPublicFeedKey();
   let res = null;
+
+  // 1. ÖNCELİK: Genel API Anahtarı ile Doğrudan Public Feed Akışı (Şifresiz)
+  if (key) {
+    try {
+      res = await fetchWithAuth(`/oee/public-feed?key=${key}`, {}, 8000, customBaseUrl);
+      if (res) {
+        if (Array.isArray(res.data)) return res.data;
+        if (Array.isArray(res)) return res;
+        if (res.devices && Array.isArray(res.devices)) return res.devices;
+      }
+    } catch (pubErr) {
+      console.warn("Public feed isteği başarısız, /oee/fleet deneniyor:", pubErr?.message);
+    }
+  }
+
+  // 2. ALTERNATİF: /oee/fleet
   try {
     res = await fetchWithAuth('/oee/fleet', {}, 7000, customBaseUrl);
   } catch (e) {
@@ -455,6 +489,9 @@ export const getOeeFleet = async (customBaseUrl = null) => {
   }
   if (Array.isArray(res)) {
     return res;
+  }
+  if (res?.devices && Array.isArray(res.devices)) {
+    return res.devices;
   }
   return [];
 };
