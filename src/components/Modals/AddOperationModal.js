@@ -1,10 +1,11 @@
 // src/components/Modals/AddOperationModal.js
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Clock, Settings, Trash2 } from 'lucide-react';
+import { X, Save, Clock, Settings, Trash2, FileText, Zap } from 'lucide-react';
 import Modal from './Modal';
 import { OPERATION_STATUS, MOLD_STATUS } from '../../config/constants.js';
 import { db, collection, doc, setDoc, deleteDoc, onSnapshot } from '../../config/firebase.js';
+import { generateNextWorkOrderNo } from '../../utils/workOrderUtils.js';
 
 const defaultOperations = [
     "TEZGAH İŞLEME",
@@ -34,8 +35,16 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
     // YENİ: Öngörülen CAM Süresi State'i
     const [estimatedCamTime, setEstimatedCamTime] = useState('');
 
+    // YENİ: İş Emri No ve Ek Operasyon State'leri
+    const [customWorkOrderNo, setCustomWorkOrderNo] = useState('');
+    const [isAdditionalOperation, setIsAdditionalOperation] = useState(false);
+
     useEffect(() => {
         if (!isOpen) return;
+        if (mold) {
+            setCustomWorkOrderNo(generateNextWorkOrderNo(mold));
+            setIsAdditionalOperation(false);
+        }
         const unsubscribe = onSnapshot(collection(db, 'artifacts/default-app-id/public/data/operationTypes'), (snapshot) => {
             if (snapshot.empty) {
                 defaultOperations.forEach(async (op) => {
@@ -49,7 +58,7 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
             }
         });
         return () => unsubscribe();
-    }, [isOpen]);
+    }, [isOpen, mold]);
 
     useEffect(() => {
         if (isOpen && operationsList.length > 0) {
@@ -97,8 +106,12 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
             return;
         }
 
+        const workOrderToSave = (customWorkOrderNo || generateNextWorkOrderNo(mold)).trim().toUpperCase();
+
         const newOperation = {
             id: Date.now().toString(),
+            workOrderNo: workOrderToSave,
+            isAdditionalOperation: Boolean(isAdditionalOperation),
             type: typeToSave,
             status: OPERATION_STATUS.NOT_STARTED,
             progressPercentage: 0,
@@ -118,6 +131,8 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
         setOperationType(defaultOperations[0]);
         setCustomOperation('');
         setEstimatedCamTime('');
+        setCustomWorkOrderNo('');
+        setIsAdditionalOperation(false);
         onClose();
     };
 
@@ -129,6 +144,41 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg text-sm text-gray-700 dark:text-gray-300">
                     <p><strong>Kalıp:</strong> {mold.moldName}</p>
                     <p><strong>İş Parçası:</strong> {task.taskName}</p>
+                </div>
+
+                {/* İŞ EMRİ NUMARASI & EK OPERASYON */}
+                <div className={`p-3.5 rounded-xl border transition-all ${isAdditionalOperation ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/60 shadow-sm' : 'bg-blue-50/70 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/60'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex-1">
+                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                <span>İş Emri Numarası:</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={customWorkOrderNo}
+                                onChange={(e) => setCustomWorkOrderNo(e.target.value.toUpperCase())}
+                                placeholder="Örn: 090926-YNK-01-01"
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg font-mono font-black text-xs uppercase bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="pt-0 sm:pt-4 flex items-center">
+                            <label className={`flex items-center gap-2 cursor-pointer select-none px-3 py-2 rounded-lg border shadow-sm transition-all ${isAdditionalOperation ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-400 dark:border-amber-600' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-amber-300'}`}>
+                                <input
+                                    type="checkbox"
+                                    checked={isAdditionalOperation}
+                                    onChange={(e) => setIsAdditionalOperation(e.target.checked)}
+                                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300"
+                                />
+                                <span className={`text-xs font-black flex items-center gap-1 ${isAdditionalOperation ? 'text-amber-800 dark:text-amber-200' : 'text-gray-600 dark:text-gray-300'}`}>
+                                    <Zap className={`w-3.5 h-3.5 ${isAdditionalOperation ? 'fill-amber-500 text-amber-500' : 'text-gray-400'}`} /> Ek Operasyon
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
+                        * Otomatik eşsiz ardışık numara atanmıştır. İlave işleme veya rework operasyonları için <strong>"Ek Operasyon"</strong> kutucuğunu işaretleyebilirsiniz.
+                    </p>
                 </div>
 
                 {isEditingTypes ? (

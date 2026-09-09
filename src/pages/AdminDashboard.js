@@ -12,6 +12,7 @@ import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
 import MoldStatusManagement from '../components/Admin/MoldStatusManagement.js';
+import { generateMoldCode, getMoldWorkOrderNo, getMoldCreationDate, assignWorkOrderNumbersToTasks } from '../utils/workOrderUtils.js';
 
 // --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
 const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) => {
@@ -20,7 +21,7 @@ const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) =>
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedMold, setSelectedMold] = useState(null);
-    const [editFormData, setEditFormData] = useState({ moldName: '', customer: '' });
+    const [editFormData, setEditFormData] = useState({ moldName: '', customer: '', moldCode: '' });
 
     const [deletedProjects, setDeletedProjects] = useState([]);
     const [isRestoring, setIsRestoring] = useState(false);
@@ -58,21 +59,32 @@ const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) =>
             const lowerSearch = searchTerm.toLowerCase();
             return cleanProjects.filter(p => 
                 p.moldName.toLowerCase().includes(lowerSearch) || 
-                p.customer.toLowerCase().includes(lowerSearch)
+                p.customer.toLowerCase().includes(lowerSearch) ||
+                (p.moldCode && p.moldCode.toLowerCase().includes(lowerSearch))
             );
         } else {
             if (!searchTerm) return deletedProjects;
             const lowerSearch = searchTerm.toLowerCase();
             return deletedProjects.filter(p => 
                 p.moldName.toLowerCase().includes(lowerSearch) || 
-                p.customer.toLowerCase().includes(lowerSearch)
+                p.customer.toLowerCase().includes(lowerSearch) ||
+                (p.moldCode && p.moldCode.toLowerCase().includes(lowerSearch))
             );
         }
     }, [cleanProjects, deletedProjects, searchTerm, subTab]);
 
     const openEditModal = (mold) => {
         setSelectedMold(mold);
-        setEditFormData({ moldName: mold.moldName, customer: mold.customer });
+        const creationDate = getMoldCreationDate(mold);
+        const initialWorkOrder = getMoldWorkOrderNo(mold, mold.moldCode || '', cleanProjects);
+        setEditFormData({ 
+            moldName: mold.moldName || '', 
+            customer: mold.customer || '', 
+            moldCode: mold.moldCode || '',
+            workOrderNo: mold.workOrderNo || initialWorkOrder,
+            creationDate: creationDate,
+            syncOperations: true
+        });
         setEditModalOpen(true);
     };
 
@@ -89,7 +101,28 @@ const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) =>
 
     const handleEditSubmit = () => {
         if (!selectedMold || !editFormData.moldName || !editFormData.customer) return;
-        handleUpdateMold(selectedMold.id, editFormData);
+        
+        const finalMoldCode = (editFormData.moldCode || '').trim().toUpperCase();
+        const finalWorkOrderNo = (editFormData.workOrderNo || getMoldWorkOrderNo(selectedMold, finalMoldCode, cleanProjects)).trim().toUpperCase();
+        
+        let updatedTasks = selectedMold.tasks || [];
+        if (editFormData.syncOperations && finalWorkOrderNo && updatedTasks.length > 0) {
+            updatedTasks = assignWorkOrderNumbersToTasks(updatedTasks, finalWorkOrderNo, true);
+        }
+
+        const updateData = {
+            moldName: editFormData.moldName.trim(),
+            customer: editFormData.customer.trim(),
+            moldCode: finalMoldCode,
+            workOrderNo: finalWorkOrderNo,
+            tasks: updatedTasks
+        };
+
+        if (!selectedMold.createdAt && editFormData.creationDate) {
+            updateData.createdAt = new Date(editFormData.creationDate).toISOString();
+        }
+
+        handleUpdateMold(selectedMold.id, updateData);
         closeModals();
     };
 
@@ -166,6 +199,16 @@ const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) =>
                             <div key={mold.id} className="p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                 <div>
                                     <div className="flex items-center gap-2 flex-wrap">
+                                        {mold.moldCode && (
+                                            <span className="font-mono text-xs font-bold px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded border border-gray-300 dark:border-gray-600">
+                                                <span className="font-sans text-[10px] text-gray-500 dark:text-gray-400 mr-1 font-medium">Kod:</span>
+                                                {mold.moldCode}
+                                            </span>
+                                        )}
+                                        <span className="font-mono text-xs font-black px-2 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded border border-blue-500 dark:border-cyan-300 shadow-sm">
+                                            <span className="font-sans text-[10px] font-extrabold mr-1">İş Emri:</span>
+                                            {getMoldWorkOrderNo(mold, null, cleanProjects)}
+                                        </span>
                                         <p className="font-semibold text-gray-900 dark:text-white">{mold.moldName}</p>
                                         <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase shrink-0 ${
                                             PROJECT_TYPE_CONFIG[mold.projectType || 'YENİ KALIP']?.colorClass || 'bg-gray-100 text-gray-800'
@@ -206,6 +249,76 @@ const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) =>
             {editModalOpen && selectedMold && (
                 <Modal isOpen={editModalOpen} onClose={closeModals} title="Kalıp Bilgilerini Düzenle">
                     <div className="space-y-4">
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Kalıp Kodu</label>
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">
+                                    Kayıt Tarihi: {editFormData.creationDate ? new Date(editFormData.creationDate).toLocaleDateString('tr-TR') : '-'}
+                                </span>
+                            </div>
+                            <input 
+                                type="text" 
+                                value={editFormData.moldCode || ''} 
+                                onChange={(e) => {
+                                    const code = e.target.value.toUpperCase();
+                                    const computedWO = getMoldWorkOrderNo(selectedMold, code, cleanProjects);
+                                    setEditFormData({ 
+                                        ...editFormData, 
+                                        moldCode: code,
+                                        workOrderNo: computedWO
+                                    });
+                                }} 
+                                placeholder="Örn: 1234 veya 3319" 
+                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono uppercase text-sm font-bold" 
+                            />
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                                Fabrika kalıp kodunu yazdığınızda iş emri sisteme ilk eklenme tarihi ile eşsiz olarak üretilir.
+                            </p>
+                        </div>
+
+                        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/50 rounded-lg">
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-xs font-bold text-blue-900 dark:text-cyan-300 uppercase tracking-wider">
+                                    🚀 Otomatik Kalıp İş Emri No
+                                </label>
+                                <button 
+                                    type="button" 
+                                    onClick={() => {
+                                        const refreshed = getMoldWorkOrderNo(selectedMold, editFormData.moldCode, cleanProjects);
+                                        setEditFormData({ ...editFormData, workOrderNo: refreshed });
+                                    }}
+                                    className="text-[11px] text-blue-600 dark:text-cyan-400 font-bold hover:underline"
+                                >
+                                    ⚡ Yeniden Hesapla
+                                </button>
+                            </div>
+                            <input 
+                                type="text" 
+                                value={editFormData.workOrderNo || ''} 
+                                onChange={(e) => setEditFormData({ ...editFormData, workOrderNo: e.target.value.toUpperCase() })} 
+                                className="block w-full rounded-lg border-blue-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-cyan-500 dark:text-cyan-300 font-mono font-black text-sm uppercase px-3 py-1.5" 
+                            />
+                            <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-1">
+                                Tarih kalıbın ilk açıldığı günden ({editFormData.creationDate ? new Date(editFormData.creationDate).toLocaleDateString('tr-TR') : 'Bugün'}) otomatik alınmıştır.
+                            </p>
+                        </div>
+
+                        {selectedMold.tasks && selectedMold.tasks.length > 0 && (
+                            <div className="pt-1">
+                                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    <input 
+                                        type="checkbox"
+                                        checked={editFormData.syncOperations !== false}
+                                        onChange={(e) => setEditFormData({ ...editFormData, syncOperations: e.target.checked })}
+                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span>
+                                        Alt parça operasyonlarına bu iş emri numaralarını dağıt ({selectedMold.tasks.reduce((sum, t) => sum + (t.operations?.length || 0), 0)} operasyon)
+                                    </span>
+                                </label>
+                            </div>
+                        )}
+
                         <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Kalıp Adı</label><input type="text" value={editFormData.moldName} onChange={(e) => setEditFormData({ ...editFormData, moldName: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" /></div>
                         <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Müşteri</label><input type="text" value={editFormData.customer} onChange={(e) => setEditFormData({ ...editFormData, customer: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" /></div>
                     </div>
@@ -401,6 +514,7 @@ const AdminDashboard = ({
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
+    const [newMoldCode, setNewMoldCode] = useState('');
 
     const [batchTaskNames, setBatchTaskNames] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState('');
@@ -421,6 +535,13 @@ const AdminDashboard = ({
         );
     }, [projects]);
 
+    // Kalıp Kodu Otomatik Oluşturma (Proje Türü veya Kalıp Listesi Değiştiğinde)
+    useEffect(() => {
+        if (!newMoldCode) {
+            setNewMoldCode(generateMoldCode(newProjectType, cleanProjects));
+        }
+    }, [newProjectType, cleanProjects, newMoldCode]);
+
     const checkDuplicateMold = (moldName) => {
         // cleanProjects kullanarak kontrol et
         return cleanProjects.some(project => 
@@ -435,23 +556,29 @@ const AdminDashboard = ({
             return;
         }
         const newId = `mold-${Date.now()}`;
+        const codeToUse = (newMoldCode || '').trim().toUpperCase();
+        const workOrderToUse = getMoldWorkOrderNo({ projectType: newProjectType }, codeToUse, cleanProjects);
         const newMold = {
             id: newId,
+            moldCode: codeToUse,
+            workOrderNo: workOrderToUse,
             moldName: newMoldName.trim(),
             customer: newCustomer.trim(),
             tasks: [],
             status: MOLD_STATUS.WAITING,
             moldDeadline: '',
             priority: null,
-            projectType: newProjectType
+            projectType: newProjectType,
+            createdAt: new Date().toISOString()
         };
         try {
             await setDoc(doc(db, PROJECT_COLLECTION, newId), newMold);
             setNewMoldName('');
             setNewCustomer('');
             setNewProjectType(PROJECT_TYPES.NEW_MOLD);
+            setNewMoldCode('');
             setMoldError('');
-            console.log("Yeni Kalıp Eklendi:", newMold.moldName);
+            console.log("Yeni Kalıp Eklendi:", newMold.moldName, workOrderToUse);
         } catch (e) {
             console.error("Kalıp eklenirken hata: ", e);
         }
@@ -469,6 +596,7 @@ const AdminDashboard = ({
         const taskNames = batchTaskNames.split('\n').map(name => name.trim()).filter(name => name.length > 0);
         if (taskNames.length === 0) return;
 
+        const baseWO = getMoldWorkOrderNo(moldToUpdate);
         let newTasksList = [...moldToUpdate.tasks];
         let addedCount = 0;
         let errorMessages = [];
@@ -483,6 +611,7 @@ const AdminDashboard = ({
                 const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const defaultOperation = {
                     id: newOperationId,
+                    workOrderNo: `${baseWO}-${String(currentTaskNumber).padStart(2, '0')}`,
                     type: OPERATION_TYPES.CNC,
                     status: OPERATION_STATUS.NOT_STARTED,
                     progressPercentage: 0,
@@ -553,16 +682,37 @@ const AdminDashboard = ({
                     <>
                         <div className="p-4 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/10">
                             <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni İş / Kalıp Ekle</h3>
-                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
-                                    <select value={newProjectType} onChange={(e) => setNewProjectType(e.target.value)} className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]">
+                                    <select 
+                                        value={newProjectType} 
+                                        onChange={(e) => {
+                                            const type = e.target.value;
+                                            setNewProjectType(type);
+                                            setNewMoldCode(generateMoldCode(type, cleanProjects));
+                                        }} 
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
+                                    >
                                         <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
                                         <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
                                         <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
                                         <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
                                         <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp Kodu (Opsiyonel)</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Örn: 1234 veya 3319" 
+                                        value={newMoldCode} 
+                                        onChange={(e) => setNewMoldCode(e.target.value.toUpperCase())} 
+                                        className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 font-mono font-bold text-sm uppercase" 
+                                    />
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                                        İş Emri Önizleme: <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">{getMoldWorkOrderNo({ projectType: newProjectType }, newMoldCode, cleanProjects)}</span>
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
@@ -592,7 +742,7 @@ const AdminDashboard = ({
                                                         const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
                                                         return (
                                                             <>
-                                                                <span>{p.moldName}</span>
+                                                                <span className="font-medium">{p.moldCode ? `[${p.moldCode}] ` : ''}{p.moldName}</span>
                                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${cfg?.colorClass || 'bg-gray-100 text-gray-800'}`}>
                                                                     {cfg?.label || 'YENİ KALIP'}
                                                                 </span>
@@ -613,7 +763,7 @@ const AdminDashboard = ({
                                                             <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
                                                             <input
                                                                 type="text"
-                                                                placeholder="Kalıp adı ara..."
+                                                                placeholder="Kalıp adı veya kodu ara..."
                                                                 value={moldSearchQuery}
                                                                 onChange={(e) => setMoldSearchQuery(e.target.value)}
                                                                 className="w-full pl-9 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm outline-none focus:ring-1 focus:ring-blue-500"
@@ -634,7 +784,7 @@ const AdminDashboard = ({
                                                                 Kalıp Seçiniz (Seçimi Temizle)
                                                             </button>
                                                             {cleanProjects
-                                                                .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()))
+                                                                .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()) || (p.moldCode && p.moldCode.toLowerCase().includes(moldSearchQuery.toLowerCase())))
                                                                 .map(p => {
                                                                     const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
                                                                     return (
@@ -653,7 +803,7 @@ const AdminDashboard = ({
                                                                                     : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
                                                                             }`}
                                                                         >
-                                                                            <span>{p.moldName}</span>
+                                                                            <span className="font-medium">{p.moldCode ? `[${p.moldCode}] ` : ''}{p.moldName}</span>
                                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
                                                                                 selectedMoldId === p.id 
                                                                                     ? 'bg-blue-500 text-white' 
@@ -665,7 +815,7 @@ const AdminDashboard = ({
                                                                     );
                                                                 })
                                                             }
-                                                            {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase())).length === 0 && (
+                                                            {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()) || (p.moldCode && p.moldCode.toLowerCase().includes(moldSearchQuery.toLowerCase()))).length === 0 && (
                                                                 <div className="text-sm text-gray-400 dark:text-gray-500 py-2 text-center">Eşleşen kalıp bulunamadı</div>
                                                             )}
                                                         </div>

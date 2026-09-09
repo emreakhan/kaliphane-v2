@@ -5,6 +5,7 @@ import { Plus, AlertTriangle, List, Briefcase, Search, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
+import { generateMoldCode, getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
 
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 
@@ -15,6 +16,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     const [newMoldName, setNewMoldName] = useState('');
     const [newCustomer, setNewCustomer] = useState('');
     const [newProjectType, setNewProjectType] = useState(PROJECT_TYPES.NEW_MOLD); 
+    const [newMoldCode, setNewMoldCode] = useState('');
 
     const [batchTaskNames, setBatchTaskNames] = useState('');
     const [selectedMoldId, setSelectedMoldId] = useState(urlMoldId);
@@ -40,6 +42,13 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
         );
     }, [projects]);
 
+    // Kalıp Kodu Otomatik Oluşturma
+    useEffect(() => {
+        if (!newMoldCode) {
+            setNewMoldCode(generateMoldCode(newProjectType, cleanProjects));
+        }
+    }, [newProjectType, cleanProjects, newMoldCode]);
+
     const checkDuplicateMold = (moldName) => {
         return cleanProjects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
@@ -53,8 +62,12 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
             return;
         }
         const newId = `mold-${Date.now()}`;
+        const codeToUse = (newMoldCode || '').trim().toUpperCase();
+        const workOrderToUse = getMoldWorkOrderNo({ projectType: newProjectType }, codeToUse, cleanProjects);
         const newMold = {
             id: newId,
+            moldCode: codeToUse,
+            workOrderNo: workOrderToUse,
             moldName: newMoldName.trim(),
             customer: newCustomer.trim(),
             tasks: [],
@@ -62,6 +75,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
             moldDeadline: '',
             priority: null,
             projectType: newProjectType,
+            createdAt: new Date().toISOString(),
             createdBy: loggedInUser?.name || 'CAM Operator'
         };
         try {
@@ -69,8 +83,9 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
             setNewMoldName('');
             setNewCustomer('');
             setNewProjectType(PROJECT_TYPES.NEW_MOLD);
+            setNewMoldCode('');
             setMoldError('');
-            console.log("Yeni Kalıp Eklendi:", newMold.moldName);
+            console.log("Yeni Kalıp Eklendi:", newMold.moldName, workOrderToUse);
         } catch (e) {
             console.error("Kalıp eklenirken hata: ", e);
         }
@@ -86,6 +101,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
         const taskNames = batchTaskNames.split('\n').map(name => name.trim()).filter(name => name.length > 0);
         if (taskNames.length === 0) return;
 
+        const baseWO = getMoldWorkOrderNo(moldToUpdate);
         let newTasksList = [...moldToUpdate.tasks];
         let addedCount = 0;
         let errorMessages = [];
@@ -100,6 +116,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                 const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const defaultOperation = {
                     id: newOperationId,
+                    workOrderNo: `${baseWO}-${String(currentTaskNumber).padStart(2, '0')}`,
                     type: OPERATION_TYPES.CNC,
                     status: OPERATION_STATUS.NOT_STARTED,
                     progressPercentage: 0,
@@ -190,16 +207,37 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
             {/* Üst Kısım: Yeni Kalıp Ekleme */}
             <div className="p-4 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/10">
                 <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni İş / Kalıp Ekle</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
-                        <select value={newProjectType} onChange={(e) => setNewProjectType(e.target.value)} className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]">
+                        <select 
+                            value={newProjectType} 
+                            onChange={(e) => {
+                                const type = e.target.value;
+                                setNewProjectType(type);
+                                setNewMoldCode(generateMoldCode(type, cleanProjects));
+                            }} 
+                            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
+                        >
                             <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
                             <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
                             <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
                             <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
                             <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
                         </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp Kodu (Opsiyonel)</label>
+                        <input 
+                            type="text" 
+                            placeholder="Örn: 1234 veya 3319" 
+                            value={newMoldCode} 
+                            onChange={(e) => setNewMoldCode(e.target.value.toUpperCase())} 
+                            className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 font-mono font-bold text-sm uppercase" 
+                        />
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                            İş Emri Önizleme: <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">{getMoldWorkOrderNo({ projectType: newProjectType }, newMoldCode, cleanProjects)}</span>
+                        </p>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
@@ -230,7 +268,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                             const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
                                             return (
                                                 <>
-                                                    <span>{p.moldName}</span>
+                                                    <span className="font-medium">{p.moldCode ? `[${p.moldCode}] ` : ''}{p.moldName}</span>
                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${cfg?.colorClass || 'bg-gray-100 text-gray-800'}`}>
                                                         {cfg?.label || 'YENİ KALIP'}
                                                     </span>
@@ -251,7 +289,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                                 <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
                                                 <input
                                                     type="text"
-                                                    placeholder="Kalıp adı ara..."
+                                                    placeholder="Kalıp adı veya kodu ara..."
                                                     value={moldSearchQuery}
                                                     onChange={(e) => setMoldSearchQuery(e.target.value)}
                                                     className="w-full pl-9 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm outline-none focus:ring-1 focus:ring-blue-500"
@@ -268,11 +306,11 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                                         setMoldSearchQuery('');
                                                     }}
                                                     className="w-full text-left px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded font-medium transition-colors"
-                                                    >
+                                                >
                                                     Kalıp Seçiniz (Seçimi Temizle)
                                                 </button>
                                                 {cleanProjects
-                                                    .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()))
+                                                    .filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()) || (p.moldCode && p.moldCode.toLowerCase().includes(moldSearchQuery.toLowerCase())))
                                                     .map(p => {
                                                         const cfg = PROJECT_TYPE_CONFIG[p.projectType || 'YENİ KALIP'];
                                                         return (
@@ -291,7 +329,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                                                         : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
                                                                 }`}
                                                             >
-                                                                <span>{p.moldName}</span>
+                                                                <span className="font-medium">{p.moldCode ? `[${p.moldCode}] ` : ''}{p.moldName}</span>
                                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
                                                                     selectedMoldId === p.id 
                                                                         ? 'bg-blue-500 text-white' 
@@ -303,7 +341,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                                                         );
                                                     })
                                                 }
-                                                {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase())).length === 0 && (
+                                                {cleanProjects.filter(p => p.moldName.toLowerCase().includes(moldSearchQuery.toLowerCase()) || (p.moldCode && p.moldCode.toLowerCase().includes(moldSearchQuery.toLowerCase()))).length === 0 && (
                                                     <div className="text-sm text-gray-400 dark:text-gray-500 py-2 text-center">Eşleşen kalıp bulunamadı</div>
                                                 )}
                                             </div>

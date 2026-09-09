@@ -28,6 +28,7 @@ import {
 
 // Yardımcılar
 import { formatDate, getDaysDifference } from '../utils/dateUtils.js';
+import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
 
 // --- YENİ: PLANLAMA ANALİZ BİLEŞENİ (AYARLANABİLİR) ---
 const PlanningInsights = ({ tasks }) => {
@@ -435,7 +436,7 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 return {
                     start: start,
                     end: end,
-                    name: project.moldName,
+                    name: project.moldCode ? `[${project.moldCode}] ${project.moldName}` : project.moldName,
                     id: project.id,
                     type: 'project',
                     progress: progress,
@@ -487,8 +488,13 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 };
             }
 
+            const finalMoldCode = (formData.moldCode || '').trim().toUpperCase();
+            const finalWorkOrderNo = formData.workOrderNo || getMoldWorkOrderNo({ projectType: formData.projectType }, finalMoldCode, projects);
+
             const projectRef = await addDoc(collection(db, PROJECT_COLLECTION), {
                 ...formData,
+                moldCode: finalMoldCode,
+                workOrderNo: finalWorkOrderNo,
                 initialStage: initialStage,
                 status: MOLD_STATUS.WAITING,
                 tasks: [],
@@ -528,7 +534,7 @@ const ProjectManagementPage = ({ projects, personnel, loggedInUser }) => {
                 }
             }
 
-            const subject = `YENİ PROJE AÇILDI: ${formData.moldName}`;
+            const subject = `YENİ PROJE AÇILDI: ${finalMoldCode ? `[${finalMoldCode}] ` : ''}${formData.moldName}`;
             
             const body = `Merhaba,
             
@@ -537,6 +543,7 @@ Aşağıdaki yeni kalıp projesi sisteme eklenmiştir ve onaylanmıştır.
 --------------------------------------------------
 PROJE DETAYLARI
 --------------------------------------------------
+${finalMoldCode ? `🔹 Kalıp Kodu: ${finalMoldCode}\n` : ''}🔹 Kalıp İş Emri: ${finalWorkOrderNo}
 🔹 Kalıp Adı: ${formData.moldName}
 🔹 Müşteri: ${formData.customer}
 🔹 Proje Tipi: ${formData.projectType}
@@ -725,6 +732,16 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                             </div>
                                             
                                             <div className="flex-1">
+                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                                    {project.moldCode && (
+                                                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-gray-150 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded border border-gray-300 dark:border-gray-600">
+                                                            {project.moldCode}
+                                                        </span>
+                                                    )}
+                                                    <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm">
+                                                        {getMoldWorkOrderNo(project)}
+                                                    </span>
+                                                </div>
                                                 <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
                                                 <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
                                                 
@@ -803,6 +820,16 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                                 </div>
 
                                                 <div className="flex-1">
+                                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                                        {project.moldCode && (
+                                                            <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-gray-150 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded border border-gray-300 dark:border-gray-600">
+                                                                {project.moldCode}
+                                                            </span>
+                                                        )}
+                                                        <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm">
+                                                            {getMoldWorkOrderNo(project)}
+                                                        </span>
+                                                    </div>
                                                     <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
                                                     <p className="text-base font-bold text-gray-600 dark:text-gray-300 mb-2">{project.customer}</p>
                                                     
@@ -1024,7 +1051,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
             )}
 
             {/* MODALLAR */}
-            <DetailedProjectModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSave={handleSaveNewProject} personnel={personnel} />
+            <DetailedProjectModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSave={handleSaveNewProject} personnel={personnel} projects={projects} />
             <ImagePreviewModal isOpen={!!previewImage} imageUrl={previewImage} title={previewTitle} onClose={() => setPreviewImage(null)} />
 
         </div>

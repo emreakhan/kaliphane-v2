@@ -19,6 +19,7 @@ import { db, collection, onSnapshot, doc, updateDoc } from '../config/firebase.j
 // Yardımcı Fonksiyonlar
 import { getStatusClasses } from '../utils/styleUtils.js';
 import { formatDateTR, calculate6DayWorkRemaining, calculate6DayDiff } from '../utils/dateUtils.js';
+import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
 
 const ICON_MAP = {
     RefreshCw, Edit2, Cpu, Zap, Sparkles, HardHat, Settings, Layers, CheckCircle, Tag, Filter, PlayCircle
@@ -324,6 +325,16 @@ const EnhancedMoldList = ({ projects }) => {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3">
+                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                                    {project.moldCode && (
+                                                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-300 dark:border-gray-600">
+                                                            {project.moldCode}
+                                                        </span>
+                                                    )}
+                                                    <span className="font-mono text-[11px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm border border-blue-500 dark:border-cyan-300">
+                                                        {getMoldWorkOrderNo(project)}
+                                                    </span>
+                                                </div>
                                                 <div className="text-sm font-bold text-gray-900 dark:text-white">{project.moldName}</div>
                                                 <div className="text-xs text-gray-500 md:hidden">{project.customer}</div>
                                             </td>
@@ -453,31 +464,54 @@ const EnhancedMoldList = ({ projects }) => {
                                             </span>
                                         </div>
 
-                                        <div className="flex justify-between items-start mb-3">
+                                        <div className="flex justify-between items-start mb-2">
                                             <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">{project.moldName}</h3>
                                             <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClasses(moldStatus)}`}>
                                                 {moldStatus}
                                             </span>
                                         </div>
         
+                                        {project.moldCode && (
+                                            <p className="text-gray-600 dark:text-gray-400 text-xs mb-1 flex items-center gap-1.5">
+                                                <span className="font-medium">Kalıp Kodu:</span>
+                                                <span className="font-mono font-bold text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600">
+                                                    {project.moldCode}
+                                                </span>
+                                            </p>
+                                        )}
+
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs mb-1 flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-medium">Kalıp İş Emri:</span>
+                                            {(() => {
+                                                const wo = getMoldWorkOrderNo(project);
+                                                return wo ? (
+                                                    <span className="font-mono font-black text-xs px-2 py-0.5 rounded bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 shadow-sm border border-blue-500 dark:border-cyan-300 tracking-wide">
+                                                        {wo}
+                                                    </span>
+                                                ) : (
+                                                    <span className="font-semibold text-gray-400 dark:text-gray-500 italic">---</span>
+                                                );
+                                            })()}
+                                        </p>
+
                                         <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
-                                            Müşteri: <span className="font-semibold">{project.customer}</span>
+                                            Müşteri: <span className="font-semibold text-gray-800 dark:text-gray-200">{project.customer}</span>
                                         </p>
                                         
                                         {project.projectManager && (
                                             <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
-                                                Proje Sor: <span className="font-semibold text-blue-700 dark:text-blue-300">{project.projectManager}</span>
+                                                Proje Sor: <span className="font-semibold text-blue-600 dark:text-cyan-300">{project.projectManager}</span>
                                             </p>
                                         )}
                                         {project.moldDesigner && (
                                             <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
-                                                Tasarım Sor: <span className="font-semibold text-purple-700 dark:text-purple-300">{project.moldDesigner}</span>
+                                                Tasarım Sor: <span className="font-semibold text-purple-600 dark:text-purple-300">{project.moldDesigner}</span>
                                             </p>
                                         )}
                                         
                                         {project.camResponsible && (
                                             <p className="text-gray-600 dark:text-gray-400 text-xs mb-1">
-                                                CAM Sor: <span className="font-semibold text-orange-700 dark:text-orange-300">{project.camResponsible}</span>
+                                                CAM Sor: <span className="font-semibold text-amber-600 dark:text-amber-400">{project.camResponsible}</span>
                                             </p>
                                         )}
                                         

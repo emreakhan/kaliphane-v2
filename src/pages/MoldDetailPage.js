@@ -19,6 +19,7 @@ import {
 
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
+import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
 
 import { 
     db, doc, onSnapshot, setDoc, updateDoc, collection,
@@ -220,6 +221,23 @@ const MoldDetailPage = ({
     const navigate = useNavigate();
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
+    const moldWorkOrderNo = useMemo(() => getMoldWorkOrderNo(mold), [mold]);
+
+    const operationIndexMap = useMemo(() => {
+        const map = {};
+        let count = 0;
+        if (mold?.tasks) {
+            mold.tasks.forEach(t => {
+                if (t.operations) {
+                    t.operations.forEach(op => {
+                        count++;
+                        map[op.id] = count;
+                    });
+                }
+            });
+        }
+        return map;
+    }, [mold?.tasks]);
     
     const [moldStatuses, setMoldStatuses] = useState(DEFAULT_MOLD_STATUSES);
 
@@ -932,7 +950,21 @@ const MoldDetailPage = ({
                             <ChevronLeft className="w-5 h-5" />
                         </button>
                     )}
-                    <h2 className="text-xl font-black text-gray-900 dark:text-white truncate">{mold.moldName} Kalıp Detayları</h2>
+                    <h2 className="text-xl font-black text-gray-900 dark:text-white truncate flex items-center flex-wrap gap-2">
+                        {mold.moldCode && (
+                            <span className="font-mono text-xs font-bold px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-md border border-gray-300 dark:border-gray-600 shrink-0">
+                                <span className="font-sans text-[10px] font-medium opacity-75 mr-1">KOD:</span>
+                                {mold.moldCode}
+                            </span>
+                        )}
+                        {moldWorkOrderNo && (
+                            <span className="font-mono text-xs font-black px-2.5 py-1 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded-lg shadow-sm border border-blue-500 dark:border-cyan-300 shrink-0 tracking-wider">
+                                <span className="font-sans text-[10px] font-bold opacity-85 mr-1">İŞ EMRİ:</span>
+                                {moldWorkOrderNo}
+                            </span>
+                        )}
+                        <span>{mold.moldName} Kalıp Detayları</span>
+                    </h2>
                     {nextMoldId && (
                         <button 
                             onClick={() => navigate(`/mold/${nextMoldId}`)} 
@@ -963,6 +995,31 @@ const MoldDetailPage = ({
                             <span className="font-bold text-gray-800 dark:text-gray-200">
                                 {mold.projectType || PROJECT_TYPES.NEW_MOLD}
                             </span>
+                        )}
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+                    {mold.moldCode && (
+                        <>
+                            <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-gray-700 dark:text-gray-300">Kalıp Kodu:</span>
+                                <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600">
+                                    {mold.moldCode}
+                                </span>
+                            </div>
+                            <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                        </>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-gray-700 dark:text-gray-300">Kalıp İş Emri:</span>
+                        {moldWorkOrderNo ? (
+                            <span className="font-mono font-black text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-cyan-300 border border-blue-300 dark:border-cyan-500/50 shadow-sm">
+                                {moldWorkOrderNo}
+                            </span>
+                        ) : (
+                            <span className="text-xs italic text-gray-400 dark:text-gray-500">Tanımlanmamış</span>
                         )}
                     </div>
 
@@ -1223,439 +1280,470 @@ const MoldDetailPage = ({
                                                     </div>
                                                 )}
 
-                                                {/* PARÇA GÖRSEL UYARILARI & AÇIKLAMALARI */}
-                                                <div className="mb-4 bg-red-50/30 dark:bg-red-950/5 p-4 rounded-xl border border-red-100 dark:border-red-900/30">
-                                                    <div className="flex items-center justify-between mb-3 border-b border-red-100 dark:border-red-900/20 pb-2">
-                                                        <div className="flex items-center">
-                                                            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mr-2" />
-                                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Parça Görsel Uyarıları & Kritik Açıklamalar:</span>
+                                                {/* 1. OPERASYONLAR LİSTESİ (EN ÜSTTE) */}
+                                                <div className="space-y-3 mb-5">
+                                                    {(!task.operations || task.operations.length === 0) ? (
+                                                        <div className="p-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center text-xs text-gray-500 dark:text-gray-400">
+                                                            Bu parça için henüz operasyon eklenmedi.
                                                         </div>
-                                                        {isManager && (
-                                                            <button 
-                                                                onClick={() => handleAddNewWarning(task.id)}
-                                                                className="flex items-center px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-lg transition shadow-sm"
-                                                            >
-                                                                <Plus className="w-3 h-3 mr-1" /> UYARI EKLE
-                                                            </button>
-                                                        )}
-                                                    </div>
+                                                    ) : (
+                                                        task.operations.map(operation => {
+                                                            const hasPauseHistory = (operation.pauseHistory && operation.pauseHistory.length > 0) || operation.lastPausedAt;
+                                                            const fallbackWo = moldWorkOrderNo && operationIndexMap[operation.id] 
+                                                                ? `${moldWorkOrderNo}-${String(operationIndexMap[operation.id]).padStart(2, '0')}` 
+                                                                : null;
+                                                            const displayWorkOrderNo = operation.workOrderNo || fallbackWo;
 
-                                                    {/* Uyarı Maddeleri Listesi */}
-                                                    <div className="space-y-4">
-                                                        {(!task.visualWarnings || task.visualWarnings.length === 0) ? (
-                                                            <p className="text-xs text-gray-500 italic">Bu parça için henüz eklenmiş görsel bir uyarı bulunmuyor.</p>
-                                                        ) : (
-                                                            task.visualWarnings.map((warning, wIdx) => (
-                                                                <div key={warning.id || wIdx} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-red-100 dark:border-red-900/20 space-y-3 relative group">
-                                                                    {/* Başlık ve İşlemler */}
-                                                                    <div className="flex justify-between items-start">
-                                                                        <div className="flex-1 mr-4">
-                                                                            {editingWarningId === warning.id ? (
-                                                                                <textarea 
-                                                                                    value={warningEditDesc}
-                                                                                    onChange={(e) => setWarningEditDesc(e.target.value)}
-                                                                                    className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:outline-none"
-                                                                                    placeholder="Kritik uyarı veya açıklamayı yazın..."
-                                                                                    rows="2"
-                                                                                />
-                                                                            ) : (
-                                                                                <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 whitespace-pre-line">
-                                                                                    <span className="text-red-600 mr-1.5">⚠️ Madde {wIdx + 1}:</span>
-                                                                                    {warning.description || 'Açıklama belirtilmedi.'}
+                                                            return (
+                                                                <div key={operation.id} className="p-3.5 border border-gray-200 dark:border-gray-700/80 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                                                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex items-center flex-wrap gap-2">
+                                                                                {displayWorkOrderNo && (
+                                                                                    <span className="inline-flex items-center gap-1 font-mono text-xs font-black px-2.5 py-1 rounded-md bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 shadow-sm border border-blue-500 dark:border-cyan-300 tracking-wider">
+                                                                                        <span className="font-sans text-[10px] font-extrabold uppercase opacity-85">İş Emri:</span>
+                                                                                        {displayWorkOrderNo}
+                                                                                    </span>
+                                                                                )}
+                                                                                {operation.isAdditionalOperation && (
+                                                                                    <span className="bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 text-xs font-black px-2.5 py-1 rounded-md flex items-center border border-amber-300 dark:border-amber-500/50 shadow-sm">
+                                                                                        <Zap className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400 fill-amber-500" /> Ek Operasyon
+                                                                                    </span>
+                                                                                )}
+                                                                                <p className="font-black text-sm text-blue-700 dark:text-cyan-300">
+                                                                                    Operasyon: <span className="font-extrabold">{operation.type}</span>
                                                                                 </p>
-                                                                            )}
-                                                                        </div>
-
-                                                                        {isManager && (
-                                                                            <div className="flex gap-1">
-                                                                                {editingWarningId === warning.id ? (
-                                                                                    <>
-                                                                                        <button 
-                                                                                            onClick={() => handleSaveWarningEdit(task.id, warning.id)}
-                                                                                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold rounded"
-                                                                                        >
-                                                                                            Kaydet
-                                                                                        </button>
-                                                                                        <button 
-                                                                                            onClick={handleCancelWarningEdit}
-                                                                                            className="px-2 py-1 bg-gray-400 hover:bg-gray-500 text-white text-[10px] font-bold rounded"
-                                                                                        >
-                                                                                            İptal
-                                                                                        </button>
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <>
-                                                                                        <button 
-                                                                                            onClick={() => handleStartWarningEdit(warning)}
-                                                                                            className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
-                                                                                            title="Açıklamayı Düzenle"
-                                                                                        >
-                                                                                            <FileText className="w-3.5 h-3.5" />
-                                                                                        </button>
-                                                                                        <button 
-                                                                                            onClick={() => handleDeleteWarning(task.id, warning.id)}
-                                                                                            className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
-                                                                                            title="Uyarıyı Tamamen Sil"
-                                                                                        >
-                                                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                                                        </button>
-                                                                                    </>
+                                                                                {operation.reworkHistory && operation.reworkHistory.length > 0 && (
+                                                                                    <span className="bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 text-xs font-bold px-2 py-0.5 rounded flex items-center border border-red-300 dark:border-red-800">
+                                                                                        <AlertTriangle className="w-3 h-3 mr-1" />
+                                                                                        {operation.reworkHistory.length}. Hata Kaydı
+                                                                                    </span>
                                                                                 )}
                                                                             </div>
-                                                                        )}
-                                                                    </div>
+                                                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2.5 text-xs text-gray-600 dark:text-gray-300">
+                                                                                <div><span className="font-medium text-gray-500 dark:text-gray-400">CAM Op:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.assignedOperator}</span></div>
+                                                                                <div><span className="font-medium text-gray-500 dark:text-gray-400">Tezgah:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.machineName || 'YOK'}</span></div>
+                                                                                <div><span className="font-medium text-gray-500 dark:text-gray-400">Tezgah Op:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.machineOperatorName || 'YOK'}</span></div>
+                                                                                <div><span className="font-medium text-gray-500 dark:text-gray-400">Başlangıç:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDateTime(operation.startDate)}</span></div>
+                                                                                <div><span className="font-medium text-gray-500 dark:text-gray-400">Termin:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDate(operation.estimatedDueDate)}</span></div>
+                                                                                
+                                                                                {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-400">İş Süresi:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.durationInHours} Saat</span></div>}
+                                                                                {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-cyan-400">CAM Puanı:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
+                                                                                {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-300">Yetkili Puanı:</span> <span className="font-bold text-base text-purple-700 dark:text-purple-200">{operation.supervisorRating} / 10</span></div>}
+                                                                                {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-300">Yorum:</span> <span className="italic text-gray-800 dark:text-gray-200">"{operation.supervisorComment}"</span></div>}
+                                                                            </div>
+                                                                            <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-bold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
+                                                                        </div>
 
-                                                                    {/* Görseller */}
-                                                                    <div className="flex flex-wrap items-center gap-3 pt-1">
-                                                                        {warning.imageUrls && warning.imageUrls.map((url, imgIdx) => (
-                                                                            <div key={imgIdx} className="relative w-20 h-20 rounded border border-gray-200 dark:border-gray-700 overflow-hidden group/img">
-                                                                                <img src={url} alt="Uyarı Görseli" className="w-full h-full object-cover cursor-pointer" onClick={() => setPreviewImage(url)} />
-                                                                                {isManager && (
+                                                                        <div className="flex flex-col gap-2 mt-2 md:mt-0">
+                                                                            <div className="flex flex-col md:flex-row gap-2">
+                                                                                {isAdmin && (
                                                                                     <button 
-                                                                                        onClick={() => handleDeleteWarningImage(task.id, warning.id, url)}
-                                                                                        className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl hover:bg-red-700 opacity-0 group-hover/img:opacity-100 transition-opacity"
-                                                                                        title="Görseli Sil"
+                                                                                        onClick={() => handleDeleteOperation(task, operation.id)} 
+                                                                                        className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition flex items-center justify-center"
+                                                                                        title="Operasyonu Sil"
                                                                                     >
-                                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                                        <Trash2 className="w-4 h-4" />
+                                                                                    </button>
+                                                                                )}
+                                                                                
+                                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.NOT_STARTED && (
+                                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
+                                                                                )}
+                                                                                
+                                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.PAUSED && (
+                                                                                    <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
+                                                                                )}
+                                                                                
+                                                                                {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
+                                                                                    <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
+                                                                                )}
+                                                                                
+                                                                                {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU || isAdmin) && 
+                                                                                (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
+                                                                                    <button 
+                                                                                        onClick={() => handleOpenModal('report_issue', mold, task, operation)}
+                                                                                        className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"
+                                                                                        title="Hata Bildir ve Sıfırla"
+                                                                                    >
+                                                                                        <AlertTriangle className="w-4 h-4" />
                                                                                     </button>
                                                                                 )}
                                                                             </div>
-                                                                        ))}
+                                                                        </div>
+                                                                    </div>
 
-                                                                        {/* Resim Yükleme Butonu */}
-                                                                        {isManager && (
-                                                                            <label className={`w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-red-300 dark:border-red-800 rounded cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/10 transition ${uploadingWarningId === warning.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                                                                {uploadingWarningId === warning.id ? (
-                                                                                    <Loader className="w-4 h-4 animate-spin text-red-600" />
-                                                                                ) : (
-                                                                                    <>
-                                                                                        <UploadCloud className="w-5 h-5 text-red-500" />
-                                                                                        <span className="text-[9px] font-bold text-red-500 mt-1">Görsel Ekle</span>
-                                                                                    </>
+                                                                    {hasPauseHistory && (
+                                                                        <div className="mt-3 pt-3 border-t border-orange-100 dark:border-orange-900/30">
+                                                                            <p className="text-xs font-bold text-orange-800 dark:text-orange-300 mb-2 flex items-center">
+                                                                                <Clock className="w-3 h-3 mr-1" /> 
+                                                                                Duraklatma Geçmişi (Toplam Bekleme: {calculateTotalPauseDuration(operation.pauseHistory, operation.lastPausedAt)})
+                                                                            </p>
+                                                                            <div className="space-y-2">
+                                                                                {operation.pauseHistory && operation.pauseHistory.map((ph, idx) => (
+                                                                                    <div key={idx} className="bg-orange-50 dark:bg-orange-900/10 p-2 rounded text-xs border border-orange-100 dark:border-orange-900/30">
+                                                                                        <div className="flex justify-between text-orange-800 dark:text-orange-400 font-medium">
+                                                                                            <span>{formatDateTime(ph.pausedAt)} - {formatDateTime(ph.resumedAt)}</span>
+                                                                                            <span className="font-bold">{calculateDurationText(ph.pausedAt, ph.resumedAt)}</span>
+                                                                                        </div>
+                                                                                        <div className="mt-1 text-orange-600 dark:text-orange-300 flex items-start">
+                                                                                            <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
+                                                                                            <span className="italic">Neden: {getPauseReasonText(ph.reason)}</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                                {operation.lastPausedAt && (
+                                                                                    <div className="bg-orange-100 dark:bg-orange-900/20 p-2 rounded text-xs border border-orange-300 dark:border-orange-700 animate-pulse-slow">
+                                                                                        <div className="flex justify-between text-orange-800 dark:text-orange-300 font-medium">
+                                                                                            <span>{formatDateTime(operation.lastPausedAt)} - Şu an devam ediyor...</span>
+                                                                                            <span className="font-bold text-red-600 dark:text-red-400">{calculateDurationText(operation.lastPausedAt, null)}</span>
+                                                                                        </div>
+                                                                                        <div className="mt-1 text-orange-700 dark:text-orange-400 flex items-start font-medium">
+                                                                                            <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
+                                                                                            <span className="italic">Neden: {getPauseReasonText(operation.lastPauseReason)}</span>
+                                                                                        </div>
+                                                                                    </div>
                                                                                 )}
-                                                                                <input 
-                                                                                    type="file" 
-                                                                                    className="hidden" 
-                                                                                    accept="image/*"
-                                                                                    multiple
-                                                                                    onChange={(e) => handleWarningImageUpload(e, task.id, warning.id)}
-                                                                                    disabled={uploadingWarningId === warning.id}
-                                                                                />
-                                                                            </label>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* YENİ: PARÇA BAZLI TAHMİNİ SÜRE GİRİŞ ALANI */}
-                                                <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                    <div className="flex items-center">
-                                                        <Timer className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mr-2" />
-                                                        <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Öngörülen CAM İşleme Süresi:</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="flex items-center gap-1">
-                                                            <input 
-                                                                type="number" 
-                                                                placeholder="Saat" 
-                                                                className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
-                                                                value={taskTimeInputs[task.id]?.h || ''}
-                                                                onChange={(e) => setTaskTimeInputs({
-                                                                    ...taskTimeInputs,
-                                                                    [task.id]: { ...taskTimeInputs[task.id], h: e.target.value }
-                                                                })}
-                                                            />
-                                                            <span className="text-xs text-gray-500 font-bold uppercase">S</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <input 
-                                                                type="number" 
-                                                                placeholder="Dk" 
-                                                                max="59"
-                                                                className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
-                                                                value={taskTimeInputs[task.id]?.m || ''}
-                                                                onChange={(e) => setTaskTimeInputs({
-                                                                    ...taskTimeInputs,
-                                                                    [task.id]: { ...taskTimeInputs[task.id], m: e.target.value }
-                                                                })}
-                                                            />
-                                                            <span className="text-xs text-gray-500 font-bold uppercase">D</span>
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => handleSaveTaskEstimatedTime(task.id)}
-                                                            className="ml-2 flex items-center px-4 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg hover:bg-indigo-700 transition shadow-sm"
-                                                        >
-                                                            <Check className="w-3 h-3 mr-1" /> SÜREYİ GÜNCELLE
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
-                                                    <div className="flex items-center">
-                                                        <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
-                                                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Teknik Resim:</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {task.technicalDrawingUrl ? (
-                                                            <>
-                                                                <a 
-                                                                    href={task.technicalDrawingUrl} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer"
-                                                                    className="flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition"
-                                                                >
-                                                                    <Eye className="w-3 h-3 mr-1" /> Görüntüle / İndir
-                                                                </a>
-                                                                {canManageDrawings && (
-                                                                    <button 
-                                                                        onClick={() => handleDeletePdf(task)}
-                                                                        className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition"
-                                                                        title="Resmi Sil"
-                                                                    >
-                                                                        <Trash2 className="w-4 h-4" />
-                                                                    </button>
-                                                                )}
-                                                            </>
-                                                        ) : (
-                                                            <span className="text-xs text-gray-500 italic">Yüklü değil</span>
-                                                        )}
-
-                                                        {canManageDrawings && !task.technicalDrawingUrl && (
-                                                            <label className={`cursor-pointer flex items-center px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 transition ${uploadingPdfTaskId === task.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                                                {uploadingPdfTaskId === task.id ? <Loader className="w-3 h-3 mr-1 animate-spin" /> : <UploadCloud className="w-3 h-3 mr-1" />}
-                                                                {uploadingPdfTaskId === task.id ? 'Yükleniyor...' : 'Yükle'}
-                                                                <input 
-                                                                    type="file" 
-                                                                    className="hidden" 
-                                                                    accept="application/pdf" 
-                                                                    onChange={(e) => handlePdfUpload(e, task)}
-                                                                    disabled={uploadingPdfTaskId === task.id}
-                                                                />
-                                                            </label>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* YENİ: DIŞ TEMİN BİLGİLERİ ALANI */}
-                                                <div className="mb-4 bg-orange-50 dark:bg-orange-950/20 p-4 rounded-xl border border-orange-100 dark:border-orange-900/50">
-                                                    <div className="flex items-center justify-between mb-3">
-                                                        <div className="flex items-center">
-                                                            <Layers className="w-5 h-5 text-orange-600 dark:text-orange-400 mr-2" />
-                                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Dış Temin / Fason İşlem Bilgisi:</span>
-                                                        </div>
-                                                        {task.outsourced && (
-                                                            <span className={`px-2 py-0.5 text-xs font-black rounded-full ${task.outsourcedStatus === 'Tamamlandı' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
-                                                                {task.outsourcedStatus || 'İşleniyor'}
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {isManager ? (
-                                                        <div className="space-y-3">
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                                <input 
-                                                                    type="checkbox"
-                                                                    id={`outsourced-${task.id}`}
-                                                                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                                                                    checked={taskOutsourceInputs[task.id]?.outsourced || false}
-                                                                    onChange={(e) => setTaskOutsourceInputs({
-                                                                        ...taskOutsourceInputs,
-                                                                        [task.id]: { ...taskOutsourceInputs[task.id], outsourced: e.target.checked }
-                                                                    })}
-                                                                />
-                                                                <label htmlFor={`outsourced-${task.id}`} className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">
-                                                                    Bu parça dışarıdan temin ediliyor / dışarıda işleniyor
-                                                                </label>
-                                                            </div>
-
-                                                            {(taskOutsourceInputs[task.id]?.outsourced) && (
-                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                                                                    <div>
-                                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Firma Adı:</label>
-                                                                        <input 
-                                                                            type="text"
-                                                                            placeholder="Örn: A Firması, Lazer Kesim vb."
-                                                                            className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                            value={taskOutsourceInputs[task.id]?.outsourcedFirm || ''}
-                                                                            onChange={(e) => setTaskOutsourceInputs({
-                                                                                ...taskOutsourceInputs,
-                                                                                [task.id]: { ...taskOutsourceInputs[task.id], outsourcedFirm: e.target.value }
-                                                                            })}
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Durum:</label>
-                                                                        <select 
-                                                                            className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                            value={taskOutsourceInputs[task.id]?.outsourcedStatus || 'İşleniyor'}
-                                                                            onChange={(e) => setTaskOutsourceInputs({
-                                                                                ...taskOutsourceInputs,
-                                                                                [task.id]: { ...taskOutsourceInputs[task.id], outsourcedStatus: e.target.value }
-                                                                            })}
-                                                                        >
-                                                                            <option value="İşleniyor">Dışarıda İşleniyor</option>
-                                                                            <option value="Tamamlandı">Tamamlandı</option>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Açıklama / Detaylar:</label>
-                                                                        <input 
-                                                                            type="text"
-                                                                            placeholder="Örn: A firması tamamladı, vb."
-                                                                            className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                            value={taskOutsourceInputs[task.id]?.outsourcedComment || ''}
-                                                                            onChange={(e) => setTaskOutsourceInputs({
-                                                                                ...taskOutsourceInputs,
-                                                                                [task.id]: { ...taskOutsourceInputs[task.id], outsourcedComment: e.target.value }
-                                                                            })}
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            )}
-
-                                                            <div className="flex justify-end pt-2">
-                                                                <button 
-                                                                    onClick={() => handleSaveTaskOutsourcing(task.id)}
-                                                                    className="flex items-center px-4 py-2 bg-orange-600 text-white text-xs font-black rounded-lg hover:bg-orange-700 transition shadow-sm"
-                                                                >
-                                                                    <Check className="w-3 h-3 mr-1" /> BİLGİLERİ GÜNCELLE
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div>
-                                                            {task.outsourced ? (
-                                                                <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-orange-100 dark:border-orange-900/30 text-sm space-y-1">
-                                                                    <p className="text-gray-700 dark:text-gray-300">
-                                                                        <span className="font-bold">Firma / Süreç:</span> {task.outsourcedFirm || 'Belirtilmedi'}
-                                                                    </p>
-                                                                    <p className="text-gray-700 dark:text-gray-300">
-                                                                        <span className="font-bold">Durum:</span> {task.outsourcedStatus || 'İşleniyor'}
-                                                                    </p>
-                                                                    {task.outsourcedComment && (
-                                                                        <p className="text-gray-700 dark:text-gray-300">
-                                                                            <span className="font-bold">Açıklama / Detaylar:</span> <span className="italic">"{task.outsourcedComment}"</span>
-                                                                        </p>
+                                                                            </div>
+                                                                        </div>
                                                                     )}
                                                                 </div>
-                                                            ) : (
-                                                                <span className="text-xs text-gray-500 italic">Bu parça dışarıda işlem görmüyor (kendi bünyemizde üretiliyor).</span>
-                                                            )}
-                                                        </div>
+                                                            );
+                                                        })
                                                     )}
                                                 </div>
 
-                                                <div className="space-y-3">
-                                                    {(task.operations || []).map(operation => {
-                                                        const hasPauseHistory = (operation.pauseHistory && operation.pauseHistory.length > 0) || operation.lastPausedAt;
+                                                {/* 2. PARÇA EK BİLGİLERİ VE TEKNİK DETAYLAR (EN ALTTA) */}
+                                                <div className="border-t border-gray-200 dark:border-gray-700/80 pt-4 mt-2 space-y-4">
+                                                    <div className="flex items-center gap-2 text-xs font-black uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+                                                        <Layers className="w-4 h-4 text-indigo-500" />
+                                                        <span>Parça Ek Bilgileri & Teknik Detaylar</span>
+                                                    </div>
 
-                                                        return (
-                                                            <div key={operation.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
-                                                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-                                                                    <div className="flex-1 min-w-0 mb-2 md:mb-0">
-                                                                        <div className="flex items-center">
-                                                                            <p className="font-semibold text-blue-700 dark:text-blue-300 mr-2">Operasyon: {operation.type}</p>
-                                                                            {operation.reworkHistory && operation.reworkHistory.length > 0 && (
-                                                                                <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded flex items-center">
-                                                                                    <AlertTriangle className="w-3 h-3 mr-1" />
-                                                                                    {operation.reworkHistory.length}. Hata Kaydı
-                                                                                </span>
+                                                    {/* PARÇA GÖRSEL UYARILARI & AÇIKLAMALARI */}
+                                                    <div className="bg-red-50/30 dark:bg-red-950/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30">
+                                                        <div className="flex items-center justify-between mb-3 border-b border-red-100 dark:border-red-900/20 pb-2">
+                                                            <div className="flex items-center">
+                                                                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mr-2" />
+                                                                <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Parça Görsel Uyarıları & Kritik Açıklamalar:</span>
+                                                            </div>
+                                                            {isManager && (
+                                                                <button 
+                                                                    onClick={() => handleAddNewWarning(task.id)}
+                                                                    className="flex items-center px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-lg transition shadow-sm"
+                                                                >
+                                                                    <Plus className="w-3 h-3 mr-1" /> UYARI EKLE
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Uyarı Maddeleri Listesi */}
+                                                        <div className="space-y-4">
+                                                            {(!task.visualWarnings || task.visualWarnings.length === 0) ? (
+                                                                <p className="text-xs text-gray-500 italic">Bu parça için henüz eklenmiş görsel bir uyarı bulunmuyor.</p>
+                                                            ) : (
+                                                                task.visualWarnings.map((warning, wIdx) => (
+                                                                    <div key={warning.id || wIdx} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-red-100 dark:border-red-900/20 space-y-3 relative group">
+                                                                        {/* Başlık ve İşlemler */}
+                                                                        <div className="flex justify-between items-start">
+                                                                            <div className="flex-1 mr-4">
+                                                                                {editingWarningId === warning.id ? (
+                                                                                    <textarea 
+                                                                                        value={warningEditDesc}
+                                                                                        onChange={(e) => setWarningEditDesc(e.target.value)}
+                                                                                        className="w-full p-2 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:outline-none"
+                                                                                        placeholder="Kritik uyarı veya açıklamayı yazın..."
+                                                                                        rows="2"
+                                                                                    />
+                                                                                ) : (
+                                                                                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 whitespace-pre-line">
+                                                                                        <span className="text-red-600 mr-1.5">⚠️ Madde {wIdx + 1}:</span>
+                                                                                        {warning.description || 'Açıklama belirtilmedi.'}
+                                                                                    </p>
+                                                                                )}
+                                                                            </div>
+
+                                                                            {isManager && (
+                                                                                <div className="flex gap-1">
+                                                                                    {editingWarningId === warning.id ? (
+                                                                                        <>
+                                                                                            <button 
+                                                                                                onClick={() => handleSaveWarningEdit(task.id, warning.id)}
+                                                                                                className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold rounded"
+                                                                                            >
+                                                                                                Kaydet
+                                                                                            </button>
+                                                                                            <button 
+                                                                                                onClick={handleCancelWarningEdit}
+                                                                                                className="px-2 py-1 bg-gray-400 hover:bg-gray-500 text-white text-[10px] font-bold rounded"
+                                                                                            >
+                                                                                                İptal
+                                                                                            </button>
+                                                                                        </>
+                                                                                    ) : (
+                                                                                        <>
+                                                                                            <button 
+                                                                                                onClick={() => handleStartWarningEdit(warning)}
+                                                                                                className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                                                                                                title="Açıklamayı Düzenle"
+                                                                                            >
+                                                                                                <FileText className="w-3.5 h-3.5" />
+                                                                                            </button>
+                                                                                            <button 
+                                                                                                onClick={() => handleDeleteWarning(task.id, warning.id)}
+                                                                                                className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                                                                                                title="Uyarıyı Tamamen Sil"
+                                                                                            >
+                                                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                                            </button>
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
                                                                             )}
                                                                         </div>
-                                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600 dark:text-gray-400">
-                                                                            <div><span className="font-medium">CAM Op:</span> <span className="font-semibold">{operation.assignedOperator}</span></div>
-                                                                            <div><span className="font-medium">Tezgah:</span> <span className="font-semibold">{operation.machineName || 'YOK'}</span></div>
-                                                                            <div><span className="font-medium">Tezgah Op:</span> <span className="font-semibold">{operation.machineOperatorName || 'YOK'}</span></div>
-                                                                            <div><span className="font-medium">Başlangıç:</span> <span className="font-semibold">{formatDateTime(operation.startDate)}</span></div>
-                                                                            <div><span className="font-medium">Termin:</span> <span className="font-semibold">{formatDate(operation.estimatedDueDate)}</span></div>
-                                                                            
-                                                                            {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-300">İş Süresi:</span> <span className="font-semibold">{operation.durationInHours} Saat</span></div>}
-                                                                            {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-blue-400">CAM Puanı:</span> <span className="font-semibold">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
-                                                                            {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-400">Yetkili Puanı:</span> <span className="font-bold text-lg">{operation.supervisorRating} / 10</span></div>}
-                                                                            {operation.supervisorComment && <div className="col-span-2"><span className="font-medium text-purple-600 dark:text-purple-400">Yorum:</span> <span className="italic">"{operation.supervisorComment}"</span></div>}
-                                                                        </div>
-                                                                        <span className={`mt-3 inline-block px-3 py-1 text-xs leading-5 font-semibold rounded-full ${getStatusClasses(operation.status)}`}>{operation.status} %{operation.progressPercentage}</span>
-                                                                    </div>
 
-                                                                    <div className="flex flex-col gap-2 mt-2 md:mt-0">
-                                                                        <div className="flex flex-col md:flex-row gap-2">
-                                                                            {isAdmin && (
-                                                                                <button 
-                                                                                    onClick={() => handleDeleteOperation(task, operation.id)} 
-                                                                                    className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition flex items-center justify-center"
-                                                                                    title="Operasyonu Sil"
-                                                                                >
-                                                                                    <Trash2 className="w-4 h-4" />
-                                                                                </button>
-                                                                            )}
-                                                                            
-                                                                            {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.NOT_STARTED && (
-                                                                                <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition flex items-center justify-center"><Zap className="w-4 h-4 mr-1"/> Ata</button>
-                                                                            )}
-                                                                            
-                                                                            {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU) && operation.status === OPERATION_STATUS.PAUSED && (
-                                                                                <button onClick={() => handleOpenModal('assign', mold, task, operation)} className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition flex items-center justify-center"><PlayCircle className="w-4 h-4 mr-1"/> Devam Et</button>
-                                                                            )}
-                                                                            
-                                                                            {(loggedInUser.role === ROLES.SUPERVISOR || isAdmin) && operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW && (
-                                                                                <button onClick={() => handleOpenModal('review', mold, task, operation)} className="px-3 py-1 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center justify-center"><CheckCircle className="w-4 h-4 mr-1"/> Değerlendir</button>
-                                                                            )}
-                                                                            
-                                                                            {(loggedInUser.role === ROLES.CAM_OPERATOR || loggedInUser.role === ROLES.CAM_SORUMLUSU || isAdmin) && 
-                                                                            (operation.status === OPERATION_STATUS.IN_PROGRESS || operation.status === OPERATION_STATUS.PAUSED || operation.status === OPERATION_STATUS.WAITING_SUPERVISOR_REVIEW) && (
-                                                                                <button 
-                                                                                    onClick={() => handleOpenModal('report_issue', mold, task, operation)}
-                                                                                    className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition flex items-center justify-center border border-red-300"
-                                                                                    title="Hata Bildir ve Sıfırla"
-                                                                                >
-                                                                                    <AlertTriangle className="w-4 h-4" />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-
-                                                                {hasPauseHistory && (
-                                                                    <div className="mt-3 pt-3 border-t border-orange-100 dark:border-orange-900/30">
-                                                                        <p className="text-xs font-bold text-orange-800 dark:text-orange-300 mb-2 flex items-center">
-                                                                            <Clock className="w-3 h-3 mr-1" /> 
-                                                                            Duraklatma Geçmişi (Toplam Bekleme: {calculateTotalPauseDuration(operation.pauseHistory, operation.lastPausedAt)})
-                                                                        </p>
-                                                                        <div className="space-y-2">
-                                                                            {operation.pauseHistory && operation.pauseHistory.map((ph, idx) => (
-                                                                                <div key={idx} className="bg-orange-50 dark:bg-orange-900/10 p-2 rounded text-xs border border-orange-100 dark:border-orange-900/30">
-                                                                                    <div className="flex justify-between text-orange-800 dark:text-orange-400 font-medium">
-                                                                                        <span>{formatDateTime(ph.pausedAt)} - {formatDateTime(ph.resumedAt)}</span>
-                                                                                        <span className="font-bold">{calculateDurationText(ph.pausedAt, ph.resumedAt)}</span>
-                                                                                    </div>
-                                                                                    <div className="mt-1 text-orange-600 dark:text-orange-300 flex items-start">
-                                                                                        <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
-                                                                                        <span className="italic">Neden: {getPauseReasonText(ph.reason)}</span>
-                                                                                    </div>
+                                                                        {/* Görseller */}
+                                                                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                                                                            {warning.imageUrls && warning.imageUrls.map((url, imgIdx) => (
+                                                                                <div key={imgIdx} className="relative w-20 h-20 rounded border border-gray-200 dark:border-gray-700 overflow-hidden group/img">
+                                                                                    <img src={url} alt="Uyarı Görseli" className="w-full h-full object-cover cursor-pointer" onClick={() => setPreviewImage(url)} />
+                                                                                    {isManager && (
+                                                                                        <button 
+                                                                                            onClick={() => handleDeleteWarningImage(task.id, warning.id, url)}
+                                                                                            className="absolute top-0 right-0 bg-red-600 text-white p-0.5 rounded-bl hover:bg-red-700 opacity-0 group-hover/img:opacity-100 transition-opacity"
+                                                                                            title="Görseli Sil"
+                                                                                        >
+                                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                                        </button>
+                                                                                    )}
                                                                                 </div>
                                                                             ))}
-                                                                            {operation.lastPausedAt && (
-                                                                                <div className="bg-orange-100 dark:bg-orange-900/20 p-2 rounded text-xs border border-orange-300 dark:border-orange-700 animate-pulse-slow">
-                                                                                    <div className="flex justify-between text-orange-800 dark:text-orange-300 font-medium">
-                                                                                        <span>{formatDateTime(operation.lastPausedAt)} - Şu an devam ediyor...</span>
-                                                                                        <span className="font-bold text-red-600 dark:text-red-400">{calculateDurationText(operation.lastPausedAt, null)}</span>
-                                                                                    </div>
-                                                                                    <div className="mt-1 text-orange-700 dark:text-orange-400 flex items-start font-medium">
-                                                                                        <HelpCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
-                                                                                        <span className="italic">Neden: {getPauseReasonText(operation.lastPauseReason)}</span>
-                                                                                    </div>
-                                                                                </div>
+
+                                                                            {/* Resim Yükleme Butonu */}
+                                                                            {isManager && (
+                                                                                <label className={`w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-red-300 dark:border-red-800 rounded cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/10 transition ${uploadingWarningId === warning.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                                    {uploadingWarningId === warning.id ? (
+                                                                                        <Loader className="w-4 h-4 animate-spin text-red-600" />
+                                                                                    ) : (
+                                                                                        <>
+                                                                                            <UploadCloud className="w-5 h-5 text-red-500" />
+                                                                                            <span className="text-[9px] font-bold text-red-500 mt-1">Görsel Ekle</span>
+                                                                                        </>
+                                                                                    )}
+                                                                                    <input 
+                                                                                        type="file" 
+                                                                                        className="hidden" 
+                                                                                        accept="image/*"
+                                                                                        multiple
+                                                                                        onChange={(e) => handleWarningImageUpload(e, task.id, warning.id)}
+                                                                                        disabled={uploadingWarningId === warning.id}
+                                                                                    />
+                                                                                </label>
                                                                             )}
+                                                                        </div>
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* YENİ: PARÇA BAZLI TAHMİNİ SÜRE GİRİŞ ALANI */}
+                                                    <div className="bg-indigo-50 dark:bg-indigo-950/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                        <div className="flex items-center">
+                                                            <Timer className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mr-2" />
+                                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Öngörülen CAM İşleme Süresi:</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-1">
+                                                                <input 
+                                                                    type="number" 
+                                                                    placeholder="Saat" 
+                                                                    className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
+                                                                    value={taskTimeInputs[task.id]?.h || ''}
+                                                                    onChange={(e) => setTaskTimeInputs({
+                                                                        ...taskTimeInputs,
+                                                                        [task.id]: { ...taskTimeInputs[task.id], h: e.target.value }
+                                                                    })}
+                                                                />
+                                                                <span className="text-xs text-gray-500 font-bold uppercase">S</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <input 
+                                                                    type="number" 
+                                                                    placeholder="Dk" 
+                                                                    max="59" 
+                                                                    className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:text-white text-sm font-bold"
+                                                                    value={taskTimeInputs[task.id]?.m || ''}
+                                                                    onChange={(e) => setTaskTimeInputs({
+                                                                        ...taskTimeInputs,
+                                                                        [task.id]: { ...taskTimeInputs[task.id], m: e.target.value }
+                                                                    })}
+                                                                />
+                                                                <span className="text-xs text-gray-500 font-bold uppercase">D</span>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => handleSaveTaskEstimatedTime(task.id)}
+                                                                className="ml-2 flex items-center px-4 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg hover:bg-indigo-700 transition shadow-sm"
+                                                            >
+                                                                <Check className="w-3 h-3 mr-1" /> SÜREYİ GÜNCELLE
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800/60">
+                                                        <div className="flex items-center">
+                                                            <FileText className="w-5 h-5 text-blue-600 dark:text-cyan-400 mr-2" />
+                                                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Teknik Resim:</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            {task.technicalDrawingUrl ? (
+                                                                <>
+                                                                    <a 
+                                                                        href={task.technicalDrawingUrl} 
+                                                                        target="_blank" 
+                                                                        rel="noopener noreferrer"
+                                                                        className="flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition"
+                                                                    >
+                                                                        <Eye className="w-3 h-3 mr-1" /> Görüntüle / İndir
+                                                                    </a>
+                                                                    {canManageDrawings && (
+                                                                        <button 
+                                                                            onClick={() => handleDeletePdf(task)}
+                                                                            className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition"
+                                                                            title="Resmi Sil"
+                                                                        >
+                                                                            <Trash2 className="w-4 h-4" />
+                                                                        </button>
+                                                                    )}
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-xs text-gray-500 italic">Yüklü değil</span>
+                                                            )}
+
+                                                            {canManageDrawings && !task.technicalDrawingUrl && (
+                                                                <label className={`cursor-pointer flex items-center px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 transition ${uploadingPdfTaskId === task.id ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                    {uploadingPdfTaskId === task.id ? <Loader className="w-3 h-3 mr-1 animate-spin" /> : <UploadCloud className="w-3 h-3 mr-1" />}
+                                                                    {uploadingPdfTaskId === task.id ? 'Yükleniyor...' : 'Yükle'}
+                                                                    <input 
+                                                                        type="file" 
+                                                                        className="hidden" 
+                                                                        accept="application/pdf" 
+                                                                        onChange={(e) => handlePdfUpload(e, task)}
+                                                                        disabled={uploadingPdfTaskId === task.id}
+                                                                    />
+                                                                </label>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* DIŞ TEMİN BİLGİLERİ ALANI */}
+                                                    <div className="bg-orange-50 dark:bg-orange-950/20 p-4 rounded-xl border border-orange-100 dark:border-orange-900/50">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center">
+                                                                <Layers className="w-5 h-5 text-orange-600 dark:text-orange-400 mr-2" />
+                                                                <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Dış Temin / Fason İşlem Bilgisi:</span>
+                                                            </div>
+                                                            {task.outsourced && (
+                                                                <span className={`px-2 py-0.5 text-xs font-black rounded-full ${task.outsourcedStatus === 'Tamamlandı' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
+                                                                    {task.outsourcedStatus || 'İşleniyor'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {isManager ? (
+                                                            <div className="space-y-3">
+                                                                <div className="flex items-center gap-2 mb-2">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        id={`outsourced-${task.id}`}
+                                                                        className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                                        checked={taskOutsourceInputs[task.id]?.outsourced || false}
+                                                                        onChange={(e) => setTaskOutsourceInputs({
+                                                                            ...taskOutsourceInputs,
+                                                                            [task.id]: { ...taskOutsourceInputs[task.id], outsourced: e.target.checked }
+                                                                        })}
+                                                                    />
+                                                                    <label htmlFor={`outsourced-${task.id}`} className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">
+                                                                        Bu parça dışarıdan temin ediliyor / dışarıda işleniyor
+                                                                    </label>
+                                                                </div>
+
+                                                                {(taskOutsourceInputs[task.id]?.outsourced) && (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                                                                        <div>
+                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Firma Adı:</label>
+                                                                            <input 
+                                                                                type="text" 
+                                                                                placeholder="Örn: A Firması, Lazer Kesim vb."
+                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                                                                                value={taskOutsourceInputs[task.id]?.outsourcedFirm || ''}
+                                                                                onChange={(e) => setTaskOutsourceInputs({
+                                                                                    ...taskOutsourceInputs,
+                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedFirm: e.target.value }
+                                                                                })}
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Durum:</label>
+                                                                            <select 
+                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                                                                                value={taskOutsourceInputs[task.id]?.outsourcedStatus || 'İşleniyor'}
+                                                                                onChange={(e) => setTaskOutsourceInputs({
+                                                                                    ...taskOutsourceInputs,
+                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedStatus: e.target.value }
+                                                                                })}
+                                                                            >
+                                                                                <option value="İşleniyor">Dışarıda İşleniyor</option>
+                                                                                <option value="Tamamlandı">Tamamlandı</option>
+                                                                            </select>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Açıklama / Detaylar:</label>
+                                                                            <input 
+                                                                                type="text" 
+                                                                                placeholder="Örn: A firması tamamladı, vb."
+                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                                                                                value={taskOutsourceInputs[task.id]?.outsourcedComment || ''}
+                                                                                onChange={(e) => setTaskOutsourceInputs({
+                                                                                    ...taskOutsourceInputs,
+                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedComment: e.target.value }
+                                                                                })}
+                                                                            />
                                                                         </div>
                                                                     </div>
                                                                 )}
-                                                                
+
+                                                                <div className="flex justify-end pt-2">
+                                                                    <button 
+                                                                        onClick={() => handleSaveTaskOutsourcing(task.id)}
+                                                                        className="flex items-center px-4 py-2 bg-orange-600 text-white text-xs font-black rounded-lg hover:bg-orange-700 transition shadow-sm"
+                                                                    >
+                                                                        <Check className="w-3 h-3 mr-1" /> BİLGİLERİ GÜNCELLE
+                                                                    </button>
+                                                                </div>
                                                             </div>
-                                                        );
-                                                    })}
+                                                        ) : (
+                                                            <div>
+                                                                {task.outsourced ? (
+                                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-orange-100 dark:border-orange-900/30 text-sm space-y-1">
+                                                                        <p className="text-gray-700 dark:text-gray-300">
+                                                                            <span className="font-bold">Firma / Süreç:</span> {task.outsourcedFirm || 'Belirtilmedi'}
+                                                                        </p>
+                                                                        <p className="text-gray-700 dark:text-gray-300">
+                                                                            <span className="font-bold">Durum:</span> {task.outsourcedStatus || 'İşleniyor'}
+                                                                        </p>
+                                                                        {task.outsourcedComment && (
+                                                                            <p className="text-gray-700 dark:text-gray-300">
+                                                                                <span className="font-bold">Açıklama / Detaylar:</span> <span className="italic">"{task.outsourcedComment}"</span>
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-xs text-gray-500 italic">Bu parça dışarıda işlem görmüyor (kendi bünyemizde üretiliyor).</span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
