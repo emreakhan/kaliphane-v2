@@ -739,7 +739,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                                         </span>
                                                     )}
                                                     <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm">
-                                                        {getMoldWorkOrderNo(project)}
+                                                        {getMoldWorkOrderNo(project, null, projects)}
                                                     </span>
                                                 </div>
                                                 <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>
@@ -827,7 +827,7 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                                                             </span>
                                                         )}
                                                         <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm">
-                                                            {getMoldWorkOrderNo(project)}
+                                                            {getMoldWorkOrderNo(project, null, projects)}
                                                         </span>
                                                     </div>
                                                     <h3 className="font-black text-gray-900 dark:text-white text-xl mb-1">{project.moldName}</h3>

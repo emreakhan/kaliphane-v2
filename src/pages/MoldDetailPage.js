@@ -221,7 +221,7 @@ const MoldDetailPage = ({
     const navigate = useNavigate();
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
-    const moldWorkOrderNo = useMemo(() => getMoldWorkOrderNo(mold), [mold]);
+    const moldWorkOrderNo = useMemo(() => getMoldWorkOrderNo(mold, null, projects), [mold, projects]);
 
     const operationIndexMap = useMemo(() => {
         const map = {};

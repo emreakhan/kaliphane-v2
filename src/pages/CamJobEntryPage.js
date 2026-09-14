@@ -5,7 +5,7 @@ import { Plus, AlertTriangle, List, Briefcase, Search, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
-import { generateMoldCode, getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
+import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
 
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 
@@ -42,13 +42,6 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
         );
     }, [projects]);
 
-    // Kalıp Kodu Otomatik Oluşturma
-    useEffect(() => {
-        if (!newMoldCode) {
-            setNewMoldCode(generateMoldCode(newProjectType, cleanProjects));
-        }
-    }, [newProjectType, cleanProjects, newMoldCode]);
-
     const checkDuplicateMold = (moldName) => {
         return cleanProjects.some(project => 
             project.moldName.toLowerCase() === moldName.toLowerCase().trim()
@@ -56,7 +49,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
     };
 
     const handleAddNewMold = async () => {
-        if (!newMoldName || !newCustomer) return;
+        if (!newMoldCode.trim() || !newMoldName.trim() || !newCustomer.trim()) return;
         if (checkDuplicateMold(newMoldName)) {
             setMoldError(`⚠️ "${newMoldName}" isminde bir kalıp zaten mevcut!`);
             return;
@@ -213,9 +206,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                         <select 
                             value={newProjectType} 
                             onChange={(e) => {
-                                const type = e.target.value;
-                                setNewProjectType(type);
-                                setNewMoldCode(generateMoldCode(type, cleanProjects));
+                                setNewProjectType(e.target.value);
                             }} 
                             className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
                         >
@@ -227,10 +218,12 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp Kodu (Opsiyonel)</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Kalıp Kodu <span className="text-red-500 font-bold">*</span>
+                        </label>
                         <input 
                             type="text" 
-                            placeholder="Örn: 1234 veya 3319" 
+                            placeholder="Örn: 3319 veya 1234" 
                             value={newMoldCode} 
                             onChange={(e) => setNewMoldCode(e.target.value.toUpperCase())} 
                             className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 font-mono font-bold text-sm uppercase" 
@@ -240,13 +233,28 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                         </p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Kalıp / İş Adı <span className="text-red-500 font-bold">*</span>
+                        </label>
                         <input type="text" placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} value={newMoldName} onChange={(e) => { setNewMoldName(e.target.value); setMoldError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
                         {moldError && (<div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg"><AlertTriangle className="w-4 h-4 mr-2" />{moldError}</div>)}
                     </div>
-                    <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Müşteri</label><input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Müşteri <span className="text-red-500 font-bold">*</span>
+                        </label>
+                        <input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
+                    </div>
                 </div>
-                <div className="mt-4 flex justify-end"><button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>Kaydet ve Ekle</button></div>
+                <div className="mt-4 flex justify-end">
+                    <button 
+                        onClick={handleAddNewMold} 
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed" 
+                        disabled={!newMoldCode.trim() || !newMoldName.trim() || !newCustomer.trim()}
+                    >
+                        Kaydet ve Ekle
+                    </button>
+                </div>
             </div>
 
             {/* Alt Kısım: İş Parçası Ekleme ve Liste */}

@@ -97,6 +97,7 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel, projects = [
 
     const handleSubmit = () => {
         const newErrors = {};
+        if (!formData.moldCode.trim()) newErrors.moldCode = 'Kalıp kodu zorunludur.';
         if (!formData.moldName.trim()) newErrors.moldName = 'Kalıp adı zorunludur.';
         if (!formData.customer.trim()) newErrors.customer = 'Müşteri adı zorunludur.';
         if (!formData.moldDeadline) newErrors.moldDeadline = 'Termin tarihi seçilmelidir.';
@@ -114,6 +115,7 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel, projects = [
             moldCode: finalMoldCode,
             workOrderNo: finalWorkOrderNo
         });
+        onClose();
     };
 
     const projectManagers = personnel.filter(p => p.role === PERSONNEL_ROLES.PROJE_SORUMLUSU || p.role === PERSONNEL_ROLES.ADMIN);
@@ -122,23 +124,24 @@ const DetailedProjectModal = ({ isOpen, onClose, onSave, personnel, projects = [
     const liveWorkOrderNo = getMoldWorkOrderNo({ projectType: formData.projectType }, formData.moldCode, projects);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Yeni Proje Başlat">
-            <div className="space-y-4">
+        <Modal isOpen={isOpen} onClose={onClose} title="Yeni Proje & Kalıp İmalat Kartı Ekle">
+            <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
                 
                 {/* 1. Satır: Kalıp Kodu & Kalıp Adı */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">
-                            Kalıp Kodu <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(Opsiyonel)</span>
+                            Kalıp Kodu <span className="text-red-500">*</span>
                         </label>
                         <input 
                             type="text" 
                             name="moldCode" 
                             value={formData.moldCode} 
                             onChange={handleChange} 
-                            placeholder="Örn: 1234 veya 3319" 
-                            className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white font-mono font-bold uppercase border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm" 
+                            placeholder="Örn: 3319 veya 1234" 
+                            className={`w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white font-mono font-bold uppercase ${errors.moldCode ? 'border-red-500' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 text-sm`} 
                         />
+                        {errors.moldCode && <p className="text-xs text-red-500 mt-1">{errors.moldCode}</p>}
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                             İş Emri Önizleme: <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">{liveWorkOrderNo}</span>
                         </p>

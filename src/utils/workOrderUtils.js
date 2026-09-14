@@ -70,50 +70,127 @@ export const getProjectTypeCode = (projectType) => {
 export const getMoldWorkOrderNo = (mold, customMoldCode = null, existingProjects = []) => {
   if (!mold && !customMoldCode) return '';
 
-  // 1. Eğer kalıp üzerinde kayıtlı workOrderNo varsa ve yeni bir kod verilmemişse onu kullan
-  if (customMoldCode === null && mold?.workOrderNo && typeof mold.workOrderNo === 'string' && mold.workOrderNo.trim() !== '') {
-    return mold.workOrderNo.trim();
-  }
-
-  // 2. Sisteme eklenme tarihini bul (GGAAAYY)
+  // 1. Sisteme eklenme tarihini bul (GGAAAYY)
   const creationDate = getMoldCreationDate(mold);
   const datePrefix = formatDateToCode(creationDate);
   const typeCode = getProjectTypeCode(mold?.projectType || 'YENİ KALIP');
 
-  // 3. Kalıp kodunu belirle
+  // 2. Kalıp kodunu belirle
   const codeCandidate = (customMoldCode !== null ? customMoldCode : (mold?.moldCode || '')).trim().toUpperCase();
 
-  // Zaten tam iş emri formatındaysa (örn: 050326-YNK-01 veya 050326-YNK-1234)
-  if (/^\d{6}-[A-Z0-9]+-/.test(codeCandidate)) {
-    return codeCandidate;
-  }
-
-  // Kullanıcı manuel özel bir kalıp kodu girmişse (örn: 1234 veya 3319)
+  // Temel iş emri kökünü (baseCandidate) belirle
+  let baseCandidate = '';
   if (codeCandidate) {
-    const cleanSuffix = codeCandidate.replace(/[^A-Z0-9_-]/g, '');
-    return `${datePrefix}-${typeCode}-${cleanSuffix}`;
+    if (/^\d{6}-[A-Z0-9]+-/.test(codeCandidate)) {
+      baseCandidate = codeCandidate;
+    } else {
+      const cleanSuffix = codeCandidate.replace(/[^A-Z0-9_-]/g, '');
+      baseCandidate = `${datePrefix}-${typeCode}-${cleanSuffix}`;
+    }
+  } else {
+    // Kalıp kodu yoksa sayaçlı formatın ön eki
+    baseCandidate = `${datePrefix}-${typeCode}`;
   }
 
-  // Eğer kalıp kodu yoksa, o gün ve türdeki en yüksek sayaç numarasını bul
-  const searchPrefix = `${datePrefix}-${typeCode}-`;
-  let maxSeq = 0;
-  if (Array.isArray(existingProjects)) {
-    existingProjects.forEach(p => {
-      if (mold && p.id === mold.id) return;
-      const wNo = String(p.workOrderNo || p.moldCode || '').trim();
-      if (wNo.startsWith(searchPrefix)) {
-        const parts = wNo.split('-');
-        const lastPart = parts[parts.length - 1];
-        const num = parseInt(lastPart, 10);
-        if (!isNaN(num) && num > maxSeq) {
-          maxSeq = num;
-        }
+  // 3. Mevcut Projeler Listesinde Çakışma / Sıralama Kontrolü
+  if (Array.isArray(existingProjects) && existingProjects.length > 0) {
+    const currentMoldTime = creationDate.getTime();
+    
+    // Kendisinden daha önce eklenmiş / var olan diğer projeleri filtrele
+    const earlierOtherProjects = existingProjects.filter(p => {
+      if (!p) return false;
+      if (mold?.id && p.id === mold.id) return false; // Kendisi hariç
+      
+      // Eğer mevcut bir kalıp inceleniyorsa, sadece kendisinden daha önce açılmış olanları öncelikli gör
+      if (mold?.id && p.id) {
+        const pTime = getMoldCreationDate(p).getTime();
+        if (pTime < currentMoldTime) return true;
+        if (pTime === currentMoldTime && String(p.id).localeCompare(String(mold.id)) < 0) return true;
+        return false;
       }
+      
+      // Yeni bir kalıp ekleniyorsa (henüz id'si yoksa), mevcut tüm projeleri tara
+      return true;
     });
+
+    if (codeCandidate) {
+      // Özel kalıp kodu verilmişse (örn: 1111 -> 140926-YNK-1111)
+      const baseEscaped = baseCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const suffixRegex = new RegExp(`^${baseEscaped}-(\\d+)$`);
+
+      // Kronolojik sırala (en eski en başta)
+      earlierOtherProjects.sort((a, b) => {
+        const tA = getMoldCreationDate(a).getTime();
+        const tB = getMoldCreationDate(b).getTime();
+        if (tA !== tB) return tA - tB;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+
+      let exactBaseFound = false;
+      let maxSuffix = 0;
+
+      earlierOtherProjects.forEach(p => {
+        const pWorkOrder = String(p.workOrderNo || '').trim();
+        const pMoldCode = String(p.moldCode || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+        const pDatePrefix = formatDateToCode(getMoldCreationDate(p));
+        const pTypeCode = getProjectTypeCode(p.projectType || 'YENİ KALIP');
+        const pCleanSuffix = (customMoldCode !== null ? customMoldCode : (mold?.moldCode || '')).trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+
+        if (pWorkOrder) {
+          const match = pWorkOrder.match(suffixRegex);
+          if (match) {
+            exactBaseFound = true;
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num)) {
+              maxSuffix = Math.max(maxSuffix, num);
+            }
+          } else if (pWorkOrder === baseCandidate) {
+            if (exactBaseFound) {
+              maxSuffix = Math.max(maxSuffix + 1, 1);
+            } else {
+              exactBaseFound = true;
+            }
+          }
+        } else if (pMoldCode === pCleanSuffix && pDatePrefix === datePrefix && pTypeCode === typeCode) {
+          if (exactBaseFound) {
+            maxSuffix = Math.max(maxSuffix + 1, 1);
+          } else {
+            exactBaseFound = true;
+          }
+        }
+      });
+
+      if (exactBaseFound) {
+        const nextSeq = String(maxSuffix + 1).padStart(2, '0');
+        return `${baseCandidate}-${nextSeq}`;
+      }
+      return baseCandidate;
+    } else {
+      // Kalıp kodu verilmemişse sayaçlı mod (01, 02, 03...)
+      const searchPrefix = `${baseCandidate}-`;
+      let maxSeq = 0;
+      earlierOtherProjects.forEach(p => {
+        const wNo = String(p.workOrderNo || p.moldCode || '').trim();
+        if (wNo.startsWith(searchPrefix)) {
+          const parts = wNo.split('-');
+          const lastPart = parts[parts.length - 1];
+          const num = parseInt(lastPart, 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      });
+      const nextSeq = String(maxSeq + 1).padStart(2, '0');
+      return `${baseCandidate}-${nextSeq}`;
+    }
   }
 
-  const nextSeq = String(maxSeq + 1).padStart(2, '0');
-  return `${datePrefix}-${typeCode}-${nextSeq}`;
+  // 4. Eğer kalıp üzerinde kayıtlı workOrderNo varsa ve çakışma kontrolü yapılmadıysa onu kullan
+  if (customMoldCode === null && mold?.workOrderNo && typeof mold.workOrderNo === 'string' && mold.workOrderNo.trim() !== '') {
+    return mold.workOrderNo.trim();
+  }
+
+  return baseCandidate;
 };
 
 /**

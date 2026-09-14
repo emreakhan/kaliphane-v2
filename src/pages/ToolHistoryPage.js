@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     History, Search, User, CheckCircle, 
-    AlertOctagon, ArrowRightLeft, Clock, Recycle, Plus, X
+    AlertOctagon, ArrowRightLeft, Clock, Recycle, Plus, X,
+    Monitor, Users
 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from '../config/firebase.js';
 import { TOOL_TRANSACTIONS_COLLECTION, TOOL_TRANSACTION_TYPES } from '../config/constants.js';
@@ -17,8 +18,9 @@ const COLOR_PALETTES = [
     'from-cyan-600 to-blue-700'
 ];
 
-const ToolHistoryPage = ({ machines, db, tools = [] }) => {
+const ToolHistoryPage = ({ machines = [], personnel = [], db, tools = [] }) => {
     const [activeTab, setActiveTab] = useState('ACTIVE'); 
+    const [activeLoanFilter, setActiveLoanFilter] = useState('ALL'); // 'ALL' | 'MACHINE' | 'PERSONNEL'
     const [searchTerm, setSearchTerm] = useState('');
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -106,33 +108,78 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
         return () => unsubscribe();
     }, [db]);
 
-    // --- 1. LİSTE: AKTİF ZİMMETLER ---
-    const activeLoans = useMemo(() => {
+    // --- 1. LİSTE: AKTİF ZİMMETLER (TEZGAHLAR & PERSONEL ŞAHSİ ZİMMETLERİ) ---
+    const allActiveLoans = useMemo(() => {
         let loans = [];
-        machines.forEach(machine => {
+
+        // 1. Tezgahlardaki Takımlar
+        (machines || []).forEach(machine => {
             if (machine.currentTools && machine.currentTools.length > 0) {
                 machine.currentTools.forEach(tool => {
                     loans.push({
                         ...tool,
+                        holderType: 'MACHINE',
+                        holderName: machine.name,
                         machineName: machine.name,
-                        machineId: machine.id
+                        machineId: machine.id,
+                        receiverName: tool.receivedBy || 'Belirtilmedi'
                     });
                 });
             }
         });
 
+        // 2. Personele Verilen Şahsi Takımlar
+        (personnel || []).forEach(person => {
+            if (person.currentTools && person.currentTools.length > 0) {
+                person.currentTools.forEach(tool => {
+                    loans.push({
+                        ...tool,
+                        holderType: 'PERSONNEL',
+                        holderName: person.name,
+                        machineName: 'Şahsi Zimmet',
+                        personId: person.id,
+                        receiverName: person.name
+                    });
+                });
+            }
+        });
+
+        return loans;
+    }, [machines, personnel]);
+
+    const activeLoans = useMemo(() => {
+        let list = allActiveLoans;
+
+        if (activeLoanFilter === 'MACHINE') {
+            list = list.filter(l => l.holderType === 'MACHINE');
+        } else if (activeLoanFilter === 'PERSONNEL') {
+            list = list.filter(l => l.holderType === 'PERSONNEL');
+        }
+
         if (searchTerm) {
             const lowerTerm = searchTerm.toLowerCase();
-            loans = loans.filter(l => 
+            list = list.filter(l => 
                 (l.receivedBy && l.receivedBy.toLowerCase().includes(lowerTerm)) ||
+                (l.receiverName && l.receiverName.toLowerCase().includes(lowerTerm)) ||
+                (l.holderName && l.holderName.toLowerCase().includes(lowerTerm)) ||
                 (l.toolName && l.toolName.toLowerCase().includes(lowerTerm)) ||
                 (l.productCode && l.productCode.toLowerCase().includes(lowerTerm)) ||
-                (l.machineName && l.machineName.toLowerCase().includes(lowerTerm))
+                (l.machineName && l.machineName.toLowerCase().includes(lowerTerm)) ||
+                (l.moldName && l.moldName.toLowerCase().includes(lowerTerm)) ||
+                (l.givenBy && l.givenBy.toLowerCase().includes(lowerTerm))
             );
         }
 
-        return loans.sort((a, b) => new Date(a.givenDate) - new Date(b.givenDate));
-    }, [machines, searchTerm]);
+        return list.sort((a, b) => new Date(b.givenDate || 0) - new Date(a.givenDate || 0));
+    }, [allActiveLoans, activeLoanFilter, searchTerm]);
+
+    const machineLoansCount = useMemo(() => {
+        return allActiveLoans.filter(l => l.holderType === 'MACHINE').length;
+    }, [allActiveLoans]);
+
+    const personnelLoansCount = useMemo(() => {
+        return allActiveLoans.filter(l => l.holderType === 'PERSONNEL').length;
+    }, [allActiveLoans]);
 
     // --- 2. LİSTE: GEÇMİŞ İŞLEM KAYITLARI ---
     const filteredHistory = useMemo(() => {
@@ -340,7 +387,7 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                                 : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
                             }`}
                         >
-                            <User className="w-4 h-4 mr-2" /> Şu An Kimde? ({activeLoans.length})
+                            <User className="w-4 h-4 mr-2" /> Şu An Kimde? ({allActiveLoans.length})
                         </button>
                         <button
                             onClick={() => setActiveTab('HISTORY')}
@@ -355,57 +402,125 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                     </div>
 
                     {activeTab === 'ACTIVE' && (
-                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full min-w-[700px] text-left text-sm text-gray-600 dark:text-gray-300">
-                                    <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
-                                        <tr>
-                                            <th className="p-4">Operatör (Alan Kişi)</th>
-                                            <th className="p-4">Tezgah</th>
-                                            <th className="p-4">Takım Adı / Kod</th>
-                                            <th className="p-4">Veriliş Tarihi</th>
-                                            <th className="p-4">Veren Sorumlu</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                                        {activeLoans.length === 0 ? (
+                        <div className="space-y-4">
+                            {/* Alt Filtre Butonları */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    onClick={() => setActiveLoanFilter('ALL')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                                        activeLoanFilter === 'ALL'
+                                        ? 'bg-purple-600 text-white shadow-sm'
+                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    }`}
+                                >
+                                    Tüm Zimmetler ({allActiveLoans.length})
+                                </button>
+                                <button
+                                    onClick={() => setActiveLoanFilter('MACHINE')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                                        activeLoanFilter === 'MACHINE'
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    }`}
+                                >
+                                    <Monitor className="w-3.5 h-3.5" />
+                                    Tezgah Zimmetleri ({machineLoansCount})
+                                </button>
+                                <button
+                                    onClick={() => setActiveLoanFilter('PERSONNEL')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                                        activeLoanFilter === 'PERSONNEL'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    }`}
+                                >
+                                    <Users className="w-3.5 h-3.5" />
+                                    Personel Şahsi Zimmetleri ({personnelLoansCount})
+                                </button>
+                            </div>
+
+                            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[750px] text-left text-sm text-gray-600 dark:text-gray-300">
+                                        <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white uppercase font-bold text-xs">
                                             <tr>
-                                                <td colSpan="5" className="p-8 text-center text-gray-400">
-                                                    Aktif zimmet kaydı bulunamadı.
-                                                </td>
+                                                <th className="p-4">Zimmet Sahibi / Operatör</th>
+                                                <th className="p-4">Zimmet Türü / Konum</th>
+                                                <th className="p-4">Takım Adı / Kod</th>
+                                                <th className="p-4">Veriliş Tarihi</th>
+                                                <th className="p-4">Veren Sorumlu</th>
                                             </tr>
-                                        ) : (
-                                            activeLoans.map((loan, idx) => (
-                                                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                                                    <td className="p-4 font-bold text-gray-900 dark:text-white flex items-center">
-                                                        <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mr-3 font-bold text-xs">
-                                                            {loan.receivedBy ? loan.receivedBy.charAt(0) : '?'}
-                                                        </div>
-                                                        {loan.receivedBy || 'Belirtilmedi'}
-                                                    </td>
-                                                    <td className="p-4">
-                                                        <span className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs font-bold">
-                                                            {loan.machineName}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-4">
-                                                        <div className="font-medium">{loan.toolName}</div>
-                                                        {loan.productCode && <div className="text-xs text-gray-400">{loan.productCode}</div>}
-                                                    </td>
-                                                    <td className="p-4">
-                                                        <div className="flex items-center">
-                                                            <Clock className="w-4 h-4 mr-2 text-gray-400" />
-                                                            {formatDate(loan.givenDate)}
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-4 text-xs">
-                                                        {loan.givenBy}
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                            {activeLoans.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="5" className="p-8 text-center text-gray-400">
+                                                        Aktif zimmet kaydı bulunamadı.
                                                     </td>
                                                 </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                                            ) : (
+                                                activeLoans.map((loan, idx) => (
+                                                    <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                                        <td className="p-4 font-bold text-gray-900 dark:text-white">
+                                                            <div className="flex items-center">
+                                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3 font-bold text-xs ${
+                                                                    loan.holderType === 'PERSONNEL'
+                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                                                                    : 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300'
+                                                                }`}>
+                                                                    {(loan.receivedBy || loan.holderName || '?').charAt(0).toUpperCase()}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="leading-tight">{loan.receivedBy || loan.holderName || 'Belirtilmedi'}</div>
+                                                                    {loan.holderType === 'PERSONNEL' && (
+                                                                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium block">
+                                                                            Şahsi Zimmet Sahibi
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            {loan.holderType === 'PERSONNEL' ? (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                                    <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Şahsi Zimmet
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    <Monitor className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> {loan.machineName}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="font-semibold text-gray-900 dark:text-white">{loan.toolName}</div>
+                                                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                                                {loan.productCode && (
+                                                                    <span className="text-xs font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">
+                                                                        {loan.productCode}
+                                                                    </span>
+                                                                )}
+                                                                {loan.moldName && (
+                                                                    <span className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800 font-semibold">
+                                                                        {loan.moldName} {loan.moldPart ? `(${loan.moldPart})` : ''}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 text-xs">
+                                                            <div className="flex items-center text-gray-600 dark:text-gray-300">
+                                                                <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                                                {formatDate(loan.givenDate)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 text-xs text-gray-600 dark:text-gray-400">
+                                                            {loan.givenBy || '-'}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -478,7 +593,11 @@ const ToolHistoryPage = ({ machines, db, tools = [] }) => {
                                                                 </div>
                                                             ) : (
                                                                 tx.machineName ? (
-                                                                    <span className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                                                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                                                        tx.machineName === 'ŞAHSİ ZİMMET'
+                                                                        ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold'
+                                                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                                                    }`}>
                                                                         {tx.machineName}
                                                                     </span>
                                                                 ) : (

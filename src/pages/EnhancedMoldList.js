@@ -148,10 +148,25 @@ const EnhancedMoldList = ({ projects }) => {
 
         if (searchTerm.trim()) {
             const lowerSearchTerm = searchTerm.toLowerCase();
-            filtered = filtered.filter(project => 
-                (project.moldName || '').toLowerCase().includes(lowerSearchTerm) ||
-                (project.customer || '').toLowerCase().includes(lowerSearchTerm)
-            );
+            filtered = filtered.filter(project => {
+                const moldName = (project.moldName || '').toLowerCase();
+                const customer = (project.customer || '').toLowerCase();
+                const projectManager = (project.projectManager || '').toLowerCase();
+                const moldDesigner = (project.moldDesigner || '').toLowerCase();
+                const camResponsible = (project.camResponsible || '').toLowerCase();
+                const moldCode = (project.moldCode || '').toLowerCase();
+                const workOrderNo = (getMoldWorkOrderNo(project, null, cleanProjects) || '').toLowerCase();
+
+                return (
+                    moldName.includes(lowerSearchTerm) ||
+                    customer.includes(lowerSearchTerm) ||
+                    projectManager.includes(lowerSearchTerm) ||
+                    moldDesigner.includes(lowerSearchTerm) ||
+                    camResponsible.includes(lowerSearchTerm) ||
+                    moldCode.includes(lowerSearchTerm) ||
+                    workOrderNo.includes(lowerSearchTerm)
+                );
+            });
         }
         
         filtered.sort((a, b) => {
@@ -255,7 +270,7 @@ const EnhancedMoldList = ({ projects }) => {
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                         <input
                             type="text"
-                            placeholder="Kalıp no veya firma ara..."
+                            placeholder="Kalıp no, firma veya sorumlu ara..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -332,7 +347,7 @@ const EnhancedMoldList = ({ projects }) => {
                                                         </span>
                                                     )}
                                                     <span className="font-mono text-[11px] font-black px-1.5 py-0.5 bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 rounded shadow-sm border border-blue-500 dark:border-cyan-300">
-                                                        {getMoldWorkOrderNo(project)}
+                                                        {getMoldWorkOrderNo(project, null, cleanProjects)}
                                                     </span>
                                                 </div>
                                                 <div className="text-sm font-bold text-gray-900 dark:text-white">{project.moldName}</div>
@@ -483,7 +498,7 @@ const EnhancedMoldList = ({ projects }) => {
                                         <p className="text-gray-600 dark:text-gray-400 text-xs mb-1 flex items-center gap-1.5 flex-wrap">
                                             <span className="font-medium">Kalıp İş Emri:</span>
                                             {(() => {
-                                                const wo = getMoldWorkOrderNo(project);
+                                                const wo = getMoldWorkOrderNo(project, null, cleanProjects);
                                                 return wo ? (
                                                     <span className="font-mono font-black text-xs px-2 py-0.5 rounded bg-blue-600 text-white dark:bg-cyan-400 dark:text-slate-950 shadow-sm border border-blue-500 dark:border-cyan-300 tracking-wide">
                                                         {wo}

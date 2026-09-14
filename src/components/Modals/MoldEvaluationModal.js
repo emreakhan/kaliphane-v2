@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal.js';
-import { Users, Star, Save, UserCheck, MessageSquare, ChevronDown, ChevronUp, Box } from 'lucide-react';
+import { Star, Save, UserCheck, MessageSquare, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import { updateDoc, doc } from '../../config/firebase.js'; 
 import { PROJECT_COLLECTION } from '../../config/constants.js'; 
 
@@ -81,64 +81,104 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
         setExpandedPerson(expandedPerson === personName ? null : personName);
     };
 
-    const handleSave = async () => {
-        // Kontrol: Herkesin genel puanı var mı?
-        const missingScores = personnelList.some(p => !evaluations[p].generalScore);
-        if (missingScores) {
-            alert("Lütfen listedeki tüm personel için en azından bir 'Genel Puan' giriniz.");
+    const handleSkipEvaluationAndComplete = async () => {
+        if (!window.confirm("Kalıbı değerlendirme yapmadan 'Tamamlandı' durumuna almak istediğinize emin misiniz?")) {
             return;
+        }
+
+        setIsSaving(true);
+        try {
+            const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
+            await updateDoc(moldRef, {
+                status: 'TAMAMLANDI',
+                completedAt: new Date().toISOString()
+            });
+
+            alert("Kalıp değerlendirme yapılmadan tamamlandı olarak işaretlendi.");
+            if (onComplete) onComplete();
+            onClose();
+        } catch (error) {
+            console.error("Kalıbı tamamlama hatası:", error);
+            alert("Kalıp tamamlanırken bir hata oluştu.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSave = async () => {
+        // Kontrol: Eğer personel varsa herkesin genel puanı var mı?
+        if (personnelList.length > 0) {
+            const missingScores = personnelList.some(p => !evaluations[p]?.generalScore);
+            if (missingScores) {
+                alert("Lütfen listedeki tüm personel için en azından bir 'Genel Puan' giriniz. Puanlama yapmadan kalıbı kapatmak istiyorsanız 'Değerlendirme Yapmadan Devam Et' seçeneğini kullanabilirsiniz.");
+                return;
+            }
         }
 
         setIsSaving(true);
 
         try {
             // 1. Görevleri ve Operasyonları Güncelle
-            const updatedTasks = mold.tasks.map(task => {
-                const updatedOperations = task.operations.map(op => {
-                    let newOp = { ...op };
-                    
-                    // Eğer bu operasyonun operatörü listemizde varsa
-                    if (op.assignedOperator && evaluations[op.assignedOperator]) {
-                        const personEval = evaluations[op.assignedOperator];
-                        const override = personEval.taskOverrides[op.id];
+            let updatedTasks = mold.tasks || [];
+            let projectLevelEvaluations = [];
 
-                        // Mantık: Varsa özel puanı al, yoksa genel puanı bas.
-                        const finalScore = (override && override.score) 
-                            ? parseInt(override.score) 
-                            : parseInt(personEval.generalScore);
+            if (personnelList.length > 0) {
+                updatedTasks = (mold.tasks || []).map(task => {
+                    const updatedOperations = (task.operations || []).map(op => {
+                        let newOp = { ...op };
+                        
+                        // Eğer bu operasyonun operatörü listemizde varsa
+                        if (op.assignedOperator && evaluations[op.assignedOperator]) {
+                            const personEval = evaluations[op.assignedOperator];
+                            const override = personEval.taskOverrides?.[op.id];
 
-                        // Mantık: Varsa özel yorumu al. YOKSA BOŞ BIRAK (Genel yorumu kopyalama!)
-                        const finalComment = (override && override.comment) 
-                            ? override.comment 
-                            : ''; 
+                            // Mantık: Varsa özel puanı al, yoksa genel puanı bas.
+                            const finalScore = (override && override.score) 
+                                ? parseInt(override.score, 10) 
+                                : parseInt(personEval.generalScore, 10);
 
-                        newOp.supervisorRating = finalScore;
-                        newOp.supervisorComment = finalComment;
-                        newOp.supervisorReviewDate = new Date().toISOString();
-                    }
-                    return newOp;
+                            // Mantık: Varsa özel yorumu al. YOKSA BOŞ BIRAK (Genel yorumu kopyalama!)
+                            const finalComment = (override && override.comment) 
+                                ? override.comment 
+                                : ''; 
+
+                            if (!isNaN(finalScore)) {
+                                newOp.supervisorRating = finalScore;
+                            }
+                            newOp.supervisorComment = finalComment;
+                            newOp.supervisorReviewDate = new Date().toISOString();
+                        }
+                        return newOp;
+                    });
+                    return { ...task, operations: updatedOperations };
                 });
-                return { ...task, operations: updatedOperations };
-            });
 
-            // 2. Genel Yorumları "completedEvaluations" olarak Kalıp Dosyasına Kaydet
-            // Bu sayede "Ali: Aferin" notunu kaybetmeyiz ama her parçaya kopyalayıp kirletmeyiz.
-            const projectLevelEvaluations = personnelList.map(p => ({
-                operator: p,
-                generalScore: parseInt(evaluations[p].generalScore),
-                generalComment: evaluations[p].generalComment,
-                date: new Date().toISOString()
-            }));
+                // 2. Genel Yorumları "completedEvaluations" olarak Kalıp Dosyasına Kaydet
+                projectLevelEvaluations = personnelList.map(p => ({
+                    operator: p,
+                    generalScore: parseInt(evaluations[p].generalScore, 10) || 0,
+                    generalComment: evaluations[p].generalComment || '',
+                    date: new Date().toISOString()
+                }));
+            }
 
             const moldRef = doc(db, PROJECT_COLLECTION, mold.id);
-            await updateDoc(moldRef, {
+            const updatePayload = {
                 tasks: updatedTasks,
                 status: 'TAMAMLANDI',
-                completedAt: new Date().toISOString(),
-                personnelEvaluations: projectLevelEvaluations // Yeni Alan
-            });
+                completedAt: new Date().toISOString()
+            };
 
-            alert("Değerlendirme başarıyla kaydedildi! Genel yorumlar kalıp karnesine, özel yorumlar parçalara işlendi.");
+            if (projectLevelEvaluations.length > 0) {
+                updatePayload.personnelEvaluations = projectLevelEvaluations;
+            }
+
+            await updateDoc(moldRef, updatePayload);
+
+            alert(personnelList.length > 0 
+                ? "Değerlendirme başarıyla kaydedildi! Genel yorumlar kalıp karnesine, özel yorumlar parçalara işlendi."
+                : "Kalıp başarıyla tamamlandı olarak işaretlendi."
+            );
             if (onComplete) onComplete();
             onClose();
 
@@ -153,7 +193,7 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Proje Sonu Değerlendirme: ${mold?.moldName}`}>
             <div className="space-y-6">
-                <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg text-sm flex items-start">
+                <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 p-4 rounded-lg text-sm flex items-start">
                     <UserCheck className="w-5 h-5 mr-3 mt-0.5 flex-shrink-0" />
                     <div>
                         <span className="font-bold block mb-1">Nasıl Değerlendirilir?</span>
@@ -161,6 +201,7 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
                             <li><strong>Genel Puan:</strong> Operatörün yaptığı <u>tüm parçalara</u> otomatik olarak işlenir.</li>
                             <li><strong>Genel Yorum:</strong> Sadece proje karnesine yazılır, parçalara kopyalanmaz (kirlilik önlenir).</li>
                             <li><strong>Detay (Ok İşareti):</strong> Sadece belirli bir parçaya özel not düşmek isterseniz listeyi açınız.</li>
+                            <li><strong>Değerlendirme İsteğe Bağlı:</strong> Dilerseniz değerlendirme yapmadan doğrudan kalıbı kapatabilirsiniz.</li>
                         </ul>
                     </div>
                 </div>
@@ -195,7 +236,7 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
                                                         type="number" min="1" max="10"
                                                         value={data.generalScore}
                                                         onChange={(e) => {
-                                                            let val = parseInt(e.target.value);
+                                                             let val = parseInt(e.target.value, 10);
                                                             if (val > 10) val = 10;
                                                             if (val < 1) val = '';
                                                             handleGeneralChange(person, 'generalScore', val);
@@ -272,14 +313,28 @@ const MoldEvaluationModal = ({ isOpen, onClose, mold, db, onComplete }) => {
                     )}
                 </div>
 
-                <div className="flex justify-end pt-4 border-t dark:border-gray-700">
+                <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-3 pt-4 border-t dark:border-gray-700">
                     <button 
+                        type="button"
+                        onClick={handleSkipEvaluationAndComplete}
+                        disabled={isSaving}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-lg font-medium text-sm transition flex items-center justify-center disabled:opacity-50"
+                    >
+                        <CheckCircle className="w-4 h-4 mr-2 text-gray-500 dark:text-gray-400" />
+                        Değerlendirme Yapmadan Devam Et
+                    </button>
+
+                    <button 
+                        type="button"
                         onClick={handleSave}
-                        disabled={isSaving || personnelList.length === 0}
-                        className="flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isSaving}
+                        className="w-full sm:w-auto flex items-center justify-center px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-md hover:shadow-lg transition transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                     >
                         <Save className="w-5 h-5 mr-2" />
-                        {isSaving ? 'Kaydediliyor...' : 'Değerlendirmeyi Bitir ve Kalıbı Kapat'}
+                        {isSaving 
+                            ? 'Kaydediliyor...' 
+                            : (personnelList.length === 0 ? 'Kalıbı Tamamla ve Kapat' : 'Değerlendirmeyi Bitir ve Kalıbı Kapat')
+                        }
                     </button>
                 </div>
             </div>

@@ -12,7 +12,7 @@ import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
 import MoldStatusManagement from '../components/Admin/MoldStatusManagement.js';
-import { generateMoldCode, getMoldWorkOrderNo, getMoldCreationDate, assignWorkOrderNumbersToTasks } from '../utils/workOrderUtils.js';
+import { getMoldWorkOrderNo, getMoldCreationDate, assignWorkOrderNumbersToTasks } from '../utils/workOrderUtils.js';
 
 // --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
 const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) => {
@@ -535,13 +535,6 @@ const AdminDashboard = ({
         );
     }, [projects]);
 
-    // Kalıp Kodu Otomatik Oluşturma (Proje Türü veya Kalıp Listesi Değiştiğinde)
-    useEffect(() => {
-        if (!newMoldCode) {
-            setNewMoldCode(generateMoldCode(newProjectType, cleanProjects));
-        }
-    }, [newProjectType, cleanProjects, newMoldCode]);
-
     const checkDuplicateMold = (moldName) => {
         // cleanProjects kullanarak kontrol et
         return cleanProjects.some(project => 
@@ -550,7 +543,7 @@ const AdminDashboard = ({
     };
 
     const handleAddNewMold = async () => {
-        if (!newMoldName || !newCustomer) return;
+        if (!newMoldCode.trim() || !newMoldName.trim() || !newCustomer.trim()) return;
         if (checkDuplicateMold(newMoldName)) {
             setMoldError(`⚠️ "${newMoldName}" isminde bir kalıp zaten mevcut!`);
             return;
@@ -684,44 +677,59 @@ const AdminDashboard = ({
                             <h3 className="text-xl font-semibold dark:text-white mb-3 flex items-center"><Plus className="w-5 h-5 mr-2"/> Yeni İş / Kalıp Ekle</h3>
                              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
-                                    <select 
-                                        value={newProjectType} 
-                                        onChange={(e) => {
-                                            const type = e.target.value;
-                                            setNewProjectType(type);
-                                            setNewMoldCode(generateMoldCode(type, cleanProjects));
-                                        }} 
-                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
-                                    >
-                                        <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
-                                        <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
-                                        <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
-                                        <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
-                                        <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp Kodu (Opsiyonel)</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Örn: 1234 veya 3319" 
-                                        value={newMoldCode} 
-                                        onChange={(e) => setNewMoldCode(e.target.value.toUpperCase())} 
-                                        className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 font-mono font-bold text-sm uppercase" 
-                                    />
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                                        İş Emri Önizleme: <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">{getMoldWorkOrderNo({ projectType: newProjectType }, newMoldCode, cleanProjects)}</span>
-                                    </p>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kalıp / İş Adı</label>
-                                    <input type="text" placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} value={newMoldName} onChange={(e) => { setNewMoldName(e.target.value); setMoldError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
-                                    {moldError && (<div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg"><AlertTriangle className="w-4 h-4 mr-2" />{moldError}</div>)}
-                                </div>
-                                <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Müşteri</label><input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" /></div>
-                            </div>
-                            <div className="mt-4 flex justify-end"><button onClick={handleAddNewMold} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50" disabled={!newMoldName || !newCustomer}>Kaydet ve Ekle</button></div>
+                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Türü</label>
+                                     <select 
+                                         value={newProjectType} 
+                                         onChange={(e) => {
+                                             setNewProjectType(e.target.value);
+                                         }} 
+                                         className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 h-[42px]"
+                                     >
+                                         <option value={PROJECT_TYPES.NEW_MOLD}>YENİ KALIP</option>
+                                         <option value={PROJECT_TYPES.REVISION}>REVİZYON</option>
+                                         <option value={PROJECT_TYPES.MACHINING}>PROJE İMALAT</option>
+                                         <option value={PROJECT_TYPES.IMPROVEMENT}>İYİLEŞTİRME</option>
+                                         <option value={PROJECT_TYPES.T0_IMPROVEMENT}>T0-İYİLEŞTİRME</option>
+                                     </select>
+                                 </div>
+                                 <div>
+                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                         Kalıp Kodu <span className="text-red-500 font-bold">*</span>
+                                     </label>
+                                     <input 
+                                         type="text" 
+                                         placeholder="Örn: 3319 veya 1234" 
+                                         value={newMoldCode} 
+                                         onChange={(e) => setNewMoldCode(e.target.value.toUpperCase())} 
+                                         className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 font-mono font-bold text-sm uppercase" 
+                                     />
+                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                                         İş Emri Önizleme: <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">{getMoldWorkOrderNo({ projectType: newProjectType }, newMoldCode, cleanProjects)}</span>
+                                     </p>
+                                 </div>
+                                 <div>
+                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                         Kalıp / İş Adı <span className="text-red-500 font-bold">*</span>
+                                     </label>
+                                     <input type="text" placeholder={newProjectType === PROJECT_TYPES.REVISION ? "Kalıp Adı (Örn: Vazo Kalıbı Revizyon)" : "Kalıp Numarası / İş Adı"} value={newMoldName} onChange={(e) => { setNewMoldName(e.target.value); setMoldError(''); }} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
+                                     {moldError && (<div className="mt-2 flex items-center text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg"><AlertTriangle className="w-4 h-4 mr-2" />{moldError}</div>)}
+                                 </div>
+                                 <div>
+                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                         Müşteri <span className="text-red-500 font-bold">*</span>
+                                     </label>
+                                     <input type="text" placeholder="Müşteri Adı" value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} className="w-full rounded-lg border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2" />
+                                 </div>
+                             </div>
+                             <div className="mt-4 flex justify-end">
+                                 <button 
+                                     onClick={handleAddNewMold} 
+                                     className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed" 
+                                     disabled={!newMoldCode.trim() || !newMoldName.trim() || !newCustomer.trim()}
+                                 >
+                                     Kaydet ve Ekle
+                                 </button>
+                             </div>
                          </div>
                         
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

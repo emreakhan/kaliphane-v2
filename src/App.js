@@ -1168,7 +1168,7 @@ const App = () => {
 
                         <Route path="/tool-history" element={
                             activeUserPermissions['/tool-history']?.view
-                            ? <ToolHistoryPage machines={machines} db={db} tools={tools} />
+                            ? <ToolHistoryPage machines={machines} personnel={personnel} db={db} tools={tools} />
                             : <Navigate to="/" replace />
                         } />
 
