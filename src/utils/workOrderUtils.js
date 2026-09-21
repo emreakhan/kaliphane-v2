@@ -201,22 +201,104 @@ export const generateMoldCode = (projectType = PROJECT_TYPES.NEW_MOLD, existingP
 };
 
 /**
- * Bir Kalıp Altındaki Tüm Operasyonları Tarayıp Sıradaki Eşsiz İş Emri Numarasını Üretir
- * Seçenek A Kuralı: [KALIP İŞ EMRİ]-[01], [02], [03]...
+ * Parça Adından Standart ve Temiz Parça Kodu Üretir
+ * Örn: "S1" -> "S1", "Çekirdek" -> "CEKIRDEK", "Dişi Plaka" -> "DISI-PLAKA"
  */
-export const generateNextWorkOrderNo = (mold) => {
+export const cleanPartCode = (name) => {
+  if (!name) return 'P1';
+  const trMap = {
+    'ç': 'C', 'Ç': 'C',
+    'ğ': 'G', 'Ğ': 'G',
+    'ı': 'I', 'İ': 'I',
+    'i': 'I', 'I': 'I',
+    'ö': 'O', 'Ö': 'O',
+    'ş': 'S', 'Ş': 'S',
+    'ü': 'U', 'Ü': 'U'
+  };
+  let str = String(name).trim();
+  str = str.replace(/[çÇğĞıİiIöÖşŞüÜ]/g, match => trMap[match] || match);
+  str = str.toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9_-]/g, '');
+  return str || 'P1';
+};
+
+/**
+ * Operasyon İş Emri Numarasını Formatlar / Alır
+ * Kural: [KALIP İŞ EMRİ]-[PARÇA ADI]-[OPERASYON SAYAÇ]
+ * Örn: 080726-YNK-3333-S1-01
+ */
+export const formatOperationWorkOrderNo = (operation, task, moldWorkOrderNo, opIndex = 1) => {
+  const cleanPart = cleanPartCode(task?.taskName || task?.name || `P${task?.taskNumber || 1}`);
+  const defaultSeq = String(opIndex).padStart(2, '0');
+
+  if (operation?.workOrderNo && typeof operation.workOrderNo === 'string' && operation.workOrderNo.trim() !== '') {
+    const currentWo = operation.workOrderNo.trim();
+    if (moldWorkOrderNo && cleanPart) {
+      // Eski formatta parça adı olmadan kaydedilmişse (örn: "080726-YNK-3333-01"), parça adını araya ekle
+      const baseEscaped = moldWorkOrderNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const oldPattern = new RegExp(`^${baseEscaped}-(\\d{2,})$`);
+      const match = currentWo.match(oldPattern);
+      if (match) {
+        return `${moldWorkOrderNo}-${cleanPart}-${match[1]}`;
+      }
+    }
+    return currentWo;
+  }
+
+  if (moldWorkOrderNo) {
+    return `${moldWorkOrderNo}-${cleanPart}-${defaultSeq}`;
+  }
+
+  return `IE-${cleanPart}-${defaultSeq}`;
+};
+
+/**
+ * Bir Kalıp ve Parça Altındaki Operasyon İçin Sıradaki Eşsiz İş Emri Numarasını Üretir
+ * Kural: [KALIP İŞ EMRİ]-[PARÇA ADI]-[OPERASYON SAYAÇ]
+ * Örn: 080726-YNK-3333-S1-01, 080726-YNK-3333-S1-02
+ */
+export const generateNextWorkOrderNo = (mold, task = null, projects = []) => {
   if (!mold) return `IE-${Date.now().toString().slice(-4)}`;
 
-  const baseCode = getMoldWorkOrderNo(mold) || (mold.moldCode || mold.projectCode || mold.projectNumber || mold.moldName || 'IE').trim();
+  const baseCode = getMoldWorkOrderNo(mold, null, projects) || (mold.moldCode || mold.projectCode || mold.projectNumber || mold.moldName || 'IE').trim();
+  const partCode = task ? cleanPartCode(task.taskName || task.name || `P${task.taskNumber || 1}`) : '';
+
+  if (task && Array.isArray(task.operations)) {
+    const existingWorkOrders = new Set();
+    let totalOpsCount = 0;
+
+    task.operations.forEach(op => {
+      totalOpsCount++;
+      if (op.workOrderNo) {
+        existingWorkOrders.add(String(op.workOrderNo).trim());
+      }
+    });
+
+    const prefix = `${baseCode}-${partCode}-`;
+    let maxSeq = 0;
+
+    existingWorkOrders.forEach(wNo => {
+      if (wNo.startsWith(prefix)) {
+        const suffix = wNo.slice(prefix.length);
+        const num = parseInt(suffix, 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      }
+    });
+
+    const nextSeqNum = Math.max(maxSeq + 1, totalOpsCount + 1);
+    const nextSeqStr = String(nextSeqNum).padStart(2, '0');
+    return `${baseCode}-${partCode}-${nextSeqStr}`;
+  }
 
   // Kalıbın tüm görevlerindeki (parçalarındaki) operasyonları topla
   const existingWorkOrders = new Set();
   let totalOpsCount = 0;
 
   if (Array.isArray(mold.tasks)) {
-    mold.tasks.forEach(task => {
-      if (Array.isArray(task.operations)) {
-        task.operations.forEach(op => {
+    mold.tasks.forEach(t => {
+      if (Array.isArray(t.operations)) {
+        t.operations.forEach(op => {
           totalOpsCount++;
           if (op.workOrderNo) {
             existingWorkOrders.add(String(op.workOrderNo).trim());
@@ -226,42 +308,27 @@ export const generateNextWorkOrderNo = (mold) => {
     });
   }
 
-  // Kalıp iş emri önekli en yüksek sayaç numarasını bul
-  const prefix = `${baseCode}-`;
-  let maxSeq = 0;
-
-  existingWorkOrders.forEach(wNo => {
-    if (wNo.startsWith(prefix)) {
-      const suffix = wNo.slice(prefix.length);
-      const num = parseInt(suffix, 10);
-      if (!isNaN(num) && num > maxSeq) {
-        maxSeq = num;
-      }
-    }
-  });
-
-  const nextSeqNum = Math.max(maxSeq + 1, totalOpsCount + 1);
-  const nextSeqStr = String(nextSeqNum).padStart(2, '0');
-
-  return `${baseCode}-${nextSeqStr}`;
+  const seqStr = String(totalOpsCount + 1).padStart(2, '0');
+  return partCode ? `${baseCode}-${partCode}-${seqStr}` : `${baseCode}-${seqStr}`;
 };
 
 /**
- * Kalıp Görevleri/Parçaları İçindeki Tüm Operasyonlara Sırayla Eşsiz İş Emri Numarası Atar
- * Örn: [KALIP İŞ EMRİ]-01, [KALIP İŞ EMRİ]-02, ...
+ * Kalıp Görevleri/Parçaları İçindeki Tüm Operasyonlara Parça Adını da İçeren Eşsiz İş Emri Numarası Atar
+ * Örn: [KALIP İŞ EMRİ]-[PARÇA ADI]-01, [KALIP İŞ EMRİ]-[PARÇA ADI]-02, ...
  */
 export const assignWorkOrderNumbersToTasks = (tasks, baseWorkOrderNo, overwrite = false) => {
   if (!Array.isArray(tasks) || !baseWorkOrderNo) return tasks || [];
 
-  let seq = 1;
-  return tasks.map(task => {
+  return tasks.map((task, taskIdx) => {
     if (!task.operations || !Array.isArray(task.operations)) return task;
-    const newOperations = task.operations.map(op => {
+    const partCode = cleanPartCode(task.taskName || task.name || `P${task.taskNumber || taskIdx + 1}`);
+
+    const newOperations = task.operations.map((op, opIdx) => {
       if (!overwrite && op.workOrderNo && String(op.workOrderNo).trim() !== '') {
         return op;
       }
-      const opWorkOrderNo = `${baseWorkOrderNo}-${String(seq).padStart(2, '0')}`;
-      seq++;
+      const opSeq = String(opIdx + 1).padStart(2, '0');
+      const opWorkOrderNo = `${baseWorkOrderNo}-${partCode}-${opSeq}`;
       return {
         ...op,
         workOrderNo: opWorkOrderNo

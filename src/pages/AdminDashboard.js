@@ -12,7 +12,7 @@ import PersonnelManagement from '../components/Shared/PersonnelManagement.js';
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 import Modal from '../components/Modals/Modal.js';
 import MoldStatusManagement from '../components/Admin/MoldStatusManagement.js';
-import { getMoldWorkOrderNo, getMoldCreationDate, assignWorkOrderNumbersToTasks } from '../utils/workOrderUtils.js';
+import { getMoldWorkOrderNo, getMoldCreationDate, assignWorkOrderNumbersToTasks, cleanPartCode } from '../utils/workOrderUtils.js';
 
 // --- BİLEŞEN: Kalıp Yönetimi (Düzenleme/Silme) ---
 const MoldManagement = ({ db, projects, handleDeleteMold, handleUpdateMold }) => {
@@ -589,7 +589,7 @@ const AdminDashboard = ({
         const taskNames = batchTaskNames.split('\n').map(name => name.trim()).filter(name => name.length > 0);
         if (taskNames.length === 0) return;
 
-        const baseWO = getMoldWorkOrderNo(moldToUpdate);
+        const baseWO = getMoldWorkOrderNo(moldToUpdate, null, cleanProjects);
         let newTasksList = [...moldToUpdate.tasks];
         let addedCount = 0;
         let errorMessages = [];
@@ -601,10 +601,11 @@ const AdminDashboard = ({
                 errorMessages.push(`"${taskName}" (zaten var)`);
             } else {
                 currentTaskNumber++;
+                const partCode = cleanPartCode(taskName);
                 const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const defaultOperation = {
                     id: newOperationId,
-                    workOrderNo: `${baseWO}-${String(currentTaskNumber).padStart(2, '0')}`,
+                    workOrderNo: `${baseWO}-${partCode}-01`,
                     type: OPERATION_TYPES.CNC,
                     status: OPERATION_STATUS.NOT_STARTED,
                     progressPercentage: 0,

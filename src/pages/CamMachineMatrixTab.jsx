@@ -53,6 +53,7 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                                         taskId: task.id,
                                         taskName: task.taskName,
                                         opName: op.name || op.type || 'Operasyon',
+                                        subOperations: op.subOperations || [],
                                         camOperator: op.assignedOperator || camOpName,
                                         machineOperator: op.machineOperatorName || '',
                                         estTime: estTime,
@@ -71,6 +72,7 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                 if (task.plannedMachine && !isTaskCompleted) {
                     const targetMachine = matrix.find(m => m.name === task.plannedMachine);
                     if (targetMachine && targetMachine.id !== taskActiveMachineId) {
+                        const pendingOp = task.operations?.find(op => op.status !== 'COMPLETED');
                         targetMachine.totalHours += estTime;
                         targetMachine.queuedJobs.push({
                             moldId: project.id,
@@ -78,6 +80,8 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                             projectCode: project.projectCode,
                             taskId: task.id,
                             taskName: task.taskName,
+                            opName: pendingOp?.type || pendingOp?.name,
+                            subOperations: pendingOp?.subOperations || (task.operations || []).flatMap(o => o.subOperations || []),
                             camOperator: camOpName,
                             time: estTime,
                             priority: project.priority || 999
@@ -295,6 +299,16 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                                             <div className="text-xs font-black text-emerald-950 dark:text-emerald-100 line-clamp-1" title={machine.activeJob.taskName}>
                                                 {machine.activeJob.taskName}
                                             </div>
+                                            {/* Alt Operasyon / İşlem Etiketleri */}
+                                            {machine.activeJob.subOperations && machine.activeJob.subOperations.length > 0 && (
+                                                <div className="flex flex-wrap gap-0.5 mt-1">
+                                                    {machine.activeJob.subOperations.map((subOp, sIdx) => (
+                                                        <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
+                                                            {subOp}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* İlerleme Çubuğu */}
@@ -332,7 +346,7 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                                         <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
                                             {machine.queuedJobs.map((qJob, qIdx) => (
                                                 <div 
-                                                    key={`${qJob.moldId}-${qJob.taskId}`}
+                                                    key={`${qJob.moldId}-${qJob.taskId}-${qIdx}`}
                                                     className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex flex-col gap-1 hover:border-blue-300 transition"
                                                 >
                                                     <div className="flex justify-between items-center">
@@ -351,6 +365,16 @@ const CamMachineMatrixTab = ({ projects = [], machines = [] }) => {
                                                         <div className="text-xs font-black text-slate-900 dark:text-slate-100 line-clamp-1" title={qJob.taskName}>
                                                             {qJob.taskName}
                                                         </div>
+                                                        {/* Alt Operasyon / İşlem Etiketleri */}
+                                                        {qJob.subOperations && qJob.subOperations.length > 0 && (
+                                                            <div className="flex flex-wrap gap-0.5 mt-1">
+                                                                {qJob.subOperations.map((subOp, sIdx) => (
+                                                                    <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
+                                                                        {subOp}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {qJob.camOperator && (

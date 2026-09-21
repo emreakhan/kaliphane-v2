@@ -19,7 +19,7 @@ import {
 
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
 import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
-import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
+import { getMoldWorkOrderNo, formatOperationWorkOrderNo } from '../utils/workOrderUtils.js';
 
 import { 
     db, doc, onSnapshot, setDoc, updateDoc, collection,
@@ -222,22 +222,6 @@ const MoldDetailPage = ({
     
     const mold = useMemo(() => projects.find(p => p.id === moldId), [projects, moldId]);
     const moldWorkOrderNo = useMemo(() => getMoldWorkOrderNo(mold, null, projects), [mold, projects]);
-
-    const operationIndexMap = useMemo(() => {
-        const map = {};
-        let count = 0;
-        if (mold?.tasks) {
-            mold.tasks.forEach(t => {
-                if (t.operations) {
-                    t.operations.forEach(op => {
-                        count++;
-                        map[op.id] = count;
-                    });
-                }
-            });
-        }
-        return map;
-    }, [mold?.tasks]);
     
     const [moldStatuses, setMoldStatuses] = useState(DEFAULT_MOLD_STATUSES);
 
@@ -893,7 +877,7 @@ const MoldDetailPage = ({
         }
         return null;
     };
-    
+
     return (
         <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-xl relative min-h-screen">
             {/* Sabitlenen (Sticky) Başlık ve Bilgi Alanı */}
@@ -1287,12 +1271,9 @@ const MoldDetailPage = ({
                                                             Bu parça için henüz operasyon eklenmedi.
                                                         </div>
                                                     ) : (
-                                                        task.operations.map(operation => {
+                                                        task.operations.map((operation, opIdx) => {
                                                             const hasPauseHistory = (operation.pauseHistory && operation.pauseHistory.length > 0) || operation.lastPausedAt;
-                                                            const fallbackWo = moldWorkOrderNo && operationIndexMap[operation.id] 
-                                                                ? `${moldWorkOrderNo}-${String(operationIndexMap[operation.id]).padStart(2, '0')}` 
-                                                                : null;
-                                                            const displayWorkOrderNo = operation.workOrderNo || fallbackWo;
+                                                            const displayWorkOrderNo = formatOperationWorkOrderNo(operation, task, moldWorkOrderNo, opIdx + 1);
 
                                                             return (
                                                                 <div key={operation.id} className="p-3.5 border border-gray-200 dark:border-gray-700/80 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
@@ -1320,6 +1301,23 @@ const MoldDetailPage = ({
                                                                                     </span>
                                                                                 )}
                                                                             </div>
+
+                                                                            {/* YENİ: Alt İşlem Durumları (Diş Çekme, Çevre Dönme vb.) */}
+                                                                            {operation.subOperations && Array.isArray(operation.subOperations) && operation.subOperations.length > 0 && (
+                                                                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                                                                    <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider">İşlem Detayları:</span>
+                                                                                    {operation.subOperations.map((subOp, sIdx) => (
+                                                                                        <span 
+                                                                                            key={sIdx}
+                                                                                            className="px-2 py-0.5 text-[10px] font-black rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 shadow-2xs flex items-center gap-1"
+                                                                                        >
+                                                                                            <span className="text-indigo-500 dark:text-indigo-400 font-bold">▪</span>
+                                                                                            {subOp}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+
                                                                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2.5 text-xs text-gray-600 dark:text-gray-300">
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">CAM Op:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.assignedOperator}</span></div>
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">Tezgah:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.machineName || 'YOK'}</span></div>
@@ -1327,6 +1325,13 @@ const MoldDetailPage = ({
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">Başlangıç:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDateTime(operation.startDate)}</span></div>
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">Termin:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDate(operation.estimatedDueDate)}</span></div>
                                                                                 
+                                                                                {/* YENİ: Tamamlanma/Bitiş Tarihi */}
+                                                                                {(operation.finishDate || operation.completionDate || operation.status === OPERATION_STATUS.COMPLETED) && (
+                                                                                    <div>
+                                                                                        <span className="font-medium text-emerald-700 dark:text-emerald-400">Bitiş:</span> <span className="font-semibold text-emerald-800 dark:text-emerald-300">{formatDateTime(operation.finishDate || operation.completionDate) || 'Tamamlandı'}</span>
+                                                                                    </div>
+                                                                                )}
+
                                                                                 {operation.durationInHours && <div><span className="font-medium text-green-700 dark:text-green-400">İş Süresi:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.durationInHours} Saat</span></div>}
                                                                                 {operation.camOperatorRatingForMachineOp && <div><span className="font-medium text-blue-600 dark:text-cyan-400">CAM Puanı:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{operation.camOperatorRatingForMachineOp} / 10</span></div>}
                                                                                 {operation.supervisorRating && <div><span className="font-medium text-purple-600 dark:text-purple-300">Yetkili Puanı:</span> <span className="font-bold text-base text-purple-700 dark:text-purple-200">{operation.supervisorRating} / 10</span></div>}
@@ -1636,111 +1641,101 @@ const MoldDetailPage = ({
                                                         </div>
                                                     </div>
 
-                                                    {/* DIŞ TEMİN BİLGİLERİ ALANI */}
-                                                    <div className="bg-orange-50 dark:bg-orange-950/20 p-4 rounded-xl border border-orange-100 dark:border-orange-900/50">
-                                                        <div className="flex items-center justify-between mb-3">
-                                                            <div className="flex items-center">
-                                                                <Layers className="w-5 h-5 text-orange-600 dark:text-orange-400 mr-2" />
-                                                                <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Dış Temin / Fason İşlem Bilgisi:</span>
-                                                            </div>
-                                                            {task.outsourced && (
-                                                                <span className={`px-2 py-0.5 text-xs font-black rounded-full ${task.outsourcedStatus === 'Tamamlandı' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
-                                                                    {task.outsourcedStatus || 'İşleniyor'}
-                                                                </span>
-                                                            )}
-                                                        </div>
-
-                                                        {isManager ? (
-                                                            <div className="space-y-3">
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <input 
-                                                                        type="checkbox" 
-                                                                        id={`outsourced-${task.id}`}
-                                                                        className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                                                                        checked={taskOutsourceInputs[task.id]?.outsourced || false}
-                                                                        onChange={(e) => setTaskOutsourceInputs({
-                                                                            ...taskOutsourceInputs,
-                                                                            [task.id]: { ...taskOutsourceInputs[task.id], outsourced: e.target.checked }
-                                                                        })}
-                                                                    />
-                                                                    <label htmlFor={`outsourced-${task.id}`} className="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">
-                                                                        Bu parça dışarıdan temin ediliyor / dışarıda işleniyor
+                                                    {/* DIŞ TEMİN BİLGİLERİ ALANI (KOMPAKT) */}
+                                                    <div className="bg-orange-50/70 dark:bg-orange-950/20 p-2.5 px-3 rounded-xl border border-orange-200/80 dark:border-orange-900/40">
+                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <Layers className="w-4 h-4 text-orange-600 dark:text-orange-400 shrink-0" />
+                                                                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Dış Temin / Fason:</span>
+                                                                {isManager ? (
+                                                                    <label htmlFor={`outsourced-${task.id}`} className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer ml-1">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            id={`outsourced-${task.id}`}
+                                                                            className="w-3.5 h-3.5 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                                            checked={taskOutsourceInputs[task.id]?.outsourced || false}
+                                                                            onChange={(e) => setTaskOutsourceInputs({
+                                                                                ...taskOutsourceInputs,
+                                                                                [task.id]: { ...taskOutsourceInputs[task.id], outsourced: e.target.checked }
+                                                                            })}
+                                                                        />
+                                                                        <span>Dışarıda İşleniyor / Temin Ediliyor</span>
                                                                     </label>
-                                                                </div>
-
-                                                                {(taskOutsourceInputs[task.id]?.outsourced) && (
-                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Firma Adı:</label>
-                                                                            <input 
-                                                                                type="text" 
-                                                                                placeholder="Örn: A Firması, Lazer Kesim vb."
-                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                                value={taskOutsourceInputs[task.id]?.outsourcedFirm || ''}
-                                                                                onChange={(e) => setTaskOutsourceInputs({
-                                                                                    ...taskOutsourceInputs,
-                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedFirm: e.target.value }
-                                                                                })}
-                                                                            />
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Durum:</label>
-                                                                            <select 
-                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                                value={taskOutsourceInputs[task.id]?.outsourcedStatus || 'İşleniyor'}
-                                                                                onChange={(e) => setTaskOutsourceInputs({
-                                                                                    ...taskOutsourceInputs,
-                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedStatus: e.target.value }
-                                                                                })}
-                                                                            >
-                                                                                <option value="İşleniyor">Dışarıda İşleniyor</option>
-                                                                                <option value="Tamamlandı">Tamamlandı</option>
-                                                                            </select>
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Açıklama / Detaylar:</label>
-                                                                            <input 
-                                                                                type="text" 
-                                                                                placeholder="Örn: A firması tamamladı, vb."
-                                                                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                                                                                value={taskOutsourceInputs[task.id]?.outsourcedComment || ''}
-                                                                                onChange={(e) => setTaskOutsourceInputs({
-                                                                                    ...taskOutsourceInputs,
-                                                                                    [task.id]: { ...taskOutsourceInputs[task.id], outsourcedComment: e.target.value }
-                                                                                })}
-                                                                            />
-                                                                        </div>
-                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                                                                        {task.outsourced ? `Dışarıda (${task.outsourcedFirm || 'Firma Yok'})` : 'Bünyemizde Üretiliyor'}
+                                                                    </span>
                                                                 )}
+                                                            </div>
 
-                                                                <div className="flex justify-end pt-2">
+                                                            <div className="flex items-center gap-2 self-end sm:self-auto">
+                                                                {task.outsourced && (
+                                                                    <span className={`px-2 py-0.5 text-[10px] font-black rounded-full ${task.outsourcedStatus === 'Tamamlandı' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
+                                                                        {task.outsourcedStatus || 'İşleniyor'}
+                                                                    </span>
+                                                                )}
+                                                                {isManager && (
                                                                     <button 
                                                                         onClick={() => handleSaveTaskOutsourcing(task.id)}
-                                                                        className="flex items-center px-4 py-2 bg-orange-600 text-white text-xs font-black rounded-lg hover:bg-orange-700 transition shadow-sm"
+                                                                        className="flex items-center px-3 py-1 bg-orange-600 text-white text-[11px] font-black rounded-lg hover:bg-orange-700 transition shadow-sm"
                                                                     >
-                                                                        <Check className="w-3 h-3 mr-1" /> BİLGİLERİ GÜNCELLE
+                                                                        <Check className="w-3 h-3 mr-1" /> {taskOutsourceInputs[task.id]?.outsourced ? 'KAYDET' : 'GÜNCELLE'}
                                                                     </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Sadece işaretlendiğinde açılan kompakt giriş alanları */}
+                                                        {isManager && taskOutsourceInputs[task.id]?.outsourced && (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2.5 mt-2 border-t border-orange-200/60 dark:border-orange-900/30">
+                                                                <div>
+                                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Firma Adı:</label>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        placeholder="Örn: A Firması, Lazer..."
+                                                                        className="w-full p-1.5 text-xs border rounded-lg dark:bg-gray-700 dark:text-white"
+                                                                        value={taskOutsourceInputs[task.id]?.outsourcedFirm || ''}
+                                                                        onChange={(e) => setTaskOutsourceInputs({
+                                                                            ...taskOutsourceInputs,
+                                                                            [task.id]: { ...taskOutsourceInputs[task.id], outsourcedFirm: e.target.value }
+                                                                        })}
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Durum:</label>
+                                                                    <select 
+                                                                        className="w-full p-1.5 text-xs border rounded-lg dark:bg-gray-700 dark:text-white font-medium"
+                                                                        value={taskOutsourceInputs[task.id]?.outsourcedStatus || 'İşleniyor'}
+                                                                        onChange={(e) => setTaskOutsourceInputs({
+                                                                            ...taskOutsourceInputs,
+                                                                            [task.id]: { ...taskOutsourceInputs[task.id], outsourcedStatus: e.target.value }
+                                                                        })}
+                                                                    >
+                                                                        <option value="İşleniyor">Dışarıda İşleniyor</option>
+                                                                        <option value="Tamamlandı">Tamamlandı</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Açıklama / Detay:</label>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        placeholder="Örn: A firması teslim etti"
+                                                                        className="w-full p-1.5 text-xs border rounded-lg dark:bg-gray-700 dark:text-white"
+                                                                        value={taskOutsourceInputs[task.id]?.outsourcedComment || ''}
+                                                                        onChange={(e) => setTaskOutsourceInputs({
+                                                                            ...taskOutsourceInputs,
+                                                                            [task.id]: { ...taskOutsourceInputs[task.id], outsourcedComment: e.target.value }
+                                                                        })}
+                                                                    />
                                                                 </div>
                                                             </div>
-                                                        ) : (
-                                                            <div>
-                                                                {task.outsourced ? (
-                                                                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-orange-100 dark:border-orange-900/30 text-sm space-y-1">
-                                                                        <p className="text-gray-700 dark:text-gray-300">
-                                                                            <span className="font-bold">Firma / Süreç:</span> {task.outsourcedFirm || 'Belirtilmedi'}
-                                                                        </p>
-                                                                        <p className="text-gray-700 dark:text-gray-300">
-                                                                            <span className="font-bold">Durum:</span> {task.outsourcedStatus || 'İşleniyor'}
-                                                                        </p>
-                                                                        {task.outsourcedComment && (
-                                                                            <p className="text-gray-700 dark:text-gray-300">
-                                                                                <span className="font-bold">Açıklama / Detaylar:</span> <span className="italic">"{task.outsourcedComment}"</span>
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                ) : (
-                                                                    <span className="text-xs text-gray-500 italic">Bu parça dışarıda işlem görmüyor (kendi bünyemizde üretiliyor).</span>
-                                                                )}
+                                                        )}
+
+                                                        {!isManager && task.outsourced && (
+                                                            <div className="pt-2 mt-2 border-t border-orange-200/60 dark:border-orange-900/30 text-xs flex flex-wrap gap-3 text-gray-700 dark:text-gray-300">
+                                                                <span><b>Firma:</b> {task.outsourcedFirm || 'Belirtilmedi'}</span>
+                                                                <span><b>Durum:</b> {task.outsourcedStatus || 'İşleniyor'}</span>
+                                                                {task.outsourcedComment && <span><b>Not:</b> <i>"{task.outsourcedComment}"</i></span>}
                                                             </div>
                                                         )}
                                                     </div>

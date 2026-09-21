@@ -3,8 +3,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Clock, Monitor, Layers, AlertCircle, CheckCircle2, Search, ChevronDown, 
-    User, Filter, LayoutGrid, Check, X, Sparkles, Plus, Eye, Bell, BellRing,
-    GripVertical, ArrowUp, ArrowDown, Play, CheckCircle, ChevronRight, Wrench
+    User, LayoutGrid, Check, X, BellRing,
+    GripVertical, ArrowUp, ArrowDown, CheckCircle, Wrench, List
 } from 'lucide-react';
 import { doc, updateDoc } from '../config/firebase.js';
 import { PROJECT_COLLECTION, OPERATION_STATUS, DEFAULT_MOLD_STATUSES, ROLES } from '../config/constants.js';
@@ -215,6 +215,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         return activeMolds.find(m => m.id === selectedMoldId) || null;
     }, [activeMolds, selectedMoldId]);
 
+    // Görünüm Modu (Grid - 2'li Izgara vs Liste)
+    const [viewMode, setViewMode] = useState('grid');
+
     // Taslak Form State'lerini Senkronize Et
     useEffect(() => {
         if (selectedMold && selectedMold.tasks) {
@@ -225,6 +228,14 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     camOp: t.assignedOperator || t.camOperator || t.camPreparation?.operator || '',
                     estTime: t.estimatedCamTime ? String(t.estimatedCamTime) : ''
                 };
+                t.operations?.forEach((op, idx) => {
+                    const opKey = `${t.id}_${op.id || idx}`;
+                    initialDrafts[opKey] = {
+                        machine: op.machineName || t.plannedMachine || '',
+                        camOp: op.assignedOperator || t.assignedOperator || t.camOperator || '',
+                        estTime: op.estimatedCamTime || op.durationInHours ? String(op.estimatedCamTime || op.durationInHours) : (t.estimatedCamTime ? String(t.estimatedCamTime) : '')
+                    };
+                });
             });
             setTaskDrafts(initialDrafts);
         }
@@ -342,29 +353,65 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                         moldName: project.moldName,
                                         taskId: task.id,
                                         taskName: task.taskName,
-                                        opName: op.name || op.type || 'Operasyon',
+                                        opId: op.id,
+                                        opName: op.type || op.name || 'Operasyon',
+                                        subOperations: op.subOperations || [],
                                         camOperatorName: op.assignedOperator || camOpName,
-                                        estTime: estTime,
+                                        estTime: parseFloat(op.estimatedCamTime || op.durationInHours) || estTime,
                                         progressPercentage: parseFloat(op.progressPercentage) || 0
                                     };
-                                    m.totalHours += estTime;
+                                    m.totalHours += (parseFloat(op.estimatedCamTime || op.durationInHours) || estTime);
                                 }
                             });
                         }
                     });
                 }
 
-                // 2. Planlanmış Kuyruk
-                const isTaskCompleted = task.operations?.every(op => op.status === 'COMPLETED') || false;
-                if (task.plannedMachine && !isTaskCompleted) {
+                // 2. Planlanmış Kuyruk (Operasyon veya Parça Bazlı)
+                let hasOpAssigned = false;
+                if (task.operations && Array.isArray(task.operations)) {
+                    task.operations.forEach((op, opIdx) => {
+                        const isOpDone = op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED;
+                        const isOpWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
+                        if (!isOpDone && !isOpWorking && op.machineName) {
+                            const targetMachine = backlogs.find(m => m.name === op.machineName);
+                            if (targetMachine && targetMachine.id !== taskActiveMachineId) {
+                                hasOpAssigned = true;
+                                const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTime;
+                                targetMachine.totalHours += opTime;
+                                targetMachine.assignedTasks.push({
+                                    moldId: project.id,
+                                    moldName: project.moldName,
+                                    taskId: task.id,
+                                    taskName: task.taskName,
+                                    opId: op.id || String(opIdx),
+                                    opName: op.type || op.name,
+                                    subOperations: op.subOperations || [],
+                                    camOperatorName: op.assignedOperator || camOpName,
+                                    time: opTime,
+                                    priority: task.priority !== undefined ? task.priority : (project.priority || 999)
+                                });
+                            }
+                        }
+                    });
+                }
+
+                // Eğer tek tek operasyon atanmamışsa ama task.plannedMachine varsa
+                const isTaskCompleted = task.operations?.every(op => op.status === 'COMPLETED') || task.status === 'COMPLETED';
+                const isTaskWorking = task.operations?.some(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
+                if (!hasOpAssigned && task.plannedMachine && !isTaskCompleted && !isTaskWorking) {
                     const targetMachine = backlogs.find(m => m.name === task.plannedMachine);
                     if (targetMachine && targetMachine.id !== taskActiveMachineId) {
+                        const pendingOp = task.operations?.find(op => op.status !== 'COMPLETED' && op.status !== OPERATION_STATUS.COMPLETED);
                         targetMachine.totalHours += estTime;
                         targetMachine.assignedTasks.push({
                             moldId: project.id,
                             moldName: project.moldName,
                             taskId: task.id,
                             taskName: task.taskName,
+                            opId: pendingOp?.id,
+                            opName: pendingOp?.type || pendingOp?.name,
+                            subOperations: pendingOp?.subOperations || (task.operations || []).flatMap(o => o.subOperations || []),
                             camOperatorName: camOpName,
                             time: estTime,
                             priority: task.priority !== undefined ? task.priority : (project.priority || 999)
@@ -381,10 +428,11 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         return backlogs;
     }, [projects, machines]);
 
-    // Planlama İşlemi
-    const handleAssignToMachine = async (taskId) => {
+    // Planlama İşlemi (Parça veya Alt Operasyon Bazlı)
+    const handleAssignToMachine = async (taskId, opId = null) => {
         if (!selectedMold) return;
-        const draft = taskDrafts[taskId] || {};
+        const draftKey = opId ? `${taskId}_${opId}` : taskId;
+        const draft = taskDrafts[draftKey] || taskDrafts[taskId] || {};
         const machineName = draft.machine;
         const camOperatorName = draft.camOp;
         const estimatedHours = draft.estTime ? parseFloat(draft.estTime) : 0;
@@ -398,25 +446,46 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             const targetTask = selectedMold.tasks.find(t => t.id === taskId);
             const updatedTasks = selectedMold.tasks.map(t => {
                 if (t.id === taskId) {
-                    const updated = { 
-                        ...t, 
-                        plannedMachine: machineName,
-                        assignedOperator: camOperatorName || t.assignedOperator || '',
-                        camOperator: camOperatorName || t.camOperator || '',
-                        estimatedCamTime: isNaN(estimatedHours) ? (parseFloat(t.estimatedCamTime) || 0) : estimatedHours
-                    };
+                    let updated = { ...t };
 
-                    if (updated.operations && Array.isArray(updated.operations)) {
+                    if (opId && updated.operations && Array.isArray(updated.operations)) {
+                        // Tekil alt operasyonu güncelle
                         updated.operations = updated.operations.map((op, idx) => {
-                            if (idx === 0 && (op.status === OPERATION_STATUS.NOT_STARTED || !op.status)) {
+                            if ((op.id && op.id === opId) || String(idx) === String(opId)) {
                                 return {
                                     ...op,
-                                    assignedOperator: camOperatorName || op.assignedOperator,
-                                    machineName: machineName || op.machineName
+                                    machineName: machineName,
+                                    assignedOperator: camOperatorName || op.assignedOperator || '',
+                                    estimatedCamTime: isNaN(estimatedHours) ? (parseFloat(op.estimatedCamTime) || 0) : estimatedHours
                                 };
                             }
                             return op;
                         });
+                        if (!updated.plannedMachine) {
+                            updated.plannedMachine = machineName;
+                        }
+                    } else {
+                        // Genel parça planlaması
+                        updated = { 
+                            ...t, 
+                            plannedMachine: machineName,
+                            assignedOperator: camOperatorName || t.assignedOperator || '',
+                            camOperator: camOperatorName || t.camOperator || '',
+                            estimatedCamTime: isNaN(estimatedHours) ? (parseFloat(t.estimatedCamTime) || 0) : estimatedHours
+                        };
+
+                        if (updated.operations && Array.isArray(updated.operations)) {
+                            updated.operations = updated.operations.map((op, idx) => {
+                                if (idx === 0 && (op.status === OPERATION_STATUS.NOT_STARTED || !op.status)) {
+                                    return {
+                                        ...op,
+                                        assignedOperator: camOperatorName || op.assignedOperator,
+                                        machineName: machineName || op.machineName
+                                    };
+                                }
+                                return op;
+                            });
+                        }
                     }
                     return updated;
                 }
@@ -430,7 +499,8 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
 
             // Bildirim Gönder
             if (camOperatorName) {
-                sendCamNotification(camOperatorName, selectedMold.moldName, targetTask?.taskName || 'Parça', machineName);
+                const opLabel = opId ? ' (Alt İşlem Planlandı)' : '';
+                sendCamNotification(camOperatorName, selectedMold.moldName, (targetTask?.taskName || 'Parça') + opLabel, machineName);
             }
         } catch (error) {
             console.error("Planlama hatası:", error);
@@ -438,15 +508,37 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         }
     };
 
-    // Plandan Kaldır
-    const handleRemoveFromMachine = async (moldId, taskId) => {
+    // Plandan Kaldır (Parça veya Alt Operasyon Bazlı)
+    const handleRemoveFromMachine = async (moldId, taskId, opId = null) => {
         try {
             const mold = (projects || []).find(p => p.id === moldId);
             if (!mold) return;
             const updatedTasks = (mold.tasks || []).map(t => {
                 if (t.id === taskId) {
                     const newTask = { ...t };
-                    delete newTask.plannedMachine; 
+                    if (opId && newTask.operations && Array.isArray(newTask.operations)) {
+                        newTask.operations = newTask.operations.map((op, idx) => {
+                            if ((op.id && op.id === opId) || String(idx) === String(opId)) {
+                                const newOp = { ...op };
+                                delete newOp.machineName;
+                                return newOp;
+                            }
+                            return op;
+                        });
+                        const anyAssigned = newTask.operations.some(o => o.machineName);
+                        if (!anyAssigned) {
+                            delete newTask.plannedMachine;
+                        }
+                    } else {
+                        delete newTask.plannedMachine;
+                        if (newTask.operations && Array.isArray(newTask.operations)) {
+                            newTask.operations = newTask.operations.map(op => {
+                                const newOp = { ...op };
+                                delete newOp.machineName;
+                                return newOp;
+                            });
+                        }
+                    }
                     return newTask;
                 }
                 return t;
@@ -493,11 +585,11 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
     return (
         <div className="flex flex-col xl:flex-row gap-4 animate-in fade-in h-[calc(100vh-140px)] items-start">
             
-            {/* SOL PANEL: KALIP SEÇİMİ VE BEKLEYEN PARÇALAR */}
-            <div className="w-full xl:w-[38%] flex flex-col gap-3 h-full">
+            {/* SOL PANEL: KALIP SEÇİMİ VE BEKLEYEN PARÇALAR (GENİŞLETİLMİŞ & IZGARA GÖRÜNÜMÜ) */}
+            <div className="w-full xl:w-[48%] 2xl:w-[50%] flex flex-col gap-3 h-full">
                 
                 {/* 1. KALIP SEÇİMİ VE DURUM FİLTRELERİ */}
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 shrink-0 space-y-3">
+                <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 shrink-0 space-y-2.5">
                     <div className="flex justify-between items-center border-b dark:border-gray-700 pb-2">
                         <h2 className="text-xs font-black text-gray-800 dark:text-white flex items-center uppercase tracking-wider">
                             <Layers className="w-4 h-4 mr-1.5 text-blue-500"/> Kalıp Seçimi & Filtreleme
@@ -611,29 +703,56 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     {selectedMold && (
                         <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800 flex justify-between items-center">
                             <div>
-                                <div className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase">Kalıp CAM Yükü</div>
-                                <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{selectedMold.moldName}</div>
+                                <div className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase">Seçili Kalıp & Toplam İş Yükü</div>
+                                <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 truncate max-w-[280px]">{selectedMold.moldName} ({selectedMold.projectCode || 'KODSUZ'})</div>
                             </div>
-                            <div className="text-lg font-black text-blue-800 dark:text-blue-300 flex items-center">
+                            <div className="text-base font-black text-blue-800 dark:text-blue-300 flex items-center">
                                 {moldTotalEstimatedTime.toFixed(1)} <span className="text-[10px] font-bold ml-1 opacity-60">Saat</span>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* 2. İŞ PARÇALARI VE PLANLAMA LİSTESİ */}
+                {/* 2. İŞ PARÇALARI VE PLANLAMA LİSTESİ (IZGARA / ÇOKLU PARÇA GÖRÜNÜMÜ) */}
                 {selectedMold ? (
-                    <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex-1 overflow-hidden flex flex-col">
+                    <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex-1 overflow-hidden flex flex-col">
                         <div className="flex justify-between items-center mb-2.5 border-b dark:border-gray-700 pb-2 shrink-0">
-                            <h3 className="font-black text-gray-800 dark:text-white uppercase text-xs tracking-wider">
-                                İş Parçaları ve Planlama ({selectedMold.tasks?.length || 0})
-                            </h3>
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                                Tamamlandı / Çalışıyor / Bekliyor
-                            </span>
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-black text-gray-800 dark:text-white uppercase text-xs tracking-wider">
+                                    İş Parçaları ve Planlama ({selectedMold.tasks?.length || 0})
+                                </h3>
+                            </div>
+                            
+                            {/* Görünüm Değiştirici (Grid / Liste) */}
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-600">
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('grid')}
+                                    className={`px-2 py-1 rounded text-[10px] font-black transition flex items-center gap-1 ${
+                                        viewMode === 'grid' 
+                                            ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-2xs' 
+                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
+                                    }`}
+                                    title="2'li Izgara Görünümü (Daha Çok Parça Gör)"
+                                >
+                                    <LayoutGrid size={11} /> Izgara
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('list')}
+                                    className={`px-2 py-1 rounded text-[10px] font-black transition flex items-center gap-1 ${
+                                        viewMode === 'list' 
+                                            ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-2xs' 
+                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
+                                    }`}
+                                    title="Tekli Liste Görünümü"
+                                >
+                                    <List size={11} /> Liste
+                                </button>
+                            </div>
                         </div>
                         
-                        <div className="space-y-2.5 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                        <div className={`flex-1 overflow-y-auto custom-scrollbar pr-1 ${viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start' : 'space-y-2.5'}`}>
                             {selectedMold.tasks?.map(task => {
                                 const progress = getTaskProgressInfo(task);
                                 const isAssigned = !!task.plannedMachine;
@@ -646,9 +765,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 return (
                                     <div 
                                         key={task.id} 
-                                        className={`p-3 rounded-xl border transition ${
+                                        className={`p-2.5 rounded-xl border transition flex flex-col justify-between ${
                                             isCompleted
-                                                ? 'bg-green-50/50 border-green-200 dark:bg-green-950/20 dark:border-green-800/60 opacity-80'
+                                                ? 'bg-green-50/50 border-green-200 dark:bg-green-950/20 dark:border-green-800/60 opacity-85'
                                                 : isWorking
                                                 ? 'bg-blue-50/70 border-blue-300 dark:bg-blue-950/30 dark:border-blue-800 shadow-2xs'
                                                 : isAssigned 
@@ -656,104 +775,183 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                 : 'bg-slate-50 border-slate-200 dark:bg-slate-900/80 dark:border-slate-700'
                                         }`}
                                     >
-                                        {/* Parça Başlığı ve Durum Rozeti */}
-                                        <div className="flex justify-between items-start mb-1.5">
-                                            <div>
-                                                <div className="font-black text-xs text-gray-900 dark:text-white flex items-center gap-1.5">
-                                                    <span>{task.taskName}</span>
-                                                    {task.isCritical && (
-                                                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300">
-                                                            KRİTİK
+                                        <div>
+                                            {/* Parça Başlığı ve Durum Rozeti */}
+                                            <div className="flex justify-between items-start mb-1.5 gap-1.5">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-black text-xs text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                                                        <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-[9px] font-black text-blue-700 dark:text-blue-300 uppercase">
+                                                            PARÇA
                                                         </span>
-                                                    )}
+                                                        <span className="truncate font-extrabold" title={task.taskName}>{task.taskName}</span>
+                                                        {task.isCritical && (
+                                                            <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 shrink-0">
+                                                                KRİTİK
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                                                        {/* Durum Rozeti */}
+                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${progress.badgeClass}`}>
+                                                            {progress.label}
+                                                        </span>
+
+                                                        {estTime > 0 ? (
+                                                            <span className="text-[9px] font-black text-indigo-900 dark:text-indigo-200 flex items-center bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.5 rounded-md">
+                                                                <Clock className="w-2.5 h-2.5 mr-1"/> {estTime}s
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-black text-amber-900 dark:text-amber-200 flex items-center bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-1.5 py-0.5 rounded-md">
+                                                                <AlertCircle className="w-2.5 h-2.5 mr-1"/> Süresiz
+                                                            </span>
+                                                        )}
+
+                                                        {assignedCamOp && !isCompleted && (
+                                                            <span className="text-[9px] font-black text-purple-900 dark:text-purple-200 flex items-center bg-purple-100 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800 px-1.5 py-0.5 rounded-md truncate max-w-[140px]">
+                                                                <User className="w-2.5 h-2.5 mr-0.5"/> {assignedCamOp}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                                    {/* Durum Rozeti */}
-                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${progress.badgeClass}`}>
-                                                        {progress.label}
-                                                    </span>
-
-                                                    {estTime > 0 ? (
-                                                        <span className="text-[10px] font-black text-indigo-900 dark:text-indigo-200 flex items-center bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
-                                                            <Clock className="w-3 h-3 mr-1"/> {estTime}s
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] font-black text-amber-900 dark:text-amber-200 flex items-center bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2 py-0.5 rounded-md">
-                                                            <AlertCircle className="w-3 h-3 mr-1"/> Süre Belirtilmemiş
-                                                        </span>
-                                                    )}
-
-                                                    {assignedCamOp && !isCompleted && (
-                                                        <span className="text-[10px] font-black text-purple-900 dark:text-purple-200 flex items-center bg-purple-100 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800 px-2 py-0.5 rounded-md">
-                                                            <User className="w-3 h-3 mr-1"/> CAM: {assignedCamOp}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                                {isCompleted && (
+                                                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                                                )}
                                             </div>
 
-                                            {isCompleted && (
-                                                <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                                            {/* ALT OPERASYONLAR VE İŞLEMLER LİSTESİ */}
+                                            {task.operations && task.operations.length > 0 && (
+                                                <div className="mt-2 pt-2 border-t border-slate-200/80 dark:border-slate-700/80 space-y-1.5">
+                                                    <div className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                                                        <span>Operasyonlar & Alt İşlemler ({task.operations.length}):</span>
+                                                    </div>
+
+                                                    <div className="space-y-1.5">
+                                                        {task.operations.map((op, opIdx) => {
+                                                            const opKey = `${task.id}_${op.id || opIdx}`;
+                                                            const opDraft = taskDrafts[opKey] || {};
+                                                            const isOpDone = op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED;
+                                                            const isOpWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
+                                                            const hasSubOps = op.subOperations && Array.isArray(op.subOperations) && op.subOperations.length > 0;
+                                                            const opAssignedMachine = op.machineName;
+
+                                                            return (
+                                                                <div 
+                                                                    key={op.id || opIdx} 
+                                                                    className="p-1.5 rounded-lg bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs space-y-1"
+                                                                >
+                                                                    {/* Operasyon Başlığı ve Durumu */}
+                                                                    <div className="flex justify-between items-center gap-1">
+                                                                        <span className="font-extrabold text-[10px] text-blue-700 dark:text-blue-400 flex items-center gap-1 truncate">
+                                                                            <Wrench size={10} className="text-blue-500 shrink-0" />
+                                                                            {op.type || op.name || `Op ${opIdx + 1}`}
+                                                                        </span>
+                                                                        <span className={`text-[8px] font-black px-1.5 py-0.2 rounded border shrink-0 ${
+                                                                            isOpDone ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-200' :
+                                                                            isOpWorking ? 'bg-blue-100 text-blue-800 border-blue-400 dark:bg-blue-900/70 dark:text-blue-200 animate-pulse' :
+                                                                            opAssignedMachine ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/50 dark:text-purple-200' :
+                                                                            'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300'
+                                                                        }`}>
+                                                                            {isOpDone ? 'Bitti ✓' : isOpWorking ? 'Çalışıyor ⚙️' : opAssignedMachine ? `${opAssignedMachine}` : 'Bekliyor'}
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {/* Alt İşlem Durumları (Diş Çekme, Çevre Dönme vs.) */}
+                                                                    {hasSubOps && (
+                                                                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                                                            {op.subOperations.map((subOp, sIdx) => (
+                                                                                <span 
+                                                                                    key={sIdx}
+                                                                                    className="px-1.5 py-0.5 text-[8px] font-black rounded bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/70 flex items-center gap-0.5 shadow-2xs"
+                                                                                >
+                                                                                    <span className="text-indigo-500 dark:text-indigo-400 font-bold">▪</span>
+                                                                                    {subOp}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Alt Operasyon Özel Planlama Butonları / Girişleri */}
+                                                                    {!isOpDone && !isOpWorking && (
+                                                                        <div className="pt-1 border-t border-slate-100 dark:border-slate-700/60 space-y-1">
+                                                                            <div className="grid grid-cols-2 gap-1">
+                                                                                <SearchableMachineSelect
+                                                                                    machines={machines}
+                                                                                    value={opDraft.machine || op.machineName || ''}
+                                                                                    onChange={val => handleDraftChange(opKey, 'machine', val)}
+                                                                                    placeholder="Tezgah..."
+                                                                                />
+                                                                                <select 
+                                                                                    value={opDraft.camOp !== undefined ? opDraft.camOp : (op.assignedOperator || '')}
+                                                                                    onChange={e => handleDraftChange(opKey, 'camOp', e.target.value)}
+                                                                                    className="w-full p-1 text-[10px] font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-purple-500 border-slate-300 dark:border-slate-600"
+                                                                                >
+                                                                                    <option value="">CAM Op...</option>
+                                                                                    {camOperators.map(cop => (
+                                                                                        <option key={cop.id || cop.name} value={cop.name}>{cop.name}</option>
+                                                                                    ))}
+                                                                                </select>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <input 
+                                                                                    type="number"
+                                                                                    step="0.5"
+                                                                                    min="0"
+                                                                                    placeholder="Saat"
+                                                                                    value={opDraft.estTime !== undefined ? opDraft.estTime : (op.estimatedCamTime || op.durationInHours || '')}
+                                                                                    onChange={e => handleDraftChange(opKey, 'estTime', e.target.value)}
+                                                                                    className="w-16 p-1 text-[10px] font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500 border-slate-300 dark:border-slate-600"
+                                                                                />
+                                                                                <button 
+                                                                                    type="button"
+                                                                                    onClick={() => handleAssignToMachine(task.id, op.id || String(opIdx))}
+                                                                                    disabled={!opDraft.machine && !op.machineName}
+                                                                                    className="flex-1 py-1 px-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg shadow-2xs disabled:opacity-40 transition flex items-center justify-center gap-1"
+                                                                                >
+                                                                                    <Check size={10} strokeWidth={3} /> Alt İşlemi Planla
+                                                                                </button>
+                                                                                {op.machineName && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleRemoveFromMachine(selectedMold.id, task.id, op.id || String(opIdx))}
+                                                                                        className="p-1 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 text-[9px] font-bold rounded-lg transition"
+                                                                                        title="Planı kaldır"
+                                                                                    >
+                                                                                        <X size={11} />
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
 
-                                        {/* ALT OPERASYONLAR LİSTESİ */}
-                                        {task.operations && task.operations.length > 0 && (
-                                            <div className="mt-2 pt-1.5 border-t border-slate-200/80 dark:border-slate-700/80 space-y-1">
-                                                <div className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                                    Operasyonlar ({task.operations.length}):
-                                                </div>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {task.operations.map((op, idx) => {
-                                                        const isOpDone = op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED;
-                                                        const isOpWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
-                                                        return (
-                                                            <span 
-                                                                key={op.id || idx}
-                                                                className={`text-[9px] font-black px-2 py-0.5 rounded-md border ${
-                                                                    isOpDone 
-                                                                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-700' 
-                                                                        : isOpWorking 
-                                                                        ? 'bg-blue-100 text-blue-900 border-blue-400 dark:bg-blue-900/70 dark:text-blue-100 dark:border-blue-400 animate-pulse shadow-xs' 
-                                                                        : 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
-                                                                }`}
-                                                            >
-                                                                {op.name || op.type || `Op ${idx + 1}`} {isOpDone ? '✓' : isOpWorking ? '⚙️' : ''}
-                                                            </span>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* PLANLAMA GİRİŞ FORMU (TAMAMLANMAMIŞ İSE) */}
+                                        {/* GENEL PARÇA PLANLAMA FORMU (İsteğe bağlı parça düzeyinde toplu planlama) */}
                                         {!isCompleted && !isAssigned && (
-                                            <div className="space-y-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    {/* Aramalı Akıllı Tezgah Seçimi */}
+                                            <div className="space-y-1.5 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                                <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Hızlı Parça Planlama:</div>
+                                                <div className="grid grid-cols-2 gap-1.5">
                                                     <div>
-                                                        <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-0.5">
-                                                            🎯 Tezgah (Aramalı):
-                                                        </label>
                                                         <SearchableMachineSelect
                                                             machines={machines}
                                                             value={draft.machine || ''}
                                                             onChange={val => handleDraftChange(task.id, 'machine', val)}
-                                                            placeholder="Tezgah Ara & Seç..."
+                                                            placeholder="Tezgah..."
                                                         />
                                                     </div>
-
-                                                    {/* CAM Operatörü Seçimi */}
                                                     <div>
-                                                        <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-0.5">
-                                                            👤 CAM Operatörü:
-                                                        </label>
                                                         <select 
                                                             value={draft.camOp || ''}
                                                             onChange={e => handleDraftChange(task.id, 'camOp', e.target.value)}
                                                             className="w-full p-1.5 text-xs font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 border-slate-300 dark:border-slate-600"
                                                         >
-                                                            <option value="">CAM Op. Seç...</option>
+                                                            <option value="">CAM Op...</option>
                                                             {camOperators.map(op => (
                                                                 <option key={op.id || op.name} value={op.name}>{op.name}</option>
                                                             ))}
@@ -761,10 +959,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                     </div>
                                                 </div>
 
-                                                <div className="flex gap-2 items-center">
-                                                    {/* Tahmini Süre Girişi */}
-                                                    <div className="flex-1 flex items-center gap-1.5">
-                                                        <span className="text-[10px] font-bold text-slate-500 shrink-0">⏱️ Öngörülen:</span>
+                                                <div className="flex gap-1.5 items-center">
+                                                    <div className="flex-1 flex items-center gap-1">
+                                                        <span className="text-[9px] font-bold text-slate-500 shrink-0">⏱️ Süre:</span>
                                                         <input 
                                                             type="number"
                                                             step="0.5"
@@ -776,34 +973,33 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                         />
                                                     </div>
 
-                                                    {/* Planla Butonu */}
                                                     <button 
                                                         onClick={() => handleAssignToMachine(task.id)}
                                                         disabled={!draft.machine}
-                                                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-lg shadow-sm disabled:opacity-40 transition flex items-center gap-1 shrink-0"
+                                                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-lg shadow-sm disabled:opacity-40 transition flex items-center gap-1 shrink-0"
                                                     >
-                                                        <Check size={13} strokeWidth={3} /> PLANLA
+                                                        <Check size={12} strokeWidth={3} /> PLANLA
                                                     </button>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Zaten Planlanmış Parça Kutusu */}
+                                        {/* Zaten Planlanmış Parça Bilgisi */}
                                         {!isCompleted && isAssigned && (
-                                            <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800 shadow-2xs mt-2">
+                                            <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shadow-2xs mt-2">
                                                 <div className="flex flex-col">
-                                                    <div className="text-[11px] font-extrabold text-gray-800 dark:text-gray-200 flex items-center">
-                                                        <Monitor className="w-3.5 h-3.5 mr-1 text-emerald-600"/> {task.plannedMachine}
+                                                    <div className="text-[10px] font-extrabold text-gray-800 dark:text-gray-200 flex items-center">
+                                                        <Monitor className="w-3 h-3 mr-1 text-emerald-600"/> {task.plannedMachine}
                                                     </div>
                                                     {assignedCamOp && (
-                                                        <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400">
-                                                            👤 Atanan CAM: {assignedCamOp}
+                                                        <div className="text-[9px] font-bold text-purple-600 dark:text-purple-400">
+                                                            👤 CAM: {assignedCamOp}
                                                         </div>
                                                     )}
                                                 </div>
                                                 <button 
                                                     onClick={() => handleRemoveFromMachine(selectedMold.id, task.id)}
-                                                    className="text-[10px] font-black text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 px-2.5 py-1 rounded-md transition"
+                                                    className="text-[9px] font-black text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded transition"
                                                 >
                                                     PLANDAN KALDIR
                                                 </button>
@@ -813,7 +1009,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 );
                             })}
                             {(!selectedMold.tasks || selectedMold.tasks.length === 0) && (
-                                <div className="text-center text-gray-400 py-10 text-xs font-medium">Bu kalıba ait parça bulunmuyor.</div>
+                                <div className="text-center text-gray-400 py-10 text-xs font-medium col-span-full">Bu kalıba ait parça bulunmuyor.</div>
                             )}
                         </div>
                     </div>
@@ -822,14 +1018,14 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                         <Layers className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-2" />
                         <div className="font-black text-sm text-slate-700 dark:text-slate-200">Kalıp Seçilmedi</div>
                         <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                            Yukarıdaki arama çubuğundan veya durum filtrelerinden bir kalıp seçerek parçalarını tezgahlara ve CAM operatörlerine planlayabilirsiniz.
+                            Yukarıdaki arama çubuğundan veya durum filtrelerinden bir kalıp seçerek parçalarını ve alt operasyonlarını tezgahlara ve CAM operatörlerine planlayabilirsiniz.
                         </p>
                     </div>
                 )}
             </div>
 
             {/* SAĞ PANEL: TEZGAH İŞ YÜKÜ VE SÜRÜKLE-BIRAK KUYRUK SIRALAMASI */}
-            <div className="w-full xl:w-[62%] self-start bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex flex-col h-full">
+            <div className="w-full xl:w-[52%] 2xl:w-[50%] self-start bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex flex-col h-full">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3 border-b dark:border-gray-700 pb-2.5 shrink-0">
                     <div>
                         <h2 className="text-xs font-black text-gray-800 dark:text-white flex items-center uppercase tracking-wider">
@@ -921,7 +1117,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                     
                                     {/* 1. AKTİF ÇALIŞAN İŞ */}
                                     {machine.activeTask && (
-                                        <div className="min-w-[175px] max-w-[175px] bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-500 rounded-lg p-2 shadow-xs relative flex flex-col flex-shrink-0 justify-between">
+                                        <div className="min-w-[180px] max-w-[180px] bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-500 rounded-lg p-2 shadow-xs relative flex flex-col flex-shrink-0 justify-between">
                                             <div className="flex justify-between items-center mb-1">
                                                 <span className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded flex items-center shadow-xs">
                                                     <span className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-ping"></span>
@@ -931,8 +1127,19 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                             </div>
                                             <div className="flex-1 flex flex-col">
                                                 <div className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase truncate" title={machine.activeTask.moldName}>{machine.activeTask.moldName}</div>
-                                                <div className="text-xs font-black text-emerald-950 dark:text-emerald-100 leading-tight line-clamp-2" title={machine.activeTask.taskName}>{machine.activeTask.taskName}</div>
+                                                <div className="text-xs font-black text-emerald-950 dark:text-emerald-100 leading-tight line-clamp-1" title={machine.activeTask.taskName}>{machine.activeTask.taskName}</div>
                                                 
+                                                {/* Alt Operasyon / İşlem Bilgisi */}
+                                                {machine.activeTask.subOperations && machine.activeTask.subOperations.length > 0 && (
+                                                    <div className="flex flex-wrap gap-0.5 mt-1">
+                                                        {machine.activeTask.subOperations.map((subOp, sIdx) => (
+                                                            <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
+                                                                {subOp}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+
                                                 <div className="mt-1.5 pt-1 border-t border-emerald-200 dark:border-emerald-800/50 flex flex-col gap-0.5">
                                                     <div className="text-[9px] font-bold text-purple-700 dark:text-purple-300 truncate">
                                                         👤 CAM: {machine.activeTask.camOperatorName || 'Bilinmiyor'}
@@ -954,7 +1161,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                     {machine.assignedTasks.length > 0 ? (
                                         machine.assignedTasks.map((t, idx) => (
                                             <div 
-                                                key={`${t.moldId}-${t.taskId}`}
+                                                key={`${t.moldId}-${t.taskId}-${t.opId || idx}`}
                                                 draggable
                                                 onDragStart={() => setDraggedItem({ moldId: t.moldId, taskId: t.taskId, machineName: machine.name, index: idx })}
                                                 onDragOver={(e) => e.preventDefault()}
@@ -967,7 +1174,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                         setDraggedItem(null);
                                                     }
                                                 }}
-                                                className={`min-w-[170px] max-w-[170px] bg-white dark:bg-gray-700 p-2 rounded-lg border shadow-xs relative group flex-shrink-0 flex flex-col justify-between transition-all cursor-move ${
+                                                className={`min-w-[175px] max-w-[175px] bg-white dark:bg-gray-700 p-2 rounded-lg border shadow-xs relative group flex-shrink-0 flex flex-col justify-between transition-all cursor-move ${
                                                     isReorderMode 
                                                         ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-400/30' 
                                                         : 'border-gray-200 dark:border-gray-600 hover:border-blue-300'
@@ -985,8 +1192,19 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                     </div>
 
                                                     <div className="text-[9px] font-bold text-blue-600 dark:text-blue-400 mb-0.5 truncate uppercase" title={t.moldName}>{t.moldName}</div>
-                                                    <div className="font-black text-xs text-gray-900 dark:text-gray-100 leading-tight line-clamp-2" title={t.taskName}>{t.taskName}</div>
+                                                    <div className="font-black text-xs text-gray-900 dark:text-gray-100 leading-tight line-clamp-1" title={t.taskName}>{t.taskName}</div>
                                                     
+                                                    {/* Alt Operasyon / İşlem Etiketleri */}
+                                                    {t.subOperations && t.subOperations.length > 0 && (
+                                                        <div className="flex flex-wrap gap-0.5 mt-1">
+                                                            {t.subOperations.map((subOp, sIdx) => (
+                                                                <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
+                                                                    {subOp}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
                                                     {t.camOperatorName && (
                                                         <div className="text-[9px] font-bold text-purple-600 dark:text-purple-300 mt-1 truncate">
                                                             👤 CAM: {t.camOperatorName}
@@ -1020,7 +1238,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                     </div>
 
                                                     <button 
-                                                        onClick={() => handleRemoveFromMachine(t.moldId, t.taskId)}
+                                                        onClick={() => handleRemoveFromMachine(t.moldId, t.taskId, t.opId)}
                                                         className="text-[9px] text-red-600 dark:text-red-400 font-bold opacity-0 group-hover:opacity-100 transition px-1.5 py-0.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 rounded"
                                                     >
                                                         Kaldır

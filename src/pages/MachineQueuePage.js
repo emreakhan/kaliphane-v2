@@ -1,9 +1,8 @@
 // src/pages/MachineQueuePage.js
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-    Layers, Plus, GripVertical, Trash2, 
-    MonitorPlay, Lock, Search, ChevronDown, Activity, CalendarDays, LayoutGrid
+    Layers, Lock, CalendarDays, LayoutGrid
 } from 'lucide-react';
 import { collection, query, onSnapshot } from '../config/firebase.js';
 import { MACHINES_COLLECTION, PROJECT_COLLECTION, PERSONNEL_COLLECTION, ROLES } from '../config/constants.js';
@@ -69,19 +68,6 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
     return (
         <div className="p-4 md:p-6 max-w-[1800px] mx-auto min-h-screen">
             
-            {/* ÜST BAŞLIK */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
-                <div>
-                    <h1 className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white flex items-center gap-2.5">
-                        <MonitorPlay className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
-                        İş Akış ve Tezgah Planlama Merkezi
-                    </h1>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        Kalıp parçalarını tezgahlara ve CAM operatörlerine planlayın, tüm tezgahların canlı iş yükünü ve sıradaki kuyruğunu takip edin.
-                    </p>
-                </div>
-            </div>
-
             {/* SEKME (TAB) MENÜSÜ */}
             <div className="flex bg-white dark:bg-gray-800 p-1.5 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 w-fit mb-5 gap-1.5 overflow-x-auto">
                 <button 

@@ -5,7 +5,7 @@ import { Plus, AlertTriangle, List, Briefcase, Search, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { MOLD_STATUS, OPERATION_TYPES, OPERATION_STATUS, PROJECT_TYPES, PROJECT_COLLECTION, PROJECT_TYPE_CONFIG } from '../config/constants.js';
 import { db, setDoc, doc, updateDoc } from '../config/firebase.js'; 
-import { getMoldWorkOrderNo } from '../utils/workOrderUtils.js';
+import { getMoldWorkOrderNo, cleanPartCode } from '../utils/workOrderUtils.js';
 
 import TaskListSidebar from '../components/Shared/TaskListSidebar.js';
 
@@ -94,7 +94,7 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
         const taskNames = batchTaskNames.split('\n').map(name => name.trim()).filter(name => name.length > 0);
         if (taskNames.length === 0) return;
 
-        const baseWO = getMoldWorkOrderNo(moldToUpdate);
+        const baseWO = getMoldWorkOrderNo(moldToUpdate, null, projects);
         let newTasksList = [...moldToUpdate.tasks];
         let addedCount = 0;
         let errorMessages = [];
@@ -106,10 +106,11 @@ const CamJobEntryPage = ({ projects, personnel, loggedInUser }) => {
                 errorMessages.push(`"${taskName}" (zaten var)`);
             } else {
                 currentTaskNumber++;
+                const partCode = cleanPartCode(taskName);
                 const newOperationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const defaultOperation = {
                     id: newOperationId,
-                    workOrderNo: `${baseWO}-${String(currentTaskNumber).padStart(2, '0')}`,
+                    workOrderNo: `${baseWO}-${partCode}-01`,
                     type: OPERATION_TYPES.CNC,
                     status: OPERATION_STATUS.NOT_STARTED,
                     progressPercentage: 0,
