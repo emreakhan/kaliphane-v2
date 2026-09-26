@@ -453,8 +453,17 @@ const App = () => {
 
         const newOperations = [...currentTask.operations];
         newOperations[operationIndex] = updatedOperationData;
+
+        // Operasyonlardaki öngörülen CAM sürelerini toplayıp parça düzeyine de senkronize edelim
+        const totalOpsCamTime = newOperations.reduce((sum, op) => sum + (parseFloat(op.estimatedCamTime) || 0), 0);
+        const updatedTask = {
+            ...currentTask,
+            operations: newOperations,
+            ...(totalOpsCamTime > 0 ? { estimatedCamTime: totalOpsCamTime.toFixed(1) } : {})
+        };
+
         const newTasks = [...currentProject.tasks];
-        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
+        newTasks[taskIndex] = updatedTask;
         
         try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } catch (e) { console.error("Hata:", e); }
     }, [projects]);
@@ -682,8 +691,14 @@ const App = () => {
         if (taskIndex === -1) return;
         const currentTask = currentProject.tasks[taskIndex];
         const newOperations = [...currentTask.operations, newOperationData];
+        const totalOpsCamTime = newOperations.reduce((sum, op) => sum + (parseFloat(op.estimatedCamTime) || 0), 0);
+        const updatedTask = {
+            ...currentTask,
+            operations: newOperations,
+            ...(totalOpsCamTime > 0 ? { estimatedCamTime: totalOpsCamTime.toFixed(1) } : {})
+        };
         const newTasks = [...currentProject.tasks];
-        newTasks[taskIndex] = { ...currentTask, operations: newOperations };
+        newTasks[taskIndex] = updatedTask;
         try { await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { tasks: newTasks }); } 
         catch (e) { console.error("Hata:", e); }
     }, [projects]);

@@ -125,3 +125,73 @@ export const calculateRemainingWorkDays = (dueDate) => {
     if (!dueDate) return 0;
     return calculate6DayWorkRemaining(dueDate);
 };
+
+// Saat değerini Gün ve Saat formatında gösterir (Örn: 36 -> "1 Gün 12 Saat (36s)", 8 -> "8 Saat", 48 -> "2 Gün (48s)")
+export const formatDurationHours = (totalHours) => {
+    const hoursNum = parseFloat(totalHours);
+    if (isNaN(hoursNum) || hoursNum <= 0) return '0 Saat';
+    
+    const days = Math.floor(hoursNum / 24);
+    const remHours = Number((hoursNum % 24).toFixed(1));
+
+    if (days > 0 && remHours > 0) {
+        return `${days} Gün ${remHours} Saat (${hoursNum}s)`;
+    } else if (days > 0) {
+        return `${days} Gün (${hoursNum}s)`;
+    } else {
+        return `${remHours} Saat`;
+    }
+};
+
+// Toplam saati gün ve saat değerlerine böler (Modal formları için)
+export const splitHoursToDaysAndHours = (totalHours) => {
+    const hoursNum = parseFloat(totalHours);
+    if (isNaN(hoursNum) || hoursNum <= 0) {
+        return { days: '', hours: '' };
+    }
+    const days = Math.floor(hoursNum / 24);
+    const remHours = Number((hoursNum % 24).toFixed(1));
+    return {
+        days: days > 0 ? String(days) : '',
+        hours: remHours > 0 ? String(remHours) : (days > 0 ? '0' : '')
+    };
+};
+
+// Gün ve saat değerlerinden toplam saati hesaplar
+export const calculateTotalHoursFromDaysAndHours = (days, hours) => {
+    const d = parseFloat(days) || 0;
+    const h = parseFloat(hours) || 0;
+    const total = (d * 24) + h;
+    return Number(total.toFixed(2));
+};
+
+// Tezgahın tahmini boşa çıkış tarihini okunaklı Türkçe formatta verir (Örn: "28 Eyl Pzt, 14:30")
+export const formatFreeAtDate = (dateOrHours) => {
+    if (!dateOrHours && dateOrHours !== 0) return 'Boşta / Hemen Müsait';
+    let targetDate;
+    if (dateOrHours instanceof Date) {
+        targetDate = dateOrHours;
+    } else if (typeof dateOrHours === 'number') {
+        if (dateOrHours <= 0) return 'Boşta / Hemen Müsait';
+        targetDate = new Date(Date.now() + dateOrHours * 3600 * 1000);
+    } else if (typeof dateOrHours === 'string') {
+        const parsed = parseFloat(dateOrHours);
+        if (!isNaN(parsed) && String(parsed) === dateOrHours.trim()) {
+            if (parsed <= 0) return 'Boşta / Hemen Müsait';
+            targetDate = new Date(Date.now() + parsed * 3600 * 1000);
+        } else {
+            targetDate = new Date(dateOrHours);
+        }
+    }
+    if (!targetDate || isNaN(targetDate.getTime())) return 'Boşta / Hemen Müsait';
+
+    const dayNames = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+    const monthNames = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+    const day = targetDate.getDate();
+    const month = monthNames[targetDate.getMonth()];
+    const dayName = dayNames[targetDate.getDay()];
+    const hours = String(targetDate.getHours()).padStart(2, '0');
+    const minutes = String(targetDate.getMinutes()).padStart(2, '0');
+    return `${day} ${month} ${dayName}, ${hours}:${minutes}`;
+};
+

@@ -18,7 +18,7 @@ import {
 } from '../config/constants.js';
 
 import { getStatusClasses, getOperationTypeClasses } from '../utils/styleUtils.js';
-import { formatDate, formatDateTime, getCurrentDateTimeString } from '../utils/dateUtils.js';
+import { formatDate, formatDateTime, getCurrentDateTimeString, formatDurationHours } from '../utils/dateUtils.js';
 import { getMoldWorkOrderNo, formatOperationWorkOrderNo } from '../utils/workOrderUtils.js';
 
 import { 
@@ -1201,9 +1201,9 @@ const MoldDetailPage = ({
                                             )}
                                                 {/* TOPLAM TAHMİNİ SÜRE GÖSTERİMİ */}
                                                 {task.estimatedCamTime > 0 && (
-                                                    <span className="ml-2 flex items-center text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full" title="Öngörülen İşleme Süresi">
+                                                    <span className="ml-2 flex items-center text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold" title="Öngörülen İşleme Süresi">
                                                         <Timer className="w-3 h-3 mr-1" />
-                                                        {task.estimatedCamTime}s
+                                                        {formatDurationHours(task.estimatedCamTime)}
                                                     </span>
                                                 )}
                                                 {task.outsourced && (
@@ -1325,6 +1325,16 @@ const MoldDetailPage = ({
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">Başlangıç:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDateTime(operation.startDate)}</span></div>
                                                                                 <div><span className="font-medium text-gray-500 dark:text-gray-400">Termin:</span> <span className="font-semibold text-gray-900 dark:text-gray-100">{formatDate(operation.estimatedDueDate)}</span></div>
                                                                                 
+                                                                                {/* Öngörülen CAM İşleme Süresi */}
+                                                                                {operation.estimatedCamTime > 0 && (
+                                                                                    <div>
+                                                                                        <span className="font-medium text-indigo-600 dark:text-indigo-400">Öngörülen CAM:</span>{' '}
+                                                                                        <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                                                                                            {formatDurationHours(operation.estimatedCamTime)}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                )}
+
                                                                                 {/* YENİ: Tamamlanma/Bitiş Tarihi */}
                                                                                 {(operation.finishDate || operation.completionDate || operation.status === OPERATION_STATUS.COMPLETED) && (
                                                                                     <div>

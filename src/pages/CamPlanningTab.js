@@ -2,172 +2,387 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-    Clock, Monitor, Layers, AlertCircle, CheckCircle2, Search, ChevronDown, 
-    User, LayoutGrid, Check, X, BellRing,
-    GripVertical, ArrowUp, ArrowDown, CheckCircle, Wrench, List
+    Monitor, Layers, AlertCircle, Search, ChevronDown, 
+    LayoutGrid, Check, X, GripVertical, ArrowUp, ArrowDown, 
+    Zap, Calendar, Star, Filter, ShieldAlert, Sparkles,
+    Settings, Plus, Trash2, Edit3, CheckSquare, FolderPlus
 } from 'lucide-react';
-import { doc, updateDoc } from '../config/firebase.js';
-import { PROJECT_COLLECTION, OPERATION_STATUS, DEFAULT_MOLD_STATUSES, ROLES } from '../config/constants.js';
+import { doc, updateDoc, setDoc, onSnapshot } from '../config/firebase.js';
+import { PROJECT_COLLECTION, OPERATION_STATUS, DEFAULT_MOLD_STATUSES, ROLES, CAM_SETTINGS_COLLECTION } from '../config/constants.js';
+import { formatDurationHours, formatFreeAtDate, formatDateTime } from '../utils/dateUtils.js';
 
-const cleanStr = (str) => String(str || '').replace(/[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]/g, '').toLowerCase();
+// Zengin ve birbirinden ayırt edilebilir renk paleti (Parça barları için)
+const PALETTE = [
+    { bg: 'bg-indigo-600 dark:bg-indigo-500', border: 'border-indigo-400 dark:border-indigo-300', text: 'text-white' },
+    { bg: 'bg-purple-600 dark:bg-purple-500', border: 'border-purple-400 dark:border-purple-300', text: 'text-white' },
+    { bg: 'bg-blue-600 dark:bg-blue-500', border: 'border-blue-400 dark:border-blue-300', text: 'text-white' },
+    { bg: 'bg-teal-600 dark:bg-teal-500', border: 'border-teal-400 dark:border-teal-300', text: 'text-white' },
+    { bg: 'bg-rose-600 dark:bg-rose-500', border: 'border-rose-400 dark:border-rose-300', text: 'text-white' },
+    { bg: 'bg-cyan-600 dark:bg-cyan-500', border: 'border-cyan-400 dark:border-cyan-300', text: 'text-white' },
+    { bg: 'bg-emerald-600 dark:bg-emerald-500', border: 'border-emerald-400 dark:border-emerald-300', text: 'text-white' },
+    { bg: 'bg-amber-600 dark:bg-amber-500', border: 'border-amber-400 dark:border-amber-300', text: 'text-white' },
+    { bg: 'bg-violet-600 dark:bg-violet-500', border: 'border-violet-400 dark:border-violet-300', text: 'text-white' },
+    { bg: 'bg-orange-600 dark:bg-orange-500', border: 'border-orange-400 dark:border-orange-300', text: 'text-white' },
+];
 
-// ========================================================
-// ARAMALI VE İÇERİR MANTIKLI TEZGAH SEÇİMİ (SEARCHABLE SELECT)
-// ========================================================
-const SearchableMachineSelect = ({ machines, value, onChange, placeholder = "Tezgah Seç..." }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState('');
-
-    const selectedMachine = useMemo(() => {
-        return (machines || []).find(m => m.name === value || m.id === value);
-    }, [machines, value]);
-
-    const filtered = useMemo(() => {
-        if (!search.trim()) return machines || [];
-        const q = search.toLowerCase();
-        return (machines || []).filter(m => 
-            (m.name || '').toLowerCase().includes(q) ||
-            (m.category || '').toLowerCase().includes(q)
-        );
-    }, [machines, search]);
-
-    return (
-        <div className="relative w-full">
-            <button
-                type="button"
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full p-1.5 text-xs font-bold border rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white flex justify-between items-center outline-none focus:ring-2 focus:ring-blue-500 border-slate-300 dark:border-slate-600"
-            >
-                <span className={selectedMachine ? 'font-black text-gray-900 dark:text-white' : 'text-gray-400 font-normal'}>
-                    {selectedMachine ? selectedMachine.name : placeholder}
-                </span>
-                <ChevronDown size={14} className="text-gray-400 shrink-0" />
-            </button>
-
-            {isOpen && (
-                <div 
-                    className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 space-y-1 max-h-52 overflow-hidden flex flex-col"
-                    onMouseLeave={() => setIsOpen(false)}
-                >
-                    <div className="relative shrink-0">
-                        <input
-                            type="text"
-                            autoFocus
-                            placeholder="Tezgah ara (Örn: K22)..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="w-full p-1.5 pl-6 text-xs font-bold border rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <Search size={11} className="absolute left-2 top-2.5 text-gray-400" />
-                    </div>
-
-                    <div className="overflow-y-auto max-h-36 space-y-0.5 custom-scrollbar">
-                        {filtered.length > 0 ? (
-                            filtered.map(m => (
-                                <div
-                                    key={m.id}
-                                    onClick={() => {
-                                        onChange(m.name);
-                                        setIsOpen(false);
-                                        setSearch('');
-                                    }}
-                                    className={`px-2 py-1.5 text-xs rounded-lg cursor-pointer flex justify-between items-center transition ${
-                                        m.name === value 
-                                            ? 'bg-blue-600 text-white font-black' 
-                                            : 'hover:bg-blue-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold'
-                                    }`}
-                                >
-                                    <span>{m.name}</span>
-                                    {m.category && <span className="text-[9px] opacity-70">{m.category}</span>}
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-center py-2 text-[11px] text-gray-400 font-medium">Tezgah bulunamadı</div>
-                        )}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+const getJobColor = (moldId = '', idx = 0) => {
+    if (!moldId) return PALETTE[idx % PALETTE.length];
+    let hash = 0;
+    for (let i = 0; i < moldId.length; i++) {
+        hash = moldId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % PALETTE.length;
+    return PALETTE[index];
 };
 
-// ========================================================
-// ANA CAM PLANLAMA BİLEŞENİ
-// ========================================================
+// Başlangıç Tezgah Gruplarını Otomatik Oluştur (5 Eksen, Köprülü, CNC vb.)
+const generateInitialMachineGroups = (machineList = []) => {
+    const fiveAxis = machineList.filter(m => {
+        const str = ((m.name || '') + ' ' + (m.type || '') + ' ' + (m.category || '')).toLowerCase();
+        return str.includes('5') || str.includes('eksen');
+    }).map(m => m.name);
+
+    const bridge = machineList.filter(m => {
+        const str = ((m.name || '') + ' ' + (m.type || '') + ' ' + (m.category || '')).toLowerCase();
+        return str.includes('köprü') || str.includes('kopru') || str.includes('gantry');
+    }).map(m => m.name);
+
+    const cnc = machineList.filter(m => {
+        const str = ((m.name || '') + ' ' + (m.type || '') + ' ' + (m.category || '')).toLowerCase();
+        return str.includes('cnc') || str.includes('freze');
+    }).map(m => m.name);
+
+    const groups = [];
+    groups.push({ id: 'g_5eksen', name: '5 Eksen Tezgahlar', machineNames: fiveAxis });
+    groups.push({ id: 'g_koprulu', name: 'Köprülü Tezgahlar', machineNames: bridge });
+    if (cnc.length > 0) {
+        groups.push({ id: 'g_cnc', name: 'CNC Frezeler', machineNames: cnc });
+    }
+    return groups;
+};
+
 const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixView }) => {
+    // 1. Kalıp ve Filtre State'leri
     const [selectedMoldId, setSelectedMoldId] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
-    
     const [searchMoldTerm, setSearchMoldTerm] = useState('');
     const [isMoldDropdownOpen, setIsMoldDropdownOpen] = useState(false);
 
-    // Parça bazlı yerel taslak form state'leri
-    const [taskDrafts, setTaskDrafts] = useState({});
+    // 2. Timeline ve Görünüm Ayarları
+    const [timeScale, setTimeScale] = useState('2_WEEKS'); // '1_WEEK' | '2_WEEKS' | '3_WEEKS' | '1_MONTH'
+    const [searchMachine, setSearchMachine] = useState('');
+    const [onlySelectedMoldMachines, setOnlySelectedMoldMachines] = useState(false);
+    const [isPoolOpen, setIsPoolOpen] = useState(false); // Planlanmamış parçalar havuzu
 
-    // Sürükle-bırak kuyruk sıralama modu
-    const [isReorderMode, setIsReorderMode] = useState(false);
-    const [draggedItem, setDraggedItem] = useState(null);
+    // 3. Sürükle - Bırak State'leri
+    const [draggedItem, setDraggedItem] = useState(null); // { moldId, taskId, opId, machineName, time }
+    const [dragOverMachine, setDragOverMachine] = useState(null);
 
-    // Bildirim İzni State
-    const [notifPermission, setNotifPermission] = useState(() => {
-        if (typeof window !== 'undefined' && 'Notification' in window) {
-            return Notification.permission;
-        }
-        return 'unsupported';
+    // 4. Hover Tooltip State'i
+    const [hoveredJob, setHoveredJob] = useState(null);
+    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+    // 5. Hızlı Yönetim / Tezgah Değiştirme Modalı
+    const [manageModal, setManageModal] = useState({
+        isOpen: false,
+        job: null,
+        targetMachine: '',
+        targetCamOp: '',
+        targetHours: ''
     });
 
-    const requestNotificationPermission = async () => {
-        if (typeof window === 'undefined' || !('Notification' in window)) {
-            alert("Tarayıcınız masaüstü bildirimlerini desteklemiyor.");
-            return;
-        }
+    // 6. KALICI TEZGAH FİLTRELEME & GRUP YÖNETİMİ (BULUT VE TÜM KULLANICILAR İÇİN SENKRON)
+    const [machineGroups, setMachineGroups] = useState(() => {
         try {
-            const perm = await Notification.requestPermission();
-            setNotifPermission(perm);
-            if (perm === 'granted') {
-                playNotificationSound();
-                new Notification("🔔 Bildirimler Aktif!", {
-                    body: "CAM operatörü iş atama bildirimleri başarıyla etkinleştirildi.",
-                    icon: '/favicon.ico'
-                });
-            }
-        } catch (e) {
-            console.error("Bildirim izni hatası:", e);
-        }
-    };
-
-    const playNotificationSound = () => {
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (AudioContext) {
-                const ctx = new AudioContext();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.2, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.35);
+            const cached = localStorage.getItem('planningMachineFilters');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed.machineGroups) && parsed.machineGroups.length > 0) return parsed.machineGroups;
             }
         } catch (e) {}
-    };
+        return generateInitialMachineGroups(machines);
+    });
 
-    const sendCamNotification = (camOpName, moldName, partName, machineName) => {
-        playNotificationSound();
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-                new Notification(`🔔 Yeni İş Atandı: ${camOpName}`, {
-                    body: `${moldName} ➔ ${partName} (${machineName} Tezgahı)`,
-                    icon: '/favicon.ico',
-                    tag: 'cam-plan-' + Date.now()
-                });
-            } catch (e) {}
+    const [activeFilterType, setActiveFilterType] = useState(() => {
+        try {
+            const cached = localStorage.getItem('planningMachineFilters');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed.activeFilterType) return parsed.activeFilterType;
+            }
+        } catch (e) {}
+        return 'ALL'; // 'ALL' | 'GROUP' | 'CUSTOM'
+    });
+
+    const [activeGroupId, setActiveGroupId] = useState(() => {
+        try {
+            const cached = localStorage.getItem('planningMachineFilters');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed.activeGroupId) return parsed.activeGroupId;
+            }
+        } catch (e) {}
+        return null;
+    });
+
+    const [allMachinesList, setAllMachinesList] = useState(() => {
+        try {
+            const cached = localStorage.getItem('planningMachineFilters');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed.allMachinesList) && parsed.allMachinesList.length > 0) return parsed.allMachinesList;
+            }
+        } catch (e) {}
+        return (machines || []).map(m => m.name);
+    });
+
+    const [selectedMachineNames, setSelectedMachineNames] = useState(() => {
+        try {
+            const cached = localStorage.getItem('planningMachineFilters');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed.selectedMachines)) return parsed.selectedMachines;
+            }
+        } catch (e) {}
+        return (machines || []).map(m => m.name);
+    });
+
+    // Filtre & Grup Yönetim Modalı State'leri
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [filterModalTab, setFilterModalTab] = useState('GROUPS'); // 'GROUPS' | 'MACHINES'
+    const [editingGroup, setEditingGroup] = useState(null); // { id, name, machineNames }
+    const [newGroupName, setNewGroupName] = useState('');
+    const [newGroupMachines, setNewGroupMachines] = useState([]);
+    const [machineFilterSearch, setMachineFilterSearch] = useState('');
+
+    // Tezgahlar ilk yüklendiğinde allMachinesList henüz boşsa doldur
+    useEffect(() => {
+        if (machines && machines.length > 0) {
+            setAllMachinesList(prev => (prev && prev.length > 0 ? prev : machines.map(m => m.name)));
+        }
+    }, [machines]);
+
+    // Buluttan Kayıtlı Tezgah Filtrelerini Canlı Dinle (Tüm Kullanıcılar İçin)
+    useEffect(() => {
+        if (!db) return;
+        try {
+            const settingsDocRef = doc(db, CAM_SETTINGS_COLLECTION, 'planningMachineFilters');
+            const unsubscribe = onSnapshot(settingsDocRef, (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if (data) {
+                        if (Array.isArray(data.machineGroups) && data.machineGroups.length > 0) {
+                            setMachineGroups(data.machineGroups);
+                        }
+                        if (data.activeFilterType) {
+                            setActiveFilterType(data.activeFilterType);
+                        }
+                        if (data.activeGroupId !== undefined) {
+                            setActiveGroupId(data.activeGroupId);
+                        }
+                        if (Array.isArray(data.allMachinesList) && data.allMachinesList.length > 0) {
+                            setAllMachinesList(data.allMachinesList);
+                        }
+                        if (Array.isArray(data.selectedMachines)) {
+                            setSelectedMachineNames(data.selectedMachines);
+                        }
+                        try {
+                            localStorage.setItem('planningMachineFilters', JSON.stringify(data));
+                        } catch (e) {}
+                    }
+                } else if (machines && machines.length > 0) {
+                    // İlk defa açılıyorsa varsayılan grupları buluta kaydet
+                    const initialGroups = generateInitialMachineGroups(machines);
+                    const initData = {
+                        activeFilterType: 'ALL',
+                        activeGroupId: null,
+                        allMachinesList: machines.map(m => m.name),
+                        selectedMachines: machines.map(m => m.name),
+                        machineGroups: initialGroups,
+                        updatedAt: new Date().toISOString()
+                    };
+                    setDoc(settingsDocRef, initData).catch(() => {});
+                }
+            }, (err) => {
+                console.warn("Kayıtlı tezgah filtreleri okuma uyarısı:", err);
+            });
+            return () => unsubscribe();
+        } catch (e) {
+            console.warn("Filtre dinleme hatası:", e);
+        }
+    }, [db, machines]);
+
+    // Buluta Kalıcı Kaydetme Fonksiyonu
+    const saveFilterSettingsToCloud = async (newSettings) => {
+        try {
+            const payload = {
+                allMachinesList,
+                selectedMachines: selectedMachineNames,
+                machineGroups,
+                activeFilterType,
+                activeGroupId,
+                ...newSettings,
+                updatedAt: new Date().toISOString()
+            };
+            if (db) {
+                const settingsDocRef = doc(db, CAM_SETTINGS_COLLECTION, 'planningMachineFilters');
+                await setDoc(settingsDocRef, payload, { merge: true });
+            }
+            localStorage.setItem('planningMachineFilters', JSON.stringify(payload));
+        } catch (err) {
+            console.error("Filtre ayarları buluta kaydedilirken hata:", err);
         }
     };
+
+    // Hızlı Filtre Tıklamaları: Tüm Tezgahlar
+    const handleSelectAllMachines = async () => {
+        setActiveFilterType('ALL');
+        setActiveGroupId(null);
+        await saveFilterSettingsToCloud({
+            activeFilterType: 'ALL',
+            activeGroupId: null
+        });
+    };
+
+    // Hızlı Filtre Tıklamaları: Belirli Bir Grubu Seç
+    const handleSelectGroup = async (groupId) => {
+        setActiveFilterType('GROUP');
+        setActiveGroupId(groupId);
+        await saveFilterSettingsToCloud({
+            activeFilterType: 'GROUP',
+            activeGroupId: groupId
+        });
+    };
+
+    // Özel İşaretlenmiş Tezgahları Uygula
+    const handleSaveCustomMachines = async (names) => {
+        setSelectedMachineNames(names);
+        setActiveFilterType('CUSTOM');
+        setActiveGroupId(null);
+        await saveFilterSettingsToCloud({
+            activeFilterType: 'CUSTOM',
+            activeGroupId: null,
+            selectedMachines: names
+        });
+        setIsFilterModalOpen(false);
+    };
+
+    // Grup Ekle veya Güncelle
+    const handleSaveGroup = async () => {
+        // Eğer "__ALL__" yani Tüm Tezgahlar Genel Görünümü düzenleniyorsa
+        if (editingGroup && editingGroup.id === '__ALL__') {
+            if (newGroupMachines.length === 0) {
+                alert("Lütfen 'Tüm Tezgahlar' görünümü için en az 1 tezgah seçiniz.");
+                return;
+            }
+            setAllMachinesList(newGroupMachines);
+            setEditingGroup(null);
+            setNewGroupName('');
+            setNewGroupMachines([]);
+            await saveFilterSettingsToCloud({
+                allMachinesList: newGroupMachines
+            });
+            return;
+        }
+
+        if (!newGroupName.trim()) {
+            alert("Lütfen grup adını giriniz.");
+            return;
+        }
+        let updatedGroups = [];
+        if (editingGroup) {
+            updatedGroups = machineGroups.map(g => {
+                if (g.id === editingGroup.id) {
+                    return {
+                        ...g,
+                        name: newGroupName.trim(),
+                        machineNames: newGroupMachines
+                    };
+                }
+                return g;
+            });
+        } else {
+            const newId = 'grp_' + Date.now();
+            updatedGroups = [
+                ...machineGroups,
+                {
+                    id: newId,
+                    name: newGroupName.trim(),
+                    machineNames: newGroupMachines
+                }
+            ];
+        }
+
+        setMachineGroups(updatedGroups);
+        setEditingGroup(null);
+        setNewGroupName('');
+        setNewGroupMachines([]);
+
+        await saveFilterSettingsToCloud({
+            machineGroups: updatedGroups
+        });
+    };
+
+    // Grup Sil
+    const handleDeleteGroup = async (groupId) => {
+        if (!window.confirm("Bu tezgah grubunu silmek istediğinize emin misiniz?")) return;
+        const updatedGroups = machineGroups.filter(g => g.id !== groupId);
+        setMachineGroups(updatedGroups);
+        const isCurrentActive = activeGroupId === groupId;
+        const newFilterType = isCurrentActive ? 'ALL' : activeFilterType;
+        const newGroupId = isCurrentActive ? null : activeGroupId;
+        if (isCurrentActive) {
+            setActiveFilterType('ALL');
+            setActiveGroupId(null);
+        }
+        await saveFilterSettingsToCloud({
+            activeFilterType: newFilterType,
+            activeGroupId: newGroupId,
+            selectedMachines: selectedMachineNames,
+            machineGroups: updatedGroups
+        });
+    };
+
+    // Zaman Ölçeği Konfigürasyonu
+    const scaleConfig = useMemo(() => {
+        switch (timeScale) {
+            case '1_WEEK':
+                return { days: 7, pxPerHour: 18, label: '1 Hafta (7G)' };
+            case '3_WEEKS':
+                return { days: 21, pxPerHour: 8, label: '3 Hafta (21G)' };
+            case '1_MONTH':
+                return { days: 30, pxPerHour: 5, label: '1 Ay (30G)' };
+            case '2_WEEKS':
+            default:
+                return { days: 14, pxPerHour: 11, label: '2 Hafta (14G)' };
+        }
+    }, [timeScale]);
+
+    const { days: totalDays, pxPerHour } = scaleConfig;
+    const dayWidth = pxPerHour * 24;
+
+    // Timeline Gün Başlıkları
+    const timelineDays = useMemo(() => {
+        const list = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let i = 0; i < totalDays; i++) {
+            const d = new Date(today);
+            d.setDate(today.getDate() + i);
+            const dayOfWeek = d.getDay(); // 0: Pazar, 6: Cmt
+            list.push({
+                index: i,
+                date: d,
+                dateStr: d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }),
+                dayName: d.toLocaleDateString('tr-TR', { weekday: 'short' }),
+                isToday: i === 0,
+                isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+                isSunday: dayOfWeek === 0
+            });
+        }
+        return list;
+    }, [totalDays]);
 
     // CAM Operatörleri Listesi
     const camOperators = useMemo(() => {
@@ -182,23 +397,21 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         return (filtered.length > 0 ? filtered : personnel).sort((a,b) => (a.name || '').localeCompare(b.name || ''));
     }, [personnel]);
 
-    // Kalıp Durumları Listesi
+    // Aktif Kalıplar ve Durum Filtreleri
+    const activeMolds = useMemo(() => {
+        return (projects || []).filter(p => p.status !== 'TAMAMLANDI');
+    }, [projects]);
+
     const availableStatuses = useMemo(() => {
         const set = new Set();
-        (projects || []).forEach(p => {
-            if (p.status && p.status !== 'TAMAMLANDI') {
-                set.add(p.status.trim());
-            }
+        activeMolds.forEach(p => {
+            if (p.status) set.add(p.status.trim());
         });
         DEFAULT_MOLD_STATUSES.forEach(s => {
             if (s.name && s.name !== 'TAMAMLANDI') set.add(s.name);
         });
         return Array.from(set);
-    }, [projects]);
-
-    const activeMolds = useMemo(() => {
-        return (projects || []).filter(p => p.status !== 'TAMAMLANDI');
-    }, [projects]);
+    }, [activeMolds]);
 
     const filteredMolds = useMemo(() => {
         return activeMolds.filter(m => {
@@ -215,310 +428,381 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         return activeMolds.find(m => m.id === selectedMoldId) || null;
     }, [activeMolds, selectedMoldId]);
 
-    // Görünüm Modu (Grid - 2'li Izgara vs Liste)
-    const [viewMode, setViewMode] = useState('grid');
+    // ========================================================
+    // TEZGAHLAR BAZLI ZAMAN ÇİZELGESİ VE İŞ HESAPLAMALARI
+    // ========================================================
+    const timelineRows = useMemo(() => {
+        const now = new Date();
 
-    // Taslak Form State'lerini Senkronize Et
-    useEffect(() => {
-        if (selectedMold && selectedMold.tasks) {
-            const initialDrafts = {};
-            selectedMold.tasks.forEach(t => {
-                initialDrafts[t.id] = {
-                    machine: t.plannedMachine || '',
-                    camOp: t.assignedOperator || t.camOperator || t.camPreparation?.operator || '',
-                    estTime: t.estimatedCamTime ? String(t.estimatedCamTime) : ''
-                };
-                t.operations?.forEach((op, idx) => {
-                    const opKey = `${t.id}_${op.id || idx}`;
-                    initialDrafts[opKey] = {
-                        machine: op.machineName || t.plannedMachine || '',
-                        camOp: op.assignedOperator || t.assignedOperator || t.camOperator || '',
-                        estTime: op.estimatedCamTime || op.durationInHours ? String(op.estimatedCamTime || op.durationInHours) : (t.estimatedCamTime ? String(t.estimatedCamTime) : '')
-                    };
-                });
-            });
-            setTaskDrafts(initialDrafts);
-        }
-    }, [selectedMold]);
+        return (machines || []).map(machine => {
+            let activeJob = null;
+            const queuedJobs = [];
+            let totalHours = 0;
 
-    useEffect(() => {
-        if (selectedMoldId) {
-            const mold = activeMolds.find(m => m.id === selectedMoldId);
-            if (mold) setSearchMoldTerm(`${mold.moldName} - ${mold.projectCode || ''}`);
-        } else {
-            setSearchMoldTerm('');
-        }
-    }, [selectedMoldId, activeMolds]);
+            (projects || []).forEach(project => {
+                if (project.status === 'TAMAMLANDI') return;
 
-    // Kalıbın Toplam CAM Yükü
-    const moldTotalEstimatedTime = useMemo(() => {
-        if (!selectedMold || !selectedMold.tasks) return 0;
-        return selectedMold.tasks.reduce((total, task) => total + (parseFloat(task.estimatedCamTime) || 0), 0);
-    }, [selectedMold]);
+                project.tasks?.forEach(task => {
+                    const estTaskTime = parseFloat(task.estimatedCamTime) || 0;
+                    const camOpName = task.assignedOperator || task.camOperator || project.camResponsible || 'Belirtilmedi';
 
-    // Parçanın Anlık Üretim Durumunu Hesapla
-    const getTaskProgressInfo = (task) => {
-        const ops = task.operations || [];
-        if (ops.length === 0) {
-            if (task.plannedMachine) return { 
-                type: 'PLANNED', 
-                label: 'Planlandı (Sırada)', 
-                badgeClass: 'bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-100 dark:border-emerald-600 font-bold' 
-            };
-            return { 
-                type: 'WAITING', 
-                label: 'Bekliyor', 
-                badgeClass: 'bg-slate-100 text-slate-800 border border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 font-bold' 
-            };
-        }
+                    // 1. Operasyon bazlı çalışan iş
+                    (task.operations || []).forEach(op => {
+                        const isWorking = (op.machineName === machine.name) && 
+                            (op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
+                        if (isWorking && !activeJob) {
+                            const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTaskTime || 8;
+                            const progress = Math.min(100, Math.max(0, parseFloat(op.progressPercentage) || 0));
+                            activeJob = {
+                                id: `${project.id}-${task.id}-${op.id}-active`,
+                                moldId: project.id,
+                                moldName: project.moldName,
+                                customer: project.customer || '',
+                                projectCode: project.projectCode || '',
+                                taskId: task.id,
+                                taskName: task.taskName,
+                                opId: op.id,
+                                opType: op.type || op.name || 'İşleme',
+                                workOrderNo: op.workOrderNo || task.workOrderNo || '',
+                                subOperations: op.subOperations || [],
+                                camOperator: op.assignedOperator || camOpName,
+                                machineOperator: op.machineOperatorName || 'Belirtilmedi',
+                                progress,
+                                time: opTime,
+                                isWorking: true,
+                                priority: task.priority !== undefined ? task.priority : (project.priority || 999),
+                                isSelectedMold: project.id === selectedMoldId
+                            };
+                            totalHours += opTime;
+                        }
+                    });
 
-        const allCompleted = ops.every(op => op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED);
-        if (allCompleted || task.status === 'COMPLETED') {
-            return { 
-                type: 'COMPLETED', 
-                label: 'Tamamlandı (%100)', 
-                badgeClass: 'bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-100 dark:border-emerald-600 font-bold' 
-            };
-        }
-
-        const workingOp = ops.find(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
-        if (workingOp) {
-            return { 
-                type: 'WORKING', 
-                label: `Çalışıyor (${workingOp.machineName || 'Tezgah'}) • %${workingOp.progressPercentage || 0}`, 
-                badgeClass: 'bg-blue-100 text-blue-900 border border-blue-400 dark:bg-blue-900/80 dark:text-blue-100 dark:border-blue-400 font-black shadow-xs',
-                workingOp 
-            };
-        }
-
-        const pausedOp = ops.find(op => op.status === OPERATION_STATUS.PAUSED);
-        if (pausedOp) {
-            return { 
-                type: 'PAUSED', 
-                label: 'Duraklatıldı', 
-                badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-900/50 dark:text-amber-100 dark:border-amber-600 font-bold', 
-                workingOp: pausedOp 
-            };
-        }
-
-        if (task.plannedMachine) {
-            return { 
-                type: 'PLANNED', 
-                label: `Planlandı (${task.plannedMachine})`, 
-                badgeClass: 'bg-emerald-100 text-emerald-900 border border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-100 dark:border-emerald-600 font-bold' 
-            };
-        }
-
-        return { 
-            type: 'WAITING', 
-            label: 'Bekliyor', 
-            badgeClass: 'bg-slate-100 text-slate-800 border border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 font-bold' 
-        };
-    };
-
-    // Tezgahların İş Yükü ve Kuyruk Listesi
-    const machineBacklogs = useMemo(() => {
-        const backlogs = (machines || []).map(m => ({ 
-            ...m, 
-            totalHours: 0, 
-            assignedTasks: [],
-            activeTask: null
-        }));
-
-        (projects || []).forEach(project => {
-            if (project.status === 'TAMAMLANDI') return;
-            
-            project.tasks?.forEach(task => {
-                let taskActiveMachineId = null;
-                const estTime = parseFloat(task.estimatedCamTime) || 0;
-                const camOpName = task.assignedOperator || task.camOperator || task.camPreparation?.operator || 'Belirtilmedi';
-
-                // 1. Aktif Çalışan İş
-                if (task.operations && Array.isArray(task.operations)) {
-                    task.operations.forEach(op => {
-                        const isWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
-                        if (isWorking) {
-                            const opM1 = cleanStr(op.machineName);
-                            const opM2 = cleanStr(op.machine);
-                            const opM3 = cleanStr(op.assignedMachine);
-                            const opM4 = cleanStr(op.machineId);
-
-                            backlogs.forEach(m => {
-                                const mNameClean = cleanStr(m.name);
-                                const mIdClean = cleanStr(m.id);
-                                if (op.machineName === m.name || opM1 === mNameClean || opM1 === mIdClean || opM2 === mNameClean || opM2 === mIdClean || opM3 === mNameClean || opM3 === mIdClean || opM4 === mNameClean || opM4 === mIdClean) {
-                                    taskActiveMachineId = m.id;
-                                    m.activeTask = {
-                                        moldId: project.id,
-                                        moldName: project.moldName,
-                                        taskId: task.id,
-                                        taskName: task.taskName,
-                                        opId: op.id,
-                                        opName: op.type || op.name || 'Operasyon',
-                                        subOperations: op.subOperations || [],
-                                        camOperatorName: op.assignedOperator || camOpName,
-                                        estTime: parseFloat(op.estimatedCamTime || op.durationInHours) || estTime,
-                                        progressPercentage: parseFloat(op.progressPercentage) || 0
-                                    };
-                                    m.totalHours += (parseFloat(op.estimatedCamTime || op.durationInHours) || estTime);
-                                }
+                    // 2. Operasyon bazlı sırada bekleyenler
+                    let hasAssignedOp = false;
+                    (task.operations || []).forEach((op, opIdx) => {
+                        const isThisMachine = (op.machineName === machine.name);
+                        const isPending = op.status !== OPERATION_STATUS.COMPLETED && 
+                                          op.status !== OPERATION_STATUS.IN_PROGRESS && 
+                                          op.status !== 'ÇALIŞIYOR';
+                        if (isThisMachine && isPending) {
+                            hasAssignedOp = true;
+                            const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTaskTime || 8;
+                            queuedJobs.push({
+                                id: `${project.id}-${task.id}-${op.id || opIdx}`,
+                                moldId: project.id,
+                                moldName: project.moldName,
+                                customer: project.customer || '',
+                                projectCode: project.projectCode || '',
+                                taskId: task.id,
+                                taskName: task.taskName,
+                                opId: op.id || String(opIdx),
+                                opType: op.type || op.name || 'İşleme',
+                                workOrderNo: op.workOrderNo || task.workOrderNo || '',
+                                subOperations: op.subOperations || [],
+                                camOperator: op.assignedOperator || camOpName,
+                                machineOperator: op.machineOperatorName || 'Belirtilmedi',
+                                progress: 0,
+                                time: opTime,
+                                isWorking: false,
+                                priority: task.priority !== undefined ? task.priority : (project.priority || 999),
+                                isSelectedMold: project.id === selectedMoldId
                             });
+                            totalHours += opTime;
                         }
                     });
-                }
 
-                // 2. Planlanmış Kuyruk (Operasyon veya Parça Bazlı)
-                let hasOpAssigned = false;
-                if (task.operations && Array.isArray(task.operations)) {
-                    task.operations.forEach((op, opIdx) => {
-                        const isOpDone = op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED;
-                        const isOpWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
-                        if (!isOpDone && !isOpWorking && op.machineName) {
-                            const targetMachine = backlogs.find(m => m.name === op.machineName);
-                            if (targetMachine && targetMachine.id !== taskActiveMachineId) {
-                                hasOpAssigned = true;
-                                const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTime;
-                                targetMachine.totalHours += opTime;
-                                targetMachine.assignedTasks.push({
-                                    moldId: project.id,
-                                    moldName: project.moldName,
-                                    taskId: task.id,
-                                    taskName: task.taskName,
-                                    opId: op.id || String(opIdx),
-                                    opName: op.type || op.name,
-                                    subOperations: op.subOperations || [],
-                                    camOperatorName: op.assignedOperator || camOpName,
-                                    time: opTime,
-                                    priority: task.priority !== undefined ? task.priority : (project.priority || 999)
-                                });
-                            }
-                        }
-                    });
-                }
-
-                // Eğer tek tek operasyon atanmamışsa ama task.plannedMachine varsa
-                const isTaskCompleted = task.operations?.every(op => op.status === 'COMPLETED') || task.status === 'COMPLETED';
-                const isTaskWorking = task.operations?.some(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
-                if (!hasOpAssigned && task.plannedMachine && !isTaskCompleted && !isTaskWorking) {
-                    const targetMachine = backlogs.find(m => m.name === task.plannedMachine);
-                    if (targetMachine && targetMachine.id !== taskActiveMachineId) {
-                        const pendingOp = task.operations?.find(op => op.status !== 'COMPLETED' && op.status !== OPERATION_STATUS.COMPLETED);
-                        targetMachine.totalHours += estTime;
-                        targetMachine.assignedTasks.push({
+                    // 3. Parça düzeyinde planlananlar (alt operasyon atanmamışsa)
+                    const isTaskCompleted = task.operations?.every(op => op.status === OPERATION_STATUS.COMPLETED) || task.status === 'COMPLETED';
+                    const isTaskWorking = task.operations?.some(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
+                    if (!hasAssignedOp && task.plannedMachine === machine.name && !isTaskCompleted && !isTaskWorking) {
+                        const pendingOp = task.operations?.find(op => op.status !== OPERATION_STATUS.COMPLETED);
+                        queuedJobs.push({
+                            id: `${project.id}-${task.id}-task`,
                             moldId: project.id,
                             moldName: project.moldName,
+                            customer: project.customer || '',
+                            projectCode: project.projectCode || '',
                             taskId: task.id,
                             taskName: task.taskName,
-                            opId: pendingOp?.id,
-                            opName: pendingOp?.type || pendingOp?.name,
-                            subOperations: pendingOp?.subOperations || (task.operations || []).flatMap(o => o.subOperations || []),
-                            camOperatorName: camOpName,
-                            time: estTime,
-                            priority: task.priority !== undefined ? task.priority : (project.priority || 999)
+                            opId: pendingOp?.id || null,
+                            opType: pendingOp?.type || pendingOp?.name || 'Genel İşleme',
+                            workOrderNo: pendingOp?.workOrderNo || task.workOrderNo || '',
+                            subOperations: pendingOp?.subOperations || [],
+                            camOperator: pendingOp?.assignedOperator || camOpName,
+                            machineOperator: pendingOp?.machineOperatorName || 'Belirtilmedi',
+                            progress: 0,
+                            time: estTaskTime || 8,
+                            isWorking: false,
+                            priority: task.priority !== undefined ? task.priority : (project.priority || 999),
+                            isSelectedMold: project.id === selectedMoldId
+                        });
+                        totalHours += (estTaskTime || 8);
+                    }
+                });
+            });
+
+            // Kuyruktaki işleri önceliğe göre sırala
+            queuedJobs.sort((a, b) => a.priority - b.priority);
+
+            // Barların zamanlama koordinatlarını (startHour, endHour, dates) hesapla
+            const bars = [];
+            let currentOffsetHours = 0;
+
+            // 1. Aktif İş Barı
+            if (activeJob) {
+                const duration = Math.max(0.5, activeJob.time);
+                const remaining = Math.max(0.5, duration * (1 - activeJob.progress / 100));
+                const startDate = new Date(now.getTime());
+                const endDate = new Date(now.getTime() + remaining * 3600 * 1000);
+                const widthPx = Math.max(38, remaining * pxPerHour);
+
+                bars.push({
+                    ...activeJob,
+                    startHour: 0,
+                    durationHours: remaining,
+                    widthPx,
+                    startDate,
+                    endDate,
+                    isWorking: true,
+                    orderIndex: 0
+                });
+
+                currentOffsetHours += remaining;
+            }
+
+            // 2. Kuyruktaki İş Barları
+            queuedJobs.forEach((job, qIdx) => {
+                const duration = Math.max(0.5, job.time);
+                const startDate = new Date(now.getTime() + currentOffsetHours * 3600 * 1000);
+                const endDate = new Date(startDate.getTime() + duration * 3600 * 1000);
+                const widthPx = Math.max(38, duration * pxPerHour);
+
+                bars.push({
+                    ...job,
+                    startHour: currentOffsetHours,
+                    durationHours: duration,
+                    widthPx,
+                    startDate,
+                    endDate,
+                    isWorking: false,
+                    orderIndex: qIdx + 1
+                });
+
+                currentOffsetHours += duration;
+            });
+
+            const activeRemainingHours = activeJob ? Math.max(0.5, activeJob.time * (1 - activeJob.progress / 100)) : 0;
+            const queuedRemainingHours = queuedJobs.reduce((acc, q) => acc + q.time, 0);
+            const totalRemainingHours = Number((activeRemainingHours + queuedRemainingHours).toFixed(1));
+            const freeAtDate = totalRemainingHours > 0 ? new Date(now.getTime() + totalRemainingHours * 3600 * 1000) : null;
+
+            return {
+                id: machine.id,
+                name: machine.name,
+                type: machine.type || machine.category || 'CNC',
+                activeJob,
+                queuedJobs,
+                bars,
+                totalHours: Number(totalHours.toFixed(1)),
+                totalRemainingHours,
+                freeAt: freeAtDate,
+                hasJobs: bars.length > 0,
+                hasSelectedMoldJob: bars.some(b => b.isSelectedMold),
+                status: activeJob ? 'BUSY' : (queuedJobs.length > 0 ? 'QUEUED' : 'AVAILABLE')
+            };
+        });
+    }, [machines, projects, selectedMoldId, pxPerHour]);
+
+    // Filtrelenmiş Tezgah Satırları (Kalıcı Grup ve İşaretli Tezgah Mantığı Dahil)
+    const displayTimelineRows = useMemo(() => {
+        return timelineRows.filter(row => {
+            // 1. Kalıcı Tezgah Filtresi (Grup, Özel veya Özelleştirilebilir Tüm Tezgahlar Listesi)
+            if (activeFilterType === 'GROUP' && activeGroupId) {
+                const activeGroup = machineGroups.find(g => g.id === activeGroupId);
+                if (activeGroup && !activeGroup.machineNames.includes(row.name)) {
+                    return false;
+                }
+            } else if (activeFilterType === 'CUSTOM') {
+                if (!selectedMachineNames.includes(row.name)) {
+                    return false;
+                }
+            } else if (activeFilterType === 'ALL') {
+                if (allMachinesList && allMachinesList.length > 0 && !allMachinesList.includes(row.name)) {
+                    return false;
+                }
+            }
+
+            // 2. Kalıp Bazlı Filtre (Sadece seçili kalıbın tezgahları)
+            if (onlySelectedMoldMachines && selectedMoldId && !row.hasSelectedMoldJob) {
+                return false;
+            }
+
+            // 3. Arama Terimi
+            if (searchMachine.trim()) {
+                const term = searchMachine.toLowerCase().trim();
+                const matchName = row.name.toLowerCase().includes(term);
+                const matchType = (row.type || '').toLowerCase().includes(term);
+                return matchName || matchType;
+            }
+            return true;
+        });
+    }, [timelineRows, activeFilterType, activeGroupId, machineGroups, selectedMachineNames, allMachinesList, onlySelectedMoldMachines, selectedMoldId, searchMachine]);
+
+    // ========================================================
+    // SEÇİLİ KALIP ANALİZİ VE TAHMİNİ BİTİŞ TAKVİMİ HESABI
+    // ========================================================
+    const selectedMoldAnalysis = useMemo(() => {
+        if (!selectedMold) return null;
+
+        const allTasks = selectedMold.tasks || [];
+        const totalParts = allTasks.length;
+        let plannedCount = 0;
+        let completedCount = 0;
+        let totalHours = 0;
+
+        const assignedJobs = [];
+        const unplannedTasks = [];
+
+        allTasks.forEach(task => {
+            const isCompleted = task.operations?.every(op => op.status === OPERATION_STATUS.COMPLETED) || task.status === 'COMPLETED';
+            if (isCompleted) {
+                completedCount++;
+            }
+
+            const estTime = parseFloat(task.estimatedCamTime) || 0;
+            totalHours += estTime;
+
+            // Bu parçaya ait barları bul
+            let foundInBars = false;
+            timelineRows.forEach(row => {
+                row.bars.forEach(bar => {
+                    if (bar.moldId === selectedMold.id && bar.taskId === task.id) {
+                        foundInBars = true;
+                        assignedJobs.push({
+                            ...bar,
+                            machineName: row.name,
+                            machineType: row.type
                         });
                     }
-                }
+                });
             });
+
+            if (foundInBars || task.plannedMachine) {
+                plannedCount++;
+            } else if (!isCompleted) {
+                unplannedTasks.push(task);
+            }
         });
 
-        backlogs.forEach(m => {
-            m.assignedTasks.sort((a, b) => a.priority - b.priority);
+        // En geç biten parçayı ve tarihi bul (Darboğaz Tezgah & Bitiş Zamanı)
+        let latestFinishDate = null;
+        let bottleneckJob = null;
+
+        assignedJobs.forEach(job => {
+            if (job.endDate) {
+                if (!latestFinishDate || job.endDate.getTime() > latestFinishDate.getTime()) {
+                    latestFinishDate = job.endDate;
+                    bottleneckJob = job;
+                }
+            }
         });
 
-        return backlogs;
-    }, [projects, machines]);
-
-    // Planlama İşlemi (Parça veya Alt Operasyon Bazlı)
-    const handleAssignToMachine = async (taskId, opId = null) => {
-        if (!selectedMold) return;
-        const draftKey = opId ? `${taskId}_${opId}` : taskId;
-        const draft = taskDrafts[draftKey] || taskDrafts[taskId] || {};
-        const machineName = draft.machine;
-        const camOperatorName = draft.camOp;
-        const estimatedHours = draft.estTime ? parseFloat(draft.estTime) : 0;
-
-        if (!machineName) {
-            alert("Lütfen işlenecek tezgahı seçin.");
-            return;
+        // Kalan gün hesabı
+        let remainingDaysText = '';
+        if (latestFinishDate) {
+            const diffMs = latestFinishDate.getTime() - Date.now();
+            if (diffMs > 0) {
+                const totalHoursLeft = diffMs / (3600 * 1000);
+                const days = Math.floor(totalHoursLeft / 24);
+                const hours = Math.round(totalHoursLeft % 24);
+                remainingDaysText = days > 0 ? `${days} Gün ${hours} Saat Sonra` : `${hours} Saat Sonra`;
+            } else {
+                remainingDaysText = 'Bugün Tamamlanıyor';
+            }
         }
 
-        try {
-            const targetTask = selectedMold.tasks.find(t => t.id === taskId);
-            const updatedTasks = selectedMold.tasks.map(t => {
-                if (t.id === taskId) {
-                    let updated = { ...t };
+        return {
+            moldName: selectedMold.moldName,
+            customer: selectedMold.customer,
+            projectCode: selectedMold.projectCode,
+            totalParts,
+            plannedCount,
+            completedCount,
+            unplannedCount: unplannedTasks.length,
+            unplannedTasks,
+            totalHours,
+            latestFinishDate,
+            bottleneckJob,
+            remainingDaysText,
+            isFullyPlanned: unplannedTasks.length === 0 && totalParts > 0
+        };
+    }, [selectedMold, timelineRows]);
 
-                    if (opId && updated.operations && Array.isArray(updated.operations)) {
-                        // Tekil alt operasyonu güncelle
-                        updated.operations = updated.operations.map((op, idx) => {
-                            if ((op.id && op.id === opId) || String(idx) === String(opId)) {
+    // ========================================================
+    // PLANLAMA EYLEMLERİ: TEZGAH DEĞİŞTİR, KALDIR, SÜRÜKLE-BIRAK
+    // ========================================================
+
+    // 1. Tek Tuşla Tezgah Değiştir / Taşı
+    const handleMoveJobToMachine = async (targetMoldId, targetTaskId, targetOpId, newMachineName) => {
+        try {
+            const mold = (projects || []).find(p => p.id === targetMoldId);
+            if (!mold) return;
+
+            const updatedTasks = (mold.tasks || []).map(t => {
+                if (t.id === targetTaskId) {
+                    const newTask = { ...t };
+                    if (targetOpId && newTask.operations && Array.isArray(newTask.operations)) {
+                        newTask.operations = newTask.operations.map((op, idx) => {
+                            if ((op.id && op.id === targetOpId) || String(idx) === String(targetOpId)) {
                                 return {
                                     ...op,
-                                    machineName: machineName,
-                                    assignedOperator: camOperatorName || op.assignedOperator || '',
-                                    estimatedCamTime: isNaN(estimatedHours) ? (parseFloat(op.estimatedCamTime) || 0) : estimatedHours
+                                    machineName: newMachineName
                                 };
                             }
                             return op;
                         });
-                        if (!updated.plannedMachine) {
-                            updated.plannedMachine = machineName;
-                        }
+                        newTask.plannedMachine = newMachineName;
                     } else {
-                        // Genel parça planlaması
-                        updated = { 
-                            ...t, 
-                            plannedMachine: machineName,
-                            assignedOperator: camOperatorName || t.assignedOperator || '',
-                            camOperator: camOperatorName || t.camOperator || '',
-                            estimatedCamTime: isNaN(estimatedHours) ? (parseFloat(t.estimatedCamTime) || 0) : estimatedHours
-                        };
-
-                        if (updated.operations && Array.isArray(updated.operations)) {
-                            updated.operations = updated.operations.map((op, idx) => {
+                        newTask.plannedMachine = newMachineName;
+                        if (newTask.operations && Array.isArray(newTask.operations)) {
+                            newTask.operations = newTask.operations.map((op, idx) => {
                                 if (idx === 0 && (op.status === OPERATION_STATUS.NOT_STARTED || !op.status)) {
-                                    return {
-                                        ...op,
-                                        assignedOperator: camOperatorName || op.assignedOperator,
-                                        machineName: machineName || op.machineName
-                                    };
+                                    return { ...op, machineName: newMachineName };
                                 }
                                 return op;
                             });
                         }
                     }
-                    return updated;
+                    return newTask;
                 }
                 return t;
             });
 
-            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), { 
+            await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), {
                 tasks: updatedTasks,
                 updatedAt: new Date().toISOString()
             });
 
-            // Bildirim Gönder
-            if (camOperatorName) {
-                const opLabel = opId ? ' (Alt İşlem Planlandı)' : '';
-                sendCamNotification(camOperatorName, selectedMold.moldName, (targetTask?.taskName || 'Parça') + opLabel, machineName);
-            }
-        } catch (error) {
-            console.error("Planlama hatası:", error);
-            alert("Tezgah ve CAM operatörü ataması yapılırken hata oluştu.");
+            setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' });
+        } catch (err) {
+            console.error("Tezgah değiştirme hatası:", err);
+            alert("İş başka tezgaha taşınırken hata oluştu: " + err.message);
         }
     };
 
-    // Plandan Kaldır (Parça veya Alt Operasyon Bazlı)
-    const handleRemoveFromMachine = async (moldId, taskId, opId = null) => {
+    // 2. Plandan Kaldır (Plandan Çıkar)
+    const handleRemoveFromPlan = async (targetMoldId, targetTaskId, targetOpId = null) => {
+        if (!window.confirm("Bu parçayı tezgah planından kaldırmak istediğinize emin misiniz?")) return;
         try {
-            const mold = (projects || []).find(p => p.id === moldId);
+            const mold = (projects || []).find(p => p.id === targetMoldId);
             if (!mold) return;
+
             const updatedTasks = (mold.tasks || []).map(t => {
-                if (t.id === taskId) {
+                if (t.id === targetTaskId) {
                     const newTask = { ...t };
-                    if (opId && newTask.operations && Array.isArray(newTask.operations)) {
+                    if (targetOpId && newTask.operations && Array.isArray(newTask.operations)) {
                         newTask.operations = newTask.operations.map((op, idx) => {
-                            if ((op.id && op.id === opId) || String(idx) === String(opId)) {
+                            if ((op.id && op.id === targetOpId) || String(idx) === String(targetOpId)) {
                                 const newOp = { ...op };
                                 delete newOp.machineName;
                                 return newOp;
@@ -526,9 +810,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             return op;
                         });
                         const anyAssigned = newTask.operations.some(o => o.machineName);
-                        if (!anyAssigned) {
-                            delete newTask.plannedMachine;
-                        }
+                        if (!anyAssigned) delete newTask.plannedMachine;
                     } else {
                         delete newTask.plannedMachine;
                         if (newTask.operations && Array.isArray(newTask.operations)) {
@@ -543,724 +825,1579 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                 }
                 return t;
             });
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), { 
+
+            await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), {
                 tasks: updatedTasks,
                 updatedAt: new Date().toISOString()
             });
-        } catch (error) {
-            console.error("Planlama kaldırma hatası:", error);
+
+            setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' });
+        } catch (err) {
+            console.error("Plandan kaldırma hatası:", err);
         }
     };
 
-    // Kuyruk Sıralamasını Değiştir (Sürükle-Bırak veya Yukarı/Aşağı)
-    const handleMoveQueueItem = async (moldId, taskId, newPriority) => {
+    // 3. Hızlı Yönetim Modalında Düzenlemeleri Kaydet
+    const handleSaveManageModal = async () => {
+        const { job, targetMachine, targetCamOp, targetHours } = manageModal;
+        if (!job) return;
+
         try {
-            const mold = (projects || []).find(p => p.id === moldId);
+            const mold = (projects || []).find(p => p.id === job.moldId);
             if (!mold) return;
+
+            const parsedHours = parseFloat(targetHours);
+
             const updatedTasks = (mold.tasks || []).map(t => {
-                if (t.id === taskId) {
+                if (t.id === job.taskId) {
+                    const newTask = { ...t };
+                    const finalHours = !isNaN(parsedHours) && parsedHours > 0 ? parsedHours : (parseFloat(t.estimatedCamTime) || 8);
+
+                    if (job.opId && newTask.operations && Array.isArray(newTask.operations)) {
+                        newTask.operations = newTask.operations.map((op, idx) => {
+                            if ((op.id && op.id === job.opId) || String(idx) === String(job.opId)) {
+                                return {
+                                    ...op,
+                                    machineName: targetMachine || op.machineName,
+                                    assignedOperator: targetCamOp || op.assignedOperator,
+                                    estimatedCamTime: finalHours
+                                };
+                            }
+                            return op;
+                        });
+                        if (targetMachine) newTask.plannedMachine = targetMachine;
+                    } else {
+                        if (targetMachine) newTask.plannedMachine = targetMachine;
+                        if (targetCamOp) {
+                            newTask.assignedOperator = targetCamOp;
+                            newTask.camOperator = targetCamOp;
+                        }
+                        newTask.estimatedCamTime = finalHours;
+
+                        if (newTask.operations && Array.isArray(newTask.operations)) {
+                            newTask.operations = newTask.operations.map((op, idx) => {
+                                if (idx === 0) {
+                                    return {
+                                        ...op,
+                                        machineName: targetMachine || op.machineName,
+                                        assignedOperator: targetCamOp || op.assignedOperator,
+                                        estimatedCamTime: finalHours
+                                    };
+                                }
+                                return op;
+                            });
+                        }
+                    }
+                    return newTask;
+                }
+                return t;
+            });
+
+            await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), {
+                tasks: updatedTasks,
+                updatedAt: new Date().toISOString()
+            });
+
+            setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' });
+        } catch (err) {
+            console.error("Düzenleme kaydetme hatası:", err);
+            alert("Değişiklik kaydedilirken hata oluştu: " + err.message);
+        }
+    };
+
+    // 4. Kuyruk Sırasını Değiştir (En Öne / En Arkaya)
+    const handleReorderQueue = async (targetMoldId, targetTaskId, direction) => {
+        try {
+            const mold = (projects || []).find(p => p.id === targetMoldId);
+            if (!mold) return;
+
+            const newPriority = direction === 'top' ? -999 : 9999;
+            const updatedTasks = (mold.tasks || []).map(t => {
+                if (t.id === targetTaskId) {
                     return { ...t, priority: newPriority };
                 }
                 return t;
             });
-            await updateDoc(doc(db, PROJECT_COLLECTION, moldId), {
+
+            await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), {
                 tasks: updatedTasks,
                 updatedAt: new Date().toISOString()
             });
+
+            setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' });
         } catch (e) {
-            console.error("Kuyruk sıralama güncelleme hatası:", e);
+            console.error("Sıralama hatası:", e);
         }
     };
 
-    const handleDraftChange = (taskId, field, value) => {
-        setTaskDrafts(prev => ({
-            ...prev,
-            [taskId]: {
-                ...(prev[taskId] || {}),
-                [field]: value
-            }
-        }));
+    // 5. Planlanmamış Parçayı Tezgaha Ata
+    const handleAssignUnplannedTask = async (task, targetMachineName, targetCamOp = '', estHours = 8) => {
+        if (!selectedMold || !targetMachineName) return;
+        try {
+            const updatedTasks = (selectedMold.tasks || []).map(t => {
+                if (t.id === task.id) {
+                    const hours = parseFloat(estHours) || (parseFloat(t.estimatedCamTime) || 8);
+                    const ops = (t.operations && t.operations.length > 0) ? t.operations.map((op, idx) => {
+                        if (idx === 0) {
+                            return {
+                                ...op,
+                                machineName: targetMachineName,
+                                assignedOperator: targetCamOp || op.assignedOperator || selectedMold.camResponsible || '',
+                                estimatedCamTime: hours
+                            };
+                        }
+                        return op;
+                    }) : [{
+                        id: 'op-init-' + Date.now(),
+                        type: 'CNC Freze',
+                        machineName: targetMachineName,
+                        assignedOperator: targetCamOp || selectedMold.camResponsible || '',
+                        estimatedCamTime: hours,
+                        status: OPERATION_STATUS.NOT_STARTED,
+                        progressPercentage: 0
+                    }];
+
+                    return {
+                        ...t,
+                        plannedMachine: targetMachineName,
+                        assignedOperator: targetCamOp || t.assignedOperator || selectedMold.camResponsible || '',
+                        estimatedCamTime: hours,
+                        operations: ops
+                    };
+                }
+                return t;
+            });
+
+            await updateDoc(doc(db, PROJECT_COLLECTION, selectedMold.id), {
+                tasks: updatedTasks,
+                updatedAt: new Date().toISOString()
+            });
+        } catch (err) {
+            console.error("Parça atama hatası:", err);
+            alert("Parça tezgaha atanırken hata oluştu: " + err.message);
+        }
+    };
+
+    // Modal Açma Yardımcısı
+    const openManageModal = (job) => {
+        setManageModal({
+            isOpen: true,
+            job,
+            targetMachine: job.machineName || '',
+            targetCamOp: job.camOperator || '',
+            targetHours: String(job.time || '')
+        });
     };
 
     return (
-        <div className="flex flex-col xl:flex-row gap-4 animate-in fade-in h-[calc(100vh-140px)] items-start">
+        <div className="flex flex-col gap-3 animate-in fade-in h-[calc(100vh-140px)] min-h-[600px] overflow-hidden">
             
-            {/* SOL PANEL: KALIP SEÇİMİ VE BEKLEYEN PARÇALAR (GENİŞLETİLMİŞ & IZGARA GÖRÜNÜMÜ) */}
-            <div className="w-full xl:w-[48%] 2xl:w-[50%] flex flex-col gap-3 h-full">
-                
-                {/* 1. KALIP SEÇİMİ VE DURUM FİLTRELERİ */}
-                <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 shrink-0 space-y-2.5">
-                    <div className="flex justify-between items-center border-b dark:border-gray-700 pb-2">
-                        <h2 className="text-xs font-black text-gray-800 dark:text-white flex items-center uppercase tracking-wider">
-                            <Layers className="w-4 h-4 mr-1.5 text-blue-500"/> Kalıp Seçimi & Filtreleme
-                        </h2>
-                        
-                        <div className="flex items-center gap-2">
-                            {/* Bildirim İzin Butonu */}
-                            {notifPermission !== 'granted' && (
-                                <button
-                                    type="button"
-                                    onClick={requestNotificationPermission}
-                                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition flex items-center gap-1 border border-amber-500/30"
-                                    title="İş atandığında sesli & masaüstü bildirim al"
-                                >
-                                    <BellRing size={12} /> Bildirim İzni Ver
-                                </button>
-                            )}
-
-                            {onOpenMatrixView && (
-                                <button
-                                    onClick={onOpenMatrixView}
-                                    className="text-[11px] font-black text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                                >
-                                    <LayoutGrid size={13} /> Tezgah Matrisi Panosu
-                                </button>
-                            )}
-                        </div>
-                    </div>
+            {/* ======================================================== */}
+            {/* 1. ÜST KONTROL ÇUBUĞU (KALIP SEÇİCİ & FİLTRELER & ZAMAN ÖLÇEĞİ) */}
+            {/* ======================================================== */}
+            <div className="bg-white dark:bg-gray-800 p-3 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 shrink-0 space-y-2.5">
+                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
                     
-                    {/* HIZLI KALIP DURUMU FİLTRE HAPLARI */}
-                    <div className="flex flex-wrap gap-1.5">
-                        <button
-                            type="button"
-                            onClick={() => setStatusFilter('ALL')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition ${
-                                statusFilter === 'ALL'
-                                    ? 'bg-blue-600 text-white shadow-xs'
-                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
-                            }`}
-                        >
-                            Tümü ({activeMolds.length})
-                        </button>
-                        {availableStatuses.slice(0, 8).map(st => {
-                            const count = activeMolds.filter(m => (m.status || '').trim().toLowerCase() === st.trim().toLowerCase()).length;
-                            if (count === 0 && st !== 'CNC' && st !== 'İMALAT BEKLEYEN KALIPLAR') return null;
-                            return (
-                                <button
-                                    key={st}
-                                    type="button"
-                                    onClick={() => setStatusFilter(st)}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase transition flex items-center gap-1 ${
-                                        statusFilter === st
-                                            ? 'bg-blue-600 text-white shadow-xs'
-                                            : 'bg-gray-100 dark:bg-gray-700/80 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
-                                    }`}
-                                >
-                                    <span>{st}</span>
-                                    <span className="text-[9px] opacity-75 font-mono">({count})</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {/* Sol: Kalıp Seçimi & Arama Dropdown */}
+                    <div className="flex items-center gap-2 flex-1 w-full xl:w-auto flex-wrap sm:flex-nowrap">
+                        <div className="relative flex-1 min-w-[260px] sm:min-w-[320px]">
+                            <button
+                                type="button"
+                                onClick={() => setIsMoldDropdownOpen(!isMoldDropdownOpen)}
+                                className={`w-full px-3 py-2 text-xs font-black rounded-xl border flex items-center justify-between transition-all ${
+                                    selectedMold 
+                                        ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-400 dark:border-purple-600 text-purple-900 dark:text-purple-100 shadow-xs' 
+                                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white hover:border-purple-400'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2 truncate">
+                                    <Layers className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                                    <span className="truncate">
+                                        {selectedMold ? `${selectedMold.moldName} (${selectedMold.customer || 'Müşteri Yok'})` : 'Tüm Kalıpları Göster (Seçim Yok)'}
+                                    </span>
+                                </div>
+                                <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 ml-1" />
+                            </button>
 
-                    {/* YAZARAK ARAMA YAPILABİLEN KALIP SEÇİMİ */}
-                    <div className="relative">
-                        <div className="relative">
-                            <input 
-                                type="text"
-                                className="w-full p-2.5 pl-3 pr-8 border rounded-xl bg-gray-50 dark:bg-gray-900 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 text-xs transition-all"
-                                placeholder="Kalıp Adı, Kodu veya Müşteri Ara..."
-                                value={searchMoldTerm}
-                                onChange={e => {
-                                    setSearchMoldTerm(e.target.value);
-                                    setIsMoldDropdownOpen(true);
-                                    if(selectedMoldId) setSelectedMoldId('');
-                                }}
-                                onFocus={() => setIsMoldDropdownOpen(true)}
-                                onBlur={() => setTimeout(() => setIsMoldDropdownOpen(false), 220)}
-                            />
-                            <Search className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                            {/* Kalıp Arama & Seçim Menüsü */}
+                            {isMoldDropdownOpen && (
+                                <div 
+                                    className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-2.5 space-y-2 max-h-80 flex flex-col"
+                                    onMouseLeave={() => setIsMoldDropdownOpen(false)}
+                                >
+                                    <div className="relative shrink-0">
+                                        <input
+                                            type="text"
+                                            autoFocus
+                                            placeholder="Kalıp adı, müşteri veya kod ara..."
+                                            value={searchMoldTerm}
+                                            onChange={e => setSearchMoldTerm(e.target.value)}
+                                            className="w-full pl-8 pr-7 py-2 text-xs font-bold bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 shadow-inner"
+                                        />
+                                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+                                        {searchMoldTerm && (
+                                            <button 
+                                                onClick={() => setSearchMoldTerm('')}
+                                                className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Tüm Kalıplar Butonu */}
+                                    <div 
+                                        onClick={() => {
+                                            setSelectedMoldId('');
+                                            setIsMoldDropdownOpen(false);
+                                        }}
+                                        className={`p-2 rounded-xl text-xs font-black cursor-pointer flex items-center justify-between transition ${
+                                            !selectedMoldId 
+                                                ? 'bg-purple-600 text-white' 
+                                                : 'hover:bg-purple-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200'
+                                        }`}
+                                    >
+                                        <span>🌐 Tüm Kalıpları Göster (Vurgu Yok)</span>
+                                        <span className="text-[10px] opacity-75">{activeMolds.length} Kalıp</span>
+                                    </div>
+
+                                    <div className="overflow-y-auto space-y-1 custom-scrollbar max-h-56 pr-1">
+                                        {filteredMolds.map(m => (
+                                            <div
+                                                key={m.id}
+                                                onClick={() => {
+                                                    setSelectedMoldId(m.id);
+                                                    setIsMoldDropdownOpen(false);
+                                                }}
+                                                className={`p-2 rounded-xl text-xs cursor-pointer flex items-center justify-between transition ${
+                                                    selectedMoldId === m.id 
+                                                        ? 'bg-purple-600 text-white font-black shadow-xs' 
+                                                        : 'hover:bg-gray-100 dark:hover:bg-gray-700/60 text-gray-900 dark:text-gray-100'
+                                                }`}
+                                            >
+                                                <div className="flex flex-col truncate">
+                                                    <span className="font-bold truncate">{m.moldName}</span>
+                                                    <span className={`text-[10px] ${selectedMoldId === m.id ? 'text-purple-100' : 'text-gray-400'}`}>
+                                                        {m.customer || 'Müşteri Yok'} • {m.tasks?.length || 0} Parça
+                                                    </span>
+                                                </div>
+                                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0 ${
+                                                    selectedMoldId === m.id 
+                                                        ? 'bg-purple-700 text-white' 
+                                                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                                }`}>
+                                                    {m.status || 'Belirtilmedi'}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {isMoldDropdownOpen && (
-                            <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl max-h-56 overflow-y-auto custom-scrollbar">
-                                {filteredMolds.length > 0 ? (
-                                    filteredMolds.map(m => (
-                                        <div 
-                                            key={m.id}
-                                            onClick={() => {
-                                                setSelectedMoldId(m.id);
-                                                setIsMoldDropdownOpen(false);
-                                            }}
-                                            className="p-2.5 hover:bg-blue-50 dark:hover:bg-gray-700 cursor-pointer border-b last:border-b-0 border-gray-100 dark:border-gray-700 transition flex justify-between items-center"
-                                        >
-                                            <div>
-                                                <div className="font-bold text-xs text-gray-800 dark:text-gray-200">{m.moldName}</div>
-                                                <div className="text-[10px] text-gray-400 font-bold uppercase">{m.projectCode || 'KODSUZ'} • {m.customer || 'Müşteri Yok'}</div>
-                                            </div>
-                                            <span className="text-[9px] font-black px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 uppercase">
-                                                {m.status || 'BELİRTİLMEDİ'}
-                                            </span>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="p-4 text-gray-500 italic text-center text-xs font-medium">Bu filtrede kalıp bulunamadı...</div>
-                                )}
-                            </div>
+                        {/* Seçimi Temizle Butonu */}
+                        {selectedMoldId && (
+                            <button
+                                type="button"
+                                onClick={() => setSelectedMoldId('')}
+                                className="px-2.5 py-2 text-xs font-bold text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30 transition shrink-0"
+                                title="Seçimi kaldır ve tüm kalıpları göster"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        )}
+
+                        {/* Planlanmamış Parçalar Butonu */}
+                        {selectedMoldAnalysis && selectedMoldAnalysis.unplannedCount > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => setIsPoolOpen(!isPoolOpen)}
+                                className={`px-3 py-2 text-xs font-black rounded-xl border flex items-center gap-1.5 transition shrink-0 ${
+                                    isPoolOpen 
+                                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-100'
+                                }`}
+                                title="Bu kalıba ait henüz bir tezgaha atanmamış parçaları aç/kapat"
+                            >
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                <span>Planlanmamış Parçalar</span>
+                                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-600 text-white">
+                                    {selectedMoldAnalysis.unplannedCount}
+                                </span>
+                            </button>
                         )}
                     </div>
 
-                    {selectedMold && (
-                        <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800 flex justify-between items-center">
-                            <div>
-                                <div className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase">Seçili Kalıp & Toplam İş Yükü</div>
-                                <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 truncate max-w-[280px]">{selectedMold.moldName} ({selectedMold.projectCode || 'KODSUZ'})</div>
-                            </div>
-                            <div className="text-base font-black text-blue-800 dark:text-blue-300 flex items-center">
-                                {moldTotalEstimatedTime.toFixed(1)} <span className="text-[10px] font-bold ml-1 opacity-60">Saat</span>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* 2. İŞ PARÇALARI VE PLANLAMA LİSTESİ (IZGARA / ÇOKLU PARÇA GÖRÜNÜMÜ) */}
-                {selectedMold ? (
-                    <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex-1 overflow-hidden flex flex-col">
-                        <div className="flex justify-between items-center mb-2.5 border-b dark:border-gray-700 pb-2 shrink-0">
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-black text-gray-800 dark:text-white uppercase text-xs tracking-wider">
-                                    İş Parçaları ve Planlama ({selectedMold.tasks?.length || 0})
-                                </h3>
-                            </div>
-                            
-                            {/* Görünüm Değiştirici (Grid / Liste) */}
-                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-600">
-                                <button
-                                    type="button"
-                                    onClick={() => setViewMode('grid')}
-                                    className={`px-2 py-1 rounded text-[10px] font-black transition flex items-center gap-1 ${
-                                        viewMode === 'grid' 
-                                            ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-2xs' 
-                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
-                                    }`}
-                                    title="2'li Izgara Görünümü (Daha Çok Parça Gör)"
-                                >
-                                    <LayoutGrid size={11} /> Izgara
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setViewMode('list')}
-                                    className={`px-2 py-1 rounded text-[10px] font-black transition flex items-center gap-1 ${
-                                        viewMode === 'list' 
-                                            ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-2xs' 
-                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
-                                    }`}
-                                    title="Tekli Liste Görünümü"
-                                >
-                                    <List size={11} /> Liste
-                                </button>
-                            </div>
-                        </div>
+                    {/* Sağ Kontroller: Tezgah Arama, Sadece Kalıp Tezgahları, Zaman Ölçeği */}
+                    <div className="flex items-center gap-2 flex-wrap w-full xl:w-auto justify-end">
                         
-                        <div className={`flex-1 overflow-y-auto custom-scrollbar pr-1 ${viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start' : 'space-y-2.5'}`}>
-                            {selectedMold.tasks?.map(task => {
-                                const progress = getTaskProgressInfo(task);
-                                const isAssigned = !!task.plannedMachine;
-                                const isCompleted = progress.type === 'COMPLETED';
-                                const isWorking = progress.type === 'WORKING';
-                                const estTime = parseFloat(task.estimatedCamTime) || 0;
-                                const draft = taskDrafts[task.id] || { machine: '', camOp: '', estTime: '' };
-                                const assignedCamOp = task.assignedOperator || task.camOperator || task.camPreparation?.operator;
-
-                                return (
-                                    <div 
-                                        key={task.id} 
-                                        className={`p-2.5 rounded-xl border transition flex flex-col justify-between ${
-                                            isCompleted
-                                                ? 'bg-green-50/50 border-green-200 dark:bg-green-950/20 dark:border-green-800/60 opacity-85'
-                                                : isWorking
-                                                ? 'bg-blue-50/70 border-blue-300 dark:bg-blue-950/30 dark:border-blue-800 shadow-2xs'
-                                                : isAssigned 
-                                                ? 'bg-emerald-50/70 border-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-800' 
-                                                : 'bg-slate-50 border-slate-200 dark:bg-slate-900/80 dark:border-slate-700'
-                                        }`}
-                                    >
-                                        <div>
-                                            {/* Parça Başlığı ve Durum Rozeti */}
-                                            <div className="flex justify-between items-start mb-1.5 gap-1.5">
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="font-black text-xs text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                                                        <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-[9px] font-black text-blue-700 dark:text-blue-300 uppercase">
-                                                            PARÇA
-                                                        </span>
-                                                        <span className="truncate font-extrabold" title={task.taskName}>{task.taskName}</span>
-                                                        {task.isCritical && (
-                                                            <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-300 shrink-0">
-                                                                KRİTİK
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    <div className="flex flex-wrap items-center gap-1 mt-1">
-                                                        {/* Durum Rozeti */}
-                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${progress.badgeClass}`}>
-                                                            {progress.label}
-                                                        </span>
-
-                                                        {estTime > 0 ? (
-                                                            <span className="text-[9px] font-black text-indigo-900 dark:text-indigo-200 flex items-center bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.5 rounded-md">
-                                                                <Clock className="w-2.5 h-2.5 mr-1"/> {estTime}s
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-[9px] font-black text-amber-900 dark:text-amber-200 flex items-center bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-1.5 py-0.5 rounded-md">
-                                                                <AlertCircle className="w-2.5 h-2.5 mr-1"/> Süresiz
-                                                            </span>
-                                                        )}
-
-                                                        {assignedCamOp && !isCompleted && (
-                                                            <span className="text-[9px] font-black text-purple-900 dark:text-purple-200 flex items-center bg-purple-100 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800 px-1.5 py-0.5 rounded-md truncate max-w-[140px]">
-                                                                <User className="w-2.5 h-2.5 mr-0.5"/> {assignedCamOp}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {isCompleted && (
-                                                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
-                                                )}
-                                            </div>
-
-                                            {/* ALT OPERASYONLAR VE İŞLEMLER LİSTESİ */}
-                                            {task.operations && task.operations.length > 0 && (
-                                                <div className="mt-2 pt-2 border-t border-slate-200/80 dark:border-slate-700/80 space-y-1.5">
-                                                    <div className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                                                        <span>Operasyonlar & Alt İşlemler ({task.operations.length}):</span>
-                                                    </div>
-
-                                                    <div className="space-y-1.5">
-                                                        {task.operations.map((op, opIdx) => {
-                                                            const opKey = `${task.id}_${op.id || opIdx}`;
-                                                            const opDraft = taskDrafts[opKey] || {};
-                                                            const isOpDone = op.status === 'COMPLETED' || op.status === OPERATION_STATUS.COMPLETED;
-                                                            const isOpWorking = op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR';
-                                                            const hasSubOps = op.subOperations && Array.isArray(op.subOperations) && op.subOperations.length > 0;
-                                                            const opAssignedMachine = op.machineName;
-
-                                                            return (
-                                                                <div 
-                                                                    key={op.id || opIdx} 
-                                                                    className="p-1.5 rounded-lg bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs space-y-1"
-                                                                >
-                                                                    {/* Operasyon Başlığı ve Durumu */}
-                                                                    <div className="flex justify-between items-center gap-1">
-                                                                        <span className="font-extrabold text-[10px] text-blue-700 dark:text-blue-400 flex items-center gap-1 truncate">
-                                                                            <Wrench size={10} className="text-blue-500 shrink-0" />
-                                                                            {op.type || op.name || `Op ${opIdx + 1}`}
-                                                                        </span>
-                                                                        <span className={`text-[8px] font-black px-1.5 py-0.2 rounded border shrink-0 ${
-                                                                            isOpDone ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-200' :
-                                                                            isOpWorking ? 'bg-blue-100 text-blue-800 border-blue-400 dark:bg-blue-900/70 dark:text-blue-200 animate-pulse' :
-                                                                            opAssignedMachine ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/50 dark:text-purple-200' :
-                                                                            'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300'
-                                                                        }`}>
-                                                                            {isOpDone ? 'Bitti ✓' : isOpWorking ? 'Çalışıyor ⚙️' : opAssignedMachine ? `${opAssignedMachine}` : 'Bekliyor'}
-                                                                        </span>
-                                                                    </div>
-
-                                                                    {/* Alt İşlem Durumları (Diş Çekme, Çevre Dönme vs.) */}
-                                                                    {hasSubOps && (
-                                                                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                                                                            {op.subOperations.map((subOp, sIdx) => (
-                                                                                <span 
-                                                                                    key={sIdx}
-                                                                                    className="px-1.5 py-0.5 text-[8px] font-black rounded bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/70 flex items-center gap-0.5 shadow-2xs"
-                                                                                >
-                                                                                    <span className="text-indigo-500 dark:text-indigo-400 font-bold">▪</span>
-                                                                                    {subOp}
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-
-                                                                    {/* Alt Operasyon Özel Planlama Butonları / Girişleri */}
-                                                                    {!isOpDone && !isOpWorking && (
-                                                                        <div className="pt-1 border-t border-slate-100 dark:border-slate-700/60 space-y-1">
-                                                                            <div className="grid grid-cols-2 gap-1">
-                                                                                <SearchableMachineSelect
-                                                                                    machines={machines}
-                                                                                    value={opDraft.machine || op.machineName || ''}
-                                                                                    onChange={val => handleDraftChange(opKey, 'machine', val)}
-                                                                                    placeholder="Tezgah..."
-                                                                                />
-                                                                                <select 
-                                                                                    value={opDraft.camOp !== undefined ? opDraft.camOp : (op.assignedOperator || '')}
-                                                                                    onChange={e => handleDraftChange(opKey, 'camOp', e.target.value)}
-                                                                                    className="w-full p-1 text-[10px] font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-purple-500 border-slate-300 dark:border-slate-600"
-                                                                                >
-                                                                                    <option value="">CAM Op...</option>
-                                                                                    {camOperators.map(cop => (
-                                                                                        <option key={cop.id || cop.name} value={cop.name}>{cop.name}</option>
-                                                                                    ))}
-                                                                                </select>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <input 
-                                                                                    type="number"
-                                                                                    step="0.5"
-                                                                                    min="0"
-                                                                                    placeholder="Saat"
-                                                                                    value={opDraft.estTime !== undefined ? opDraft.estTime : (op.estimatedCamTime || op.durationInHours || '')}
-                                                                                    onChange={e => handleDraftChange(opKey, 'estTime', e.target.value)}
-                                                                                    className="w-16 p-1 text-[10px] font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500 border-slate-300 dark:border-slate-600"
-                                                                                />
-                                                                                <button 
-                                                                                    type="button"
-                                                                                    onClick={() => handleAssignToMachine(task.id, op.id || String(opIdx))}
-                                                                                    disabled={!opDraft.machine && !op.machineName}
-                                                                                    className="flex-1 py-1 px-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black rounded-lg shadow-2xs disabled:opacity-40 transition flex items-center justify-center gap-1"
-                                                                                >
-                                                                                    <Check size={10} strokeWidth={3} /> Alt İşlemi Planla
-                                                                                </button>
-                                                                                {op.machineName && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => handleRemoveFromMachine(selectedMold.id, task.id, op.id || String(opIdx))}
-                                                                                        className="p-1 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 text-[9px] font-bold rounded-lg transition"
-                                                                                        title="Planı kaldır"
-                                                                                    >
-                                                                                        <X size={11} />
-                                                                                    </button>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* GENEL PARÇA PLANLAMA FORMU (İsteğe bağlı parça düzeyinde toplu planlama) */}
-                                        {!isCompleted && !isAssigned && (
-                                            <div className="space-y-1.5 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                                                <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Hızlı Parça Planlama:</div>
-                                                <div className="grid grid-cols-2 gap-1.5">
-                                                    <div>
-                                                        <SearchableMachineSelect
-                                                            machines={machines}
-                                                            value={draft.machine || ''}
-                                                            onChange={val => handleDraftChange(task.id, 'machine', val)}
-                                                            placeholder="Tezgah..."
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <select 
-                                                            value={draft.camOp || ''}
-                                                            onChange={e => handleDraftChange(task.id, 'camOp', e.target.value)}
-                                                            className="w-full p-1.5 text-xs font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 border-slate-300 dark:border-slate-600"
-                                                        >
-                                                            <option value="">CAM Op...</option>
-                                                            {camOperators.map(op => (
-                                                                <option key={op.id || op.name} value={op.name}>{op.name}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex gap-1.5 items-center">
-                                                    <div className="flex-1 flex items-center gap-1">
-                                                        <span className="text-[9px] font-bold text-slate-500 shrink-0">⏱️ Süre:</span>
-                                                        <input 
-                                                            type="number"
-                                                            step="0.5"
-                                                            min="0"
-                                                            placeholder="Saat"
-                                                            value={draft.estTime !== undefined ? draft.estTime : (task.estimatedCamTime || '')}
-                                                            onChange={e => handleDraftChange(task.id, 'estTime', e.target.value)}
-                                                            className="w-full p-1 text-xs font-bold border rounded-lg bg-white dark:bg-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 border-slate-300 dark:border-slate-600"
-                                                        />
-                                                    </div>
-
-                                                    <button 
-                                                        onClick={() => handleAssignToMachine(task.id)}
-                                                        disabled={!draft.machine}
-                                                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-lg shadow-sm disabled:opacity-40 transition flex items-center gap-1 shrink-0"
-                                                    >
-                                                        <Check size={12} strokeWidth={3} /> PLANLA
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Zaten Planlanmış Parça Bilgisi */}
-                                        {!isCompleted && isAssigned && (
-                                            <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shadow-2xs mt-2">
-                                                <div className="flex flex-col">
-                                                    <div className="text-[10px] font-extrabold text-gray-800 dark:text-gray-200 flex items-center">
-                                                        <Monitor className="w-3 h-3 mr-1 text-emerald-600"/> {task.plannedMachine}
-                                                    </div>
-                                                    {assignedCamOp && (
-                                                        <div className="text-[9px] font-bold text-purple-600 dark:text-purple-400">
-                                                            👤 CAM: {assignedCamOp}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <button 
-                                                    onClick={() => handleRemoveFromMachine(selectedMold.id, task.id)}
-                                                    className="text-[9px] font-black text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded transition"
-                                                >
-                                                    PLANDAN KALDIR
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                            {(!selectedMold.tasks || selectedMold.tasks.length === 0) && (
-                                <div className="text-center text-gray-400 py-10 text-xs font-medium col-span-full">Bu kalıba ait parça bulunmuyor.</div>
-                            )}
+                        {/* Tezgah Ara Input */}
+                        <div className="relative min-w-[140px] sm:min-w-[170px]">
+                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                            <input
+                                type="text"
+                                placeholder="Tezgah ara..."
+                                value={searchMachine}
+                                onChange={e => setSearchMachine(e.target.value)}
+                                className="w-full pl-8 pr-3 py-1.5 text-xs font-bold bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-purple-500"
+                            />
                         </div>
-                    </div>
-                ) : (
-                    <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex-1 flex flex-col items-center justify-center text-center">
-                        <Layers className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-2" />
-                        <div className="font-black text-sm text-slate-700 dark:text-slate-200">Kalıp Seçilmedi</div>
-                        <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                            Yukarıdaki arama çubuğundan veya durum filtrelerinden bir kalıp seçerek parçalarını ve alt operasyonlarını tezgahlara ve CAM operatörlerine planlayabilirsiniz.
-                        </p>
-                    </div>
-                )}
-            </div>
 
-            {/* SAĞ PANEL: TEZGAH İŞ YÜKÜ VE SÜRÜKLE-BIRAK KUYRUK SIRALAMASI */}
-            <div className="w-full xl:w-[52%] 2xl:w-[50%] self-start bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-xs border border-gray-200 dark:border-gray-700 flex flex-col h-full">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3 border-b dark:border-gray-700 pb-2.5 shrink-0">
-                    <div>
-                        <h2 className="text-xs font-black text-gray-800 dark:text-white flex items-center uppercase tracking-wider">
-                            <Monitor className="w-4 h-4 mr-1.5 text-indigo-500"/> Tezgah İş Yükü ve Kuyruk Sıralaması ({machineBacklogs.length} Tezgah)
-                        </h2>
-                        <p className="text-[11px] text-slate-400">
-                            Aktif çalışan parçalar ve ardından işlenecek sıralı kuyruk (Sürükle-bırak veya oklarla sıra düzenleme).
-                        </p>
-                    </div>
+                        {/* Sadece Seçili Kalıbın Tezgahları Switch */}
+                        {selectedMoldId && (
+                            <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 rounded-xl text-xs font-bold cursor-pointer select-none text-gray-700 dark:text-gray-300 hover:bg-gray-100">
+                                <input
+                                    type="checkbox"
+                                    checked={onlySelectedMoldMachines}
+                                    onChange={e => setOnlySelectedMoldMachines(e.target.checked)}
+                                    className="w-3.5 h-3.5 text-purple-600 rounded focus:ring-purple-500"
+                                />
+                                <span>Sadece Kalıbın Tezgahları</span>
+                            </label>
+                        )}
 
-                    <div className="flex items-center gap-2">
-                        {/* Yeniden Düzenleme Modu Butonu */}
-                        <button
-                            type="button"
-                            onClick={() => setIsReorderMode(!isReorderMode)}
-                            className={`px-3 py-1.5 text-xs font-black rounded-xl border transition flex items-center gap-1.5 ${
-                                isReorderMode 
-                                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
-                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 border-slate-300 dark:border-slate-600'
-                            }`}
-                        >
-                            <GripVertical size={13} /> {isReorderMode ? 'Sıralama Modu Açık' : 'Kuyrukları Düzenle'}
-                        </button>
+                        {/* Zaman Ölçeği Butonları */}
+                        <div className="flex bg-gray-100 dark:bg-gray-700 p-0.5 rounded-xl border border-gray-200 dark:border-gray-600 text-[11px] font-black">
+                            {['1_WEEK', '2_WEEKS', '3_WEEKS', '1_MONTH'].map(scale => (
+                                <button
+                                    key={scale}
+                                    type="button"
+                                    onClick={() => setTimeScale(scale)}
+                                    className={`px-2 py-1 rounded-lg transition-all ${
+                                        timeScale === scale 
+                                            ? 'bg-purple-600 text-white shadow-xs' 
+                                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                                    }`}
+                                >
+                                    {scale === '1_WEEK' ? '1 Hafta' : scale === '2_WEEKS' ? '2 Hafta' : scale === '3_WEEKS' ? '3 Hafta' : '1 Ay'}
+                                </button>
+                            ))}
+                        </div>
 
+                        {/* Matris Panosu Butonu */}
                         {onOpenMatrixView && (
-                            <button 
+                            <button
+                                type="button"
                                 onClick={onOpenMatrixView}
-                                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1.5"
+                                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1 shrink-0"
                             >
-                                <LayoutGrid size={13} /> Matris Panosu
+                                <LayoutGrid className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Matris Panosu</span>
                             </button>
                         )}
                     </div>
                 </div>
-                
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1.5 space-y-2.5">
-                    {machineBacklogs.map(machine => {
-                        const daysLoaded = (machine.totalHours / 24).toFixed(1);
-                        const remainingHours = machine.activeTask ? Math.max(0, machine.activeTask.estTime * (1 - (machine.activeTask.progressPercentage || 0) / 100)) : 0;
-                        const activeProgress = machine.activeTask?.progressPercentage ?? 0;
 
-                        return (
-                            <div 
-                                key={machine.id} 
-                                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row overflow-hidden hover:border-indigo-300 transition-colors shadow-2xs"
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={async (e) => {
-                                    e.preventDefault();
-                                    if (draggedItem && draggedItem.machineName !== machine.name) {
-                                        // Farklı bir tezgaha taşıma
-                                        try {
-                                            const mold = (projects || []).find(p => p.id === draggedItem.moldId);
-                                            if (mold) {
-                                                const updatedTasks = (mold.tasks || []).map(t => {
-                                                    if (t.id === draggedItem.taskId) {
-                                                        return { ...t, plannedMachine: machine.name };
-                                                    }
-                                                    return t;
-                                                });
-                                                await updateDoc(doc(db, PROJECT_COLLECTION, mold.id), { tasks: updatedTasks });
-                                            }
-                                        } catch (err) {
-                                            console.error("Tezgah taşıma hatası:", err);
-                                        }
-                                        setDraggedItem(null);
-                                    }
-                                }}
+                {/* Kalıp Durum Filtreleri */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 custom-scrollbar text-xs">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider mr-1 flex items-center gap-1 shrink-0">
+                        <Filter className="w-3 h-3" /> Durum:
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setStatusFilter('ALL')}
+                        className={`px-2.5 py-0.5 rounded-lg font-bold text-[11px] transition ${
+                            statusFilter === 'ALL'
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                        }`}
+                    >
+                        Tümü ({activeMolds.length})
+                    </button>
+                    {availableStatuses.map(st => (
+                        <button
+                            key={st}
+                            type="button"
+                            onClick={() => setStatusFilter(st)}
+                            className={`px-2.5 py-0.5 rounded-lg font-bold text-[11px] transition whitespace-nowrap ${
+                                statusFilter === st
+                                    ? 'bg-purple-600 text-white shadow-xs'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                            }`}
+                        >
+                            {st}
+                        </button>
+                    ))}
+                </div>
+
+                {/* ======================================================== */}
+                {/* TEZGAH GRUP VE FİLTRELEME ÇUBUĞU (KALICI & BULUT EŞZAMANLI) */}
+                {/* ======================================================== */}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700/80 overflow-x-auto custom-scrollbar">
+                    <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar text-xs py-0.5">
+                        <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                            <Monitor className="w-3.5 h-3.5 text-indigo-500" /> Tezgah Filtresi:
+                        </span>
+
+                        {/* Tüm Tezgahlar Butonu ve Hızlı Düzenle */}
+                        <div className="inline-flex items-center rounded-xl shadow-xs overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                            <button
+                                type="button"
+                                onClick={handleSelectAllMachines}
+                                className={`px-2.5 py-1 text-xs font-black transition-all ${
+                                    activeFilterType === 'ALL'
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                }`}
+                                title="Tüm Tezgahlar ana listesini göster"
                             >
-                                
-                                {/* Sol Kısım: Tezgah Bilgisi */}
-                                <div className="lg:w-48 p-2.5 bg-slate-50 dark:bg-slate-900/60 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 flex flex-col justify-center shrink-0">
-                                    <div className="font-black text-xs text-gray-900 dark:text-white mb-1.5 flex items-center uppercase tracking-tight">
-                                        <Monitor className="w-3.5 h-3.5 mr-1 text-indigo-600" /> {machine.name}
-                                    </div>
-                                    <div className="flex gap-1.5">
-                                        <div className="flex-1 bg-white dark:bg-gray-800 px-1.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600">
-                                            <div className="text-[8px] font-black text-gray-500 uppercase">Yük</div>
-                                            <div className="text-xs font-black text-indigo-700 dark:text-indigo-400">{machine.totalHours.toFixed(1)}s</div>
-                                        </div>
-                                        <div className="flex-1 bg-white dark:bg-gray-800 px-1.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600">
-                                            <div className="text-[8px] font-black text-gray-500 uppercase">Doluluk</div>
-                                            <div className="text-xs font-black text-orange-600 dark:text-orange-400">{daysLoaded}g</div>
-                                        </div>
-                                    </div>
-                                </div>
+                                Tümü ({allMachinesList.length}{allMachinesList.length !== (machines?.length || 0) ? `/${machines?.length || 0}` : ''})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingGroup({ id: '__ALL__', name: 'Tüm Tezgahlar (Ana Görünüm)', machineNames: allMachinesList });
+                                    setNewGroupName('Tüm Tezgahlar (Ana Görünüm)');
+                                    setNewGroupMachines(allMachinesList);
+                                    setFilterModalTab('GROUPS');
+                                    setIsFilterModalOpen(true);
+                                }}
+                                title="Tüm Tezgahlar genel görünüm listesini düzenle"
+                                className={`px-1.5 py-1 text-xs font-bold transition-all border-l ${
+                                    activeFilterType === 'ALL'
+                                        ? 'bg-indigo-700 border-indigo-500 text-indigo-100 hover:bg-indigo-800'
+                                        : 'bg-gray-200 dark:bg-gray-600 border-gray-300 dark:border-gray-500 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-500'
+                                }`}
+                            >
+                                <Edit3 className="w-3 h-3" />
+                            </button>
+                        </div>
 
-                                {/* Sağ Kısım: İş Parçaları (Yatay Kaydırma & Sürükle-Bırak) */}
-                                <div className="p-2 flex-1 flex gap-2 overflow-x-auto custom-scrollbar items-stretch bg-slate-50/50 dark:bg-gray-800/30">
-                                    
-                                    {/* 1. AKTİF ÇALIŞAN İŞ */}
-                                    {machine.activeTask && (
-                                        <div className="min-w-[180px] max-w-[180px] bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-500 rounded-lg p-2 shadow-xs relative flex flex-col flex-shrink-0 justify-between">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded flex items-center shadow-xs">
-                                                    <span className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-ping"></span>
-                                                    AKTİF İŞ
-                                                </span>
-                                                <span className="text-[9px] font-black text-emerald-800 dark:text-emerald-300">%{activeProgress}</span>
-                                            </div>
-                                            <div className="flex-1 flex flex-col">
-                                                <div className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase truncate" title={machine.activeTask.moldName}>{machine.activeTask.moldName}</div>
-                                                <div className="text-xs font-black text-emerald-950 dark:text-emerald-100 leading-tight line-clamp-1" title={machine.activeTask.taskName}>{machine.activeTask.taskName}</div>
-                                                
-                                                {/* Alt Operasyon / İşlem Bilgisi */}
-                                                {machine.activeTask.subOperations && machine.activeTask.subOperations.length > 0 && (
-                                                    <div className="flex flex-wrap gap-0.5 mt-1">
-                                                        {machine.activeTask.subOperations.map((subOp, sIdx) => (
-                                                            <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
-                                                                {subOp}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                )}
+                        {/* Tanımlı Gruplar Butonları */}
+                        {machineGroups.map(grp => {
+                            const isActive = activeFilterType === 'GROUP' && activeGroupId === grp.id;
+                            return (
+                                <button
+                                    key={grp.id}
+                                    type="button"
+                                    onClick={() => handleSelectGroup(grp.id)}
+                                    className={`px-3 py-1 rounded-xl text-xs font-black transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                                        isActive
+                                            ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-300 dark:ring-indigo-700'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                >
+                                    <span>{grp.name}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                        isActive ? 'bg-indigo-800 text-indigo-100' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                                    }`}>
+                                        {grp.machineNames.length}
+                                    </span>
+                                </button>
+                            );
+                        })}
 
-                                                <div className="mt-1.5 pt-1 border-t border-emerald-200 dark:border-emerald-800/50 flex flex-col gap-0.5">
-                                                    <div className="text-[9px] font-bold text-purple-700 dark:text-purple-300 truncate">
-                                                        👤 CAM: {machine.activeTask.camOperatorName || 'Bilinmiyor'}
-                                                    </div>
-                                                    <div className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
-                                                        Kalan: {remainingHours.toFixed(1)}s
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                        {/* Özel Çoklu Seçim Aktifse Rozet */}
+                        {activeFilterType === 'CUSTOM' && (
+                            <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500 text-white shadow-xs flex items-center gap-1 shrink-0">
+                                <CheckSquare className="w-3 h-3" /> Özel Seçim ({selectedMachineNames.length} Tezgah)
+                            </span>
+                        )}
+                    </div>
 
-                                    {/* Ayrım Çizgisi */}
-                                    {machine.activeTask && machine.assignedTasks.length > 0 && (
-                                        <div className="w-px bg-gray-300 dark:bg-gray-600 mx-0.5 flex-shrink-0"></div>
-                                    )}
-
-                                    {/* 2. KUYRUKTAKİ GELECEK İŞLER (SÜRÜKLE-BIRAK DESTEKLİ) */}
-                                    {machine.assignedTasks.length > 0 ? (
-                                        machine.assignedTasks.map((t, idx) => (
-                                            <div 
-                                                key={`${t.moldId}-${t.taskId}-${t.opId || idx}`}
-                                                draggable
-                                                onDragStart={() => setDraggedItem({ moldId: t.moldId, taskId: t.taskId, machineName: machine.name, index: idx })}
-                                                onDragOver={(e) => e.preventDefault()}
-                                                onDrop={async (e) => {
-                                                    e.stopPropagation();
-                                                    e.preventDefault();
-                                                    if (draggedItem && draggedItem.taskId !== t.taskId) {
-                                                        const targetPriority = t.priority - 1;
-                                                        await handleMoveQueueItem(draggedItem.moldId, draggedItem.taskId, targetPriority);
-                                                        setDraggedItem(null);
-                                                    }
-                                                }}
-                                                className={`min-w-[175px] max-w-[175px] bg-white dark:bg-gray-700 p-2 rounded-lg border shadow-xs relative group flex-shrink-0 flex flex-col justify-between transition-all cursor-move ${
-                                                    isReorderMode 
-                                                        ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-400/30' 
-                                                        : 'border-gray-200 dark:border-gray-600 hover:border-blue-300'
-                                                }`}
-                                            >
-                                                <div className="absolute top-0 left-0 w-1 h-full bg-blue-500 rounded-l-lg"></div>
-                                                <div className="pl-1 flex-1">
-                                                    <div className="flex justify-between items-center mb-1">
-                                                        <span className="text-[8px] font-black text-gray-500 uppercase bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                            <GripVertical size={9} /> #{idx + 1}. SIRA
-                                                        </span>
-                                                        <span className="text-[9px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">
-                                                            ⏱️ {t.time}s
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="text-[9px] font-bold text-blue-600 dark:text-blue-400 mb-0.5 truncate uppercase" title={t.moldName}>{t.moldName}</div>
-                                                    <div className="font-black text-xs text-gray-900 dark:text-gray-100 leading-tight line-clamp-1" title={t.taskName}>{t.taskName}</div>
-                                                    
-                                                    {/* Alt Operasyon / İşlem Etiketleri */}
-                                                    {t.subOperations && t.subOperations.length > 0 && (
-                                                        <div className="flex flex-wrap gap-0.5 mt-1">
-                                                            {t.subOperations.map((subOp, sIdx) => (
-                                                                <span key={sIdx} className="text-[7.5px] font-black px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
-                                                                    {subOp}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-
-                                                    {t.camOperatorName && (
-                                                        <div className="text-[9px] font-bold text-purple-600 dark:text-purple-300 mt-1 truncate">
-                                                            👤 CAM: {t.camOperatorName}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <div className="mt-1.5 flex justify-between items-center border-t border-gray-100 dark:border-gray-600 pt-1 pl-1">
-                                                    {/* Sıra Değiştirme Butonları (Mobil ve Hızlı Düzenleme için) */}
-                                                    <div className="flex items-center gap-0.5">
-                                                        {idx > 0 && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleMoveQueueItem(t.moldId, t.taskId, (machine.assignedTasks[idx - 1]?.priority || 10) - 1)}
-                                                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                                                title="Öne Al"
-                                                            >
-                                                                <ArrowUp size={11} />
-                                                            </button>
-                                                        )}
-                                                        {idx < machine.assignedTasks.length - 1 && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleMoveQueueItem(t.moldId, t.taskId, (machine.assignedTasks[idx + 1]?.priority || 10) + 1)}
-                                                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-600 rounded text-slate-500"
-                                                                title="Arkaya Al"
-                                                            >
-                                                                <ArrowDown size={11} />
-                                                            </button>
-                                                        )}
-                                                    </div>
-
-                                                    <button 
-                                                        onClick={() => handleRemoveFromMachine(t.moldId, t.taskId, t.opId)}
-                                                        className="text-[9px] text-red-600 dark:text-red-400 font-bold opacity-0 group-hover:opacity-100 transition px-1.5 py-0.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 rounded"
-                                                    >
-                                                        Kaldır
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        !machine.activeTask && (
-                                            <div className="flex items-center justify-center text-gray-400 opacity-60 px-4 text-xs font-bold w-full h-full min-h-[60px]">
-                                                <CheckCircle2 className="w-4 h-4 mr-1.5"/> Tezgah Boş (Bekleyen İş Yok)
-                                            </div>
-                                        )
-                                    )}
-                                </div>
-
-                            </div>
-                        );
-                    })}
+                    {/* Filtre ve Grup Yönetim Modalını Aç Butonu */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setFilterModalTab('GROUPS');
+                            setIsFilterModalOpen(true);
+                        }}
+                        className="px-3 py-1 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/80 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 font-bold text-xs transition flex items-center gap-1.5 shrink-0 shadow-2xs"
+                        title="Tezgah gruplarını yönet ve tek tek işaretle"
+                    >
+                        <Settings className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span className="hidden sm:inline">Grupları & Filtreyi Düzenle</span>
+                        <span className="sm:hidden">Filtrele</span>
+                        {activeFilterType !== 'ALL' && (
+                            <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
+                        )}
+                    </button>
                 </div>
             </div>
-            
+
+            {/* ======================================================== */}
+            {/* 2. SEÇİLİ KALIP ANALİZ VE TAHMİNİ BİTİŞ TAKVİMİ PANELİ */}
+            {/* ======================================================== */}
+            {selectedMoldAnalysis && (
+                <div className="bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-slate-900/95 text-white p-3.5 rounded-2xl shadow-md border border-purple-500/40 shrink-0 space-y-2">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        
+                        {/* Sol: Kalıp Kimlik Bilgisi & Vurgu Uyarısı */}
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2 py-0.5 rounded bg-yellow-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-xs animate-pulse">
+                                    <Star className="w-3 h-3 fill-current" /> SEÇİLİ KALIP VURGUSU
+                                </span>
+                                <h3 className="text-base font-black text-white truncate">
+                                    {selectedMoldAnalysis.moldName}
+                                </h3>
+                                {selectedMoldAnalysis.customer && (
+                                    <span className="text-xs text-purple-200 font-bold">
+                                        ({selectedMoldAnalysis.customer})
+                                    </span>
+                                )}
+                                {selectedMoldAnalysis.projectCode && (
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-purple-200 border border-white/20">
+                                        #{selectedMoldAnalysis.projectCode}
+                                    </span>
+                                )}
+                            </div>
+
+                            <p className="text-[11px] text-purple-200/90 flex items-center gap-1.5 font-medium">
+                                <Sparkles className="w-3.5 h-3.5 text-yellow-300 shrink-0 animate-bounce" />
+                                <span>Bu kalıba ait tüm parçalar aşağıdaki zaman çizelgesinde <strong>sarı neon halkayla yanıp sönerek</strong> vurgulanmıştır. Diğer kalıplar şeffaflaştırılmıştır.</span>
+                            </p>
+                        </div>
+
+                        {/* Sağ Metrikler: Tahmini Bitiş, Süre, Parça Durumu */}
+                        <div className="flex items-center gap-3 flex-wrap text-xs">
+                            
+                            {/* Tahmini Kalıp Bitiş Tarihi */}
+                            <div className="bg-white/10 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 flex items-center gap-2.5">
+                                <div className="p-1.5 rounded-lg bg-yellow-400 text-slate-950 font-black">
+                                    <Calendar className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <div className="text-[9px] font-bold text-yellow-300 uppercase tracking-wider">Tahmini Kalıp Bitişi</div>
+                                    <div className="text-xs font-black text-white">
+                                        {selectedMoldAnalysis.latestFinishDate 
+                                            ? formatDateTime(selectedMoldAnalysis.latestFinishDate.toISOString()) 
+                                            : 'Planlanmış Parça Yok'}
+                                    </div>
+                                    {selectedMoldAnalysis.remainingDaysText && (
+                                        <div className="text-[10px] text-yellow-200 font-semibold">
+                                            ({selectedMoldAnalysis.remainingDaysText})
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Kritik Darboğaz Tezgah */}
+                            {selectedMoldAnalysis.bottleneckJob && (
+                                <div className="bg-white/10 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 flex items-center gap-2">
+                                    <div className="p-1.5 rounded-lg bg-rose-500 text-white font-black">
+                                        <ShieldAlert className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                        <div className="text-[9px] font-bold text-rose-300 uppercase tracking-wider">Darboğaz Tezgah</div>
+                                        <div className="text-xs font-black text-white">
+                                            {selectedMoldAnalysis.bottleneckJob.machineName}
+                                        </div>
+                                        <div className="text-[10px] text-rose-200 truncate max-w-[130px]">
+                                            Son Parça: {selectedMoldAnalysis.bottleneckJob.taskName}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Parça Planlanma Durumu */}
+                            <div className="bg-white/10 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20">
+                                <div className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">Planlanma</div>
+                                <div className="text-xs font-black text-white">
+                                    {selectedMoldAnalysis.plannedCount} / {selectedMoldAnalysis.totalParts} Parça
+                                </div>
+                                <div className="text-[10px] text-purple-200">
+                                    Yük: {formatDurationHours(selectedMoldAnalysis.totalHours)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* 3. PLANLANMAMIŞ PARÇALAR HAVUZU (ÇEKMECE / AKORDİYON) */}
+            {/* ======================================================== */}
+            {isPoolOpen && selectedMoldAnalysis && selectedMoldAnalysis.unplannedTasks.length > 0 && (
+                <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 p-3.5 rounded-2xl shrink-0 space-y-2.5 animate-in slide-in-from-top-2">
+                    <div className="flex justify-between items-center border-b border-amber-200 dark:border-amber-800/60 pb-2">
+                        <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                                Henüz Bir Tezgaha Atanmamış Parçalar ({selectedMoldAnalysis.unplannedTasks.length} Parça):
+                            </h4>
+                            <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                                (Parçayı doğrudan aşağıdaki tezgah satırına sürükleyip bırakabilir veya açılır kutudan tezgah seçebilirsiniz.)
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsPoolOpen(false)}
+                            className="p-1 rounded-lg text-amber-700 hover:bg-amber-100 dark:text-amber-400"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                        {selectedMoldAnalysis.unplannedTasks.map(task => (
+                            <div 
+                                key={task.id}
+                                draggable
+                                onDragStart={() => setDraggedItem({
+                                    moldId: selectedMold.id,
+                                    taskId: task.id,
+                                    opId: null,
+                                    machineName: null,
+                                    time: parseFloat(task.estimatedCamTime) || 8
+                                })}
+                                className="bg-white dark:bg-gray-800 p-2.5 rounded-xl border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col justify-between gap-2 cursor-grab active:cursor-grabbing hover:border-purple-400 transition"
+                            >
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                            #{task.workOrderNo || 'İş Emri Yok'}
+                                        </span>
+                                        <span className="text-[10px] font-black text-purple-600 dark:text-purple-400">
+                                            ⏱️ {formatDurationHours(task.estimatedCamTime || 8)}
+                                        </span>
+                                    </div>
+                                    <div className="font-extrabold text-xs text-gray-900 dark:text-white truncate" title={task.taskName}>
+                                        {task.taskName}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100 dark:border-gray-700">
+                                    <select
+                                        defaultValue=""
+                                        onChange={(e) => {
+                                            if (e.target.value) {
+                                                handleAssignUnplannedTask(task, e.target.value, task.assignedOperator, task.estimatedCamTime);
+                                            }
+                                        }}
+                                        className="flex-1 py-1 px-1.5 text-[11px] font-bold bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-purple-500"
+                                    >
+                                        <option value="">Tezgah Seç ve Ata...</option>
+                                        {(machines || []).map(m => (
+                                            <option key={m.id || m.name} value={m.name}>
+                                                {m.name} ({m.type || 'CNC'})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* 4. TEZGAH BAZLI ZAMAN ÇİZELGESİ (KOMPAKT VE KİLİTLİ TABLO) */}
+            {/* ======================================================== */}
+            <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xs overflow-hidden flex flex-col min-h-0 relative">
+                
+                {/* Ana Kaydırma Penceresi (X ve Y Senkronize Tek Container) */}
+                <div className="flex-1 overflow-auto custom-scrollbar relative select-none">
+                    <div style={{ minWidth: 240 + totalDays * dayWidth }}>
+                        
+                        {/* Başlık Satırı: Solda Tezgah Bilgisi, Sağda Günler */}
+                        <div className="flex sticky top-0 z-40 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-2xs">
+                            
+                            {/* Sol Başlık: Tezgah Bilgisi */}
+                            <div className="w-60 min-w-[240px] p-2.5 font-black text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider sticky left-0 z-50 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                    <Monitor className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                    <span>Tezgah Listesi ({displayTimelineRows.length})</span>
+                                </span>
+                            </div>
+
+                            {/* Sağ Başlık: Gün İsimleri ve Tarihleri */}
+                            <div className="flex flex-1">
+                                {timelineDays.map(d => (
+                                    <div
+                                        key={d.index}
+                                        style={{ width: dayWidth }}
+                                        className={`shrink-0 py-2 px-1 text-center border-r border-gray-200/80 dark:border-gray-700/80 text-xs ${
+                                            d.isToday 
+                                                ? 'bg-purple-100/70 dark:bg-purple-950/50 text-purple-900 dark:text-purple-200 font-black' 
+                                                : d.isWeekend 
+                                                    ? 'bg-gray-200/40 dark:bg-gray-800/40 text-gray-500 dark:text-gray-400' 
+                                                    : 'text-gray-700 dark:text-gray-300 font-bold'
+                                        }`}
+                                    >
+                                        <div className="text-[11px] leading-tight">{d.dateStr}</div>
+                                        <div className={`text-[9px] uppercase tracking-wider ${d.isToday ? 'text-purple-700 dark:text-purple-300 font-black' : 'text-gray-400'}`}>
+                                            {d.dayName} {d.isToday && '• Bugün'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Tezgah Satırları (Her satır h-14 dar ve senkron) */}
+                        <div className="divide-y divide-gray-200 dark:divide-gray-700/80">
+                            {displayTimelineRows.length === 0 ? (
+                                <div className="p-12 text-center text-gray-400 text-xs font-bold">
+                                    Arama veya filtrelere uygun tezgah bulunamadı.
+                                </div>
+                            ) : (
+                                displayTimelineRows.map(machine => {
+                                    const isBusy = machine.status === 'BUSY';
+                                    const hasQueue = machine.queuedJobs.length > 0;
+                                    const isOverThisMachine = dragOverMachine === machine.name;
+
+                                    return (
+                                        <div 
+                                            key={machine.id || machine.name}
+                                            className={`flex h-14 transition-colors ${
+                                                isOverThisMachine 
+                                                    ? 'bg-purple-100/60 dark:bg-purple-950/60 ring-2 ring-purple-500 z-30' 
+                                                    : 'hover:bg-gray-50/50 dark:hover:bg-gray-750/30'
+                                            }`}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                setDragOverMachine(machine.name);
+                                            }}
+                                            onDragLeave={() => {
+                                                if (dragOverMachine === machine.name) setDragOverMachine(null);
+                                            }}
+                                            onDrop={async (e) => {
+                                                e.preventDefault();
+                                                setDragOverMachine(null);
+                                                if (draggedItem && draggedItem.machineName !== machine.name) {
+                                                    // Başka bir tezgaha taşı
+                                                    await handleMoveJobToMachine(draggedItem.moldId, draggedItem.taskId, draggedItem.opId, machine.name);
+                                                    setDraggedItem(null);
+                                                }
+                                            }}
+                                        >
+                                            {/* SOL KOLON: TEZGAH ADI & YÜK DURUMU (STICKY LEFT) */}
+                                            <div className="w-60 min-w-[240px] px-2.5 py-1.5 sticky left-0 z-30 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col justify-center shadow-xs">
+                                                <div className="flex items-center justify-between gap-1.5">
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                        <span className="font-extrabold text-xs text-gray-900 dark:text-white truncate" title={machine.name}>
+                                                            {machine.name}
+                                                        </span>
+                                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 uppercase shrink-0">
+                                                            {machine.type}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Durum Rozeti */}
+                                                    {isBusy ? (
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 flex items-center gap-0.5 animate-pulse shrink-0">
+                                                            <Zap size={9} /> DOLU
+                                                        </span>
+                                                    ) : hasQueue ? (
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-700 shrink-0">
+                                                            {machine.bars.length} İş
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 shrink-0">
+                                                            BOŞ
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Yük & Tahmini Boşalma Metni */}
+                                                <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium">
+                                                    <span>Yük: <strong className="text-purple-600 dark:text-purple-400">{formatDurationHours(machine.totalRemainingHours)}</strong></span>
+                                                    <span className="truncate ml-1 font-bold text-gray-700 dark:text-gray-300" title={formatFreeAtDate(machine.freeAt)}>
+                                                        {formatFreeAtDate(machine.freeAt)}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* SAĞ KOLON: ZAMAN ÇİZELGESİ ŞERİDİ VE İŞ BARLARI */}
+                                            <div className="flex-1 relative h-14 overflow-hidden">
+                                                
+                                                {/* Dikey Gün Kılavuz Çizgileri */}
+                                                <div className="absolute inset-0 flex pointer-events-none">
+                                                    {timelineDays.map(d => (
+                                                        <div
+                                                            key={d.index}
+                                                            style={{ width: dayWidth }}
+                                                            className={`shrink-0 h-full border-r border-gray-100 dark:border-gray-800/80 ${
+                                                                d.isWeekend ? 'bg-gray-50/40 dark:bg-gray-900/30' : ''
+                                                            }`}
+                                                        />
+                                                    ))}
+                                                </div>
+
+                                                {/* Parça Barları */}
+                                                {machine.bars.map((bar) => {
+                                                    const isSelected = selectedMoldId && bar.moldId === selectedMoldId;
+                                                    const isDimmed = selectedMoldId && bar.moldId !== selectedMoldId;
+                                                    const colorScheme = getJobColor(bar.moldId, bar.orderIndex);
+
+                                                    return (
+                                                        <div
+                                                            key={bar.id}
+                                                            draggable
+                                                            onDragStart={() => setDraggedItem({
+                                                                moldId: bar.moldId,
+                                                                taskId: bar.taskId,
+                                                                opId: bar.opId,
+                                                                machineName: machine.name,
+                                                                time: bar.time
+                                                            })}
+                                                            onClick={() => openManageModal({
+                                                                ...bar,
+                                                                machineName: machine.name
+                                                            })}
+                                                            onMouseEnter={(e) => {
+                                                                setHoveredJob(bar);
+                                                                setMousePos({ x: e.clientX, y: e.clientY });
+                                                            }}
+                                                            onMouseMove={(e) => {
+                                                                setMousePos({ x: e.clientX, y: e.clientY });
+                                                            }}
+                                                            onMouseLeave={() => setHoveredJob(null)}
+                                                            style={{
+                                                                left: `${bar.startHour * pxPerHour}px`,
+                                                                width: `${bar.widthPx}px`
+                                                            }}
+                                                            className={`absolute top-2 h-10 rounded-xl px-2.5 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all select-none ${
+                                                                bar.isWorking
+                                                                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-2 border-emerald-300 dark:border-emerald-200 shadow-md'
+                                                                    : `${colorScheme.bg} ${colorScheme.text} border ${colorScheme.border}`
+                                                            } ${
+                                                                isSelected 
+                                                                    ? 'ring-4 ring-yellow-400 dark:ring-yellow-300 shadow-2xl shadow-yellow-500/80 animate-pulse font-black scale-[1.03] z-20' 
+                                                                    : isDimmed 
+                                                                        ? 'opacity-35 grayscale-[25%] hover:opacity-100 hover:grayscale-0' 
+                                                                        : 'hover:brightness-110 z-10'
+                                                            }`}
+                                                        >
+                                                            {/* Tutamaç (Sürükleme ikonu) */}
+                                                            <GripVertical className="w-3 h-3 opacity-60 shrink-0 cursor-grab active:cursor-grabbing" />
+
+                                                            {/* Sıra / Çalışıyor İkonu */}
+                                                            {bar.isWorking ? (
+                                                                <span className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+                                                            ) : (
+                                                                <span className="text-[9px] font-black opacity-80 shrink-0">
+                                                                    #{bar.orderIndex}
+                                                                </span>
+                                                            )}
+
+                                                            {/* Seçili Kalıp Yıldızı */}
+                                                            {isSelected && (
+                                                                <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-yellow-400 text-slate-950 flex items-center gap-0.5 shrink-0 shadow-xs animate-bounce">
+                                                                    <Star className="w-2.5 h-2.5 fill-current" />
+                                                                </span>
+                                                            )}
+
+                                                            {/* İş Emri Numarası */}
+                                                            {bar.workOrderNo && (
+                                                                <span className="text-[9px] font-black px-1 py-0.2 rounded bg-black/30 text-white shrink-0 tracking-wider">
+                                                                    #{bar.workOrderNo}
+                                                                </span>
+                                                            )}
+
+                                                            {/* Parça Adı & Kalıp */}
+                                                            <div className="flex-1 truncate text-xs font-black leading-tight">
+                                                                <span>{bar.taskName}</span>
+                                                                <span className="opacity-70 font-normal ml-1">({bar.moldName})</span>
+                                                            </div>
+
+                                                            {/* Süre */}
+                                                            <span className="text-[9px] font-black opacity-90 shrink-0 bg-black/20 px-1.5 py-0.5 rounded">
+                                                                {formatDurationHours(bar.time)}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ======================================================== */}
+            {/* 5. MOUSE HOVER DETAY TOOLTIP KARTI */}
+            {/* ======================================================== */}
+            {hoveredJob && (
+                <div
+                    style={{
+                        top: Math.min(window.innerHeight - 250, mousePos.y + 16),
+                        left: Math.min(window.innerWidth - 320, mousePos.x + 16)
+                    }}
+                    className="fixed z-50 pointer-events-none bg-slate-950/95 text-white p-3.5 rounded-2xl border border-purple-500/50 shadow-2xl backdrop-blur-md w-72 space-y-2 animate-in fade-in zoom-in-95 duration-100"
+                >
+                    <div className="flex justify-between items-start gap-2 border-b border-slate-700 pb-2">
+                        <div className="min-w-0">
+                            {hoveredJob.workOrderNo && (
+                                <span className="text-[9px] font-black px-2 py-0.5 rounded bg-blue-600 text-white tracking-wider uppercase mb-1 inline-block">
+                                    İş Emri: #{hoveredJob.workOrderNo}
+                                </span>
+                            )}
+                            <h4 className="font-black text-sm text-white truncate">
+                                {hoveredJob.taskName}
+                            </h4>
+                            <div className="text-xs font-bold text-purple-300 truncate">
+                                {hoveredJob.moldName} {hoveredJob.customer ? `(${hoveredJob.customer})` : ''}
+                            </div>
+                        </div>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                            hoveredJob.isWorking ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white'
+                        }`}>
+                            {hoveredJob.isWorking ? `Çalışıyor (%${hoveredJob.progress})` : `${hoveredJob.orderIndex}. Sırada`}
+                        </span>
+                    </div>
+
+                    <div className="text-[11px] space-y-1 text-slate-300">
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Operasyon:</span>
+                            <strong className="text-white">{hoveredJob.opType}</strong>
+                        </div>
+                        {hoveredJob.subOperations && hoveredJob.subOperations.length > 0 && (
+                            <div className="flex justify-between items-start gap-1">
+                                <span className="text-slate-400">İşlemler:</span>
+                                <span className="text-purple-300 font-bold text-right text-[10px]">
+                                    {hoveredJob.subOperations.join(', ')}
+                                </span>
+                            </div>
+                        )}
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">CAM Operatörü:</span>
+                            <strong className="text-white">{hoveredJob.camOperator || '-'}</strong>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Tahmini Süre:</span>
+                            <strong className="text-purple-400 font-bold">{formatDurationHours(hoveredJob.time)}</strong>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t border-slate-800 text-[10px]">
+                            <span className="text-slate-400">Tahmini Bitiş:</span>
+                            <strong className="text-yellow-300">
+                                {hoveredJob.endDate ? formatDateTime(hoveredJob.endDate.toISOString()) : '-'}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* 6. HIZLI YÖNETİM & TEK TUŞLA TEZGAH DEĞİŞTİRME MODALI */}
+            {/* ======================================================== */}
+            {manageModal.isOpen && manageModal.job && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        
+                        {/* Modal Başlık */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-700/60 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
+                                        PLANLAMA YÖNETİMİ
+                                    </span>
+                                    {manageModal.job.workOrderNo && (
+                                        <span className="text-xs font-black text-blue-600 dark:text-blue-400">
+                                            #{manageModal.job.workOrderNo}
+                                        </span>
+                                    )}
+                                </div>
+                                <h3 className="text-base font-black text-gray-900 dark:text-white mt-0.5">
+                                    {manageModal.job.taskName}
+                                </h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {manageModal.job.moldName} {manageModal.job.customer ? `(${manageModal.job.customer})` : ''}
+                                </p>
+                            </div>
+
+                            <button
+                                onClick={() => setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' })}
+                                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Gövdesi */}
+                        <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+                            
+                            {/* TEK TUŞLA TEZGAH DEĞİŞTİR */}
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                        <Zap className="w-4 h-4 text-amber-500" />
+                                        <span>Tek Tuşla Tezgah Değiştir</span>
+                                    </span>
+                                    <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                                        Mevcut: {manageModal.job.machineName}
+                                    </span>
+                                </label>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {(machines || []).map(m => {
+                                        const isCurrent = m.name === manageModal.job.machineName;
+                                        return (
+                                            <button
+                                                key={m.id || m.name}
+                                                type="button"
+                                                onClick={() => handleMoveJobToMachine(manageModal.job.moldId, manageModal.job.taskId, manageModal.job.opId, m.name)}
+                                                className={`p-2.5 rounded-xl text-xs font-black border transition-all text-left flex flex-col justify-between ${
+                                                    isCurrent
+                                                        ? 'bg-purple-600 text-white border-purple-700 shadow-md ring-2 ring-purple-300'
+                                                        : 'bg-gray-50 dark:bg-gray-700 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-purple-400'
+                                                }`}
+                                            >
+                                                <div className="flex justify-between items-center w-full">
+                                                    <span className="truncate">{m.name}</span>
+                                                    {isCurrent && <Check className="w-3.5 h-3.5 shrink-0" />}
+                                                </div>
+                                                <span className={`text-[10px] mt-1 ${isCurrent ? 'text-purple-200' : 'text-gray-400'}`}>
+                                                    {m.type || 'CNC'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* CAM OPERATÖRÜ & TAHMİNİ SÜRE DÜZENLEME */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 block">
+                                        CAM Sorumlusu:
+                                    </label>
+                                    <select
+                                        value={manageModal.targetCamOp}
+                                        onChange={e => setManageModal(prev => ({ ...prev, targetCamOp: e.target.value }))}
+                                        className="w-full p-2 text-xs font-bold bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 shadow-xs"
+                                    >
+                                        <option value="">Operatör Seçiniz...</option>
+                                        {camOperators.map(cop => (
+                                            <option key={cop.id || cop.name} value={cop.name}>{cop.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 block">
+                                        Tahmini CAM Süresi (Saat):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.5"
+                                        min="0.5"
+                                        value={manageModal.targetHours}
+                                        onChange={e => setManageModal(prev => ({ ...prev, targetHours: e.target.value }))}
+                                        className="w-full p-2 text-xs font-bold bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 shadow-xs"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* KUYRUK SIRASI DEĞİŞTİRME */}
+                            {!manageModal.job.isWorking && (
+                                <div className="space-y-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                    <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block">
+                                        Tezgah Kuyruk Önceliği:
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleReorderQueue(manageModal.job.moldId, manageModal.job.taskId, 'top')}
+                                            className="flex-1 py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-black transition flex items-center justify-center gap-1.5"
+                                        >
+                                            <ArrowUp className="w-3.5 h-3.5" /> Kuyrukta En Öne Al
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleReorderQueue(manageModal.job.moldId, manageModal.job.taskId, 'bottom')}
+                                            className="flex-1 py-2 px-3 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 text-xs font-black transition flex items-center justify-center gap-1.5"
+                                        >
+                                            <ArrowDown className="w-3.5 h-3.5" /> Kuyrukta En Arkaya Al
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* PLANDAN KALDIR */}
+                            <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemoveFromPlan(manageModal.job.moldId, manageModal.job.taskId, manageModal.job.opId)}
+                                    className="w-full py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-800 text-xs font-black transition flex items-center justify-center gap-1.5"
+                                >
+                                    <X className="w-4 h-4" /> Parçayı Tezgah Planından Kaldır
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Alt Bar */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-700/60 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setManageModal({ isOpen: false, job: null, targetMachine: '', targetCamOp: '', targetHours: '' })}
+                                className="px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition"
+                            >
+                                Kapat
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveManageModal}
+                                className="px-5 py-2 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-xs transition flex items-center gap-1.5"
+                            >
+                                <Check className="w-4 h-4" /> Değişiklikleri Kaydet
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* 7. TEZGAH FİLTRELEME & GRUP YÖNETİMİ MODALI (KALICI) */}
+            {/* ======================================================== */}
+            {isFilterModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
+                        
+                        {/* Modal Başlık */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-700/60 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 uppercase">
+                                        TEZGAH VE GRUP FİLTRESİ
+                                    </span>
+                                    <span className="text-[11px] text-gray-500 dark:text-gray-400 font-bold">
+                                        (Buluta kaydedilir, tüm kullanıcılar aynı filtreyi görür)
+                                    </span>
+                                </div>
+                                <h3 className="text-base font-black text-gray-900 dark:text-white mt-0.5">
+                                    Tezgah Filtreleme & Özel Gruplar
+                                </h3>
+                            </div>
+
+                            <button
+                                onClick={() => setIsFilterModalOpen(false)}
+                                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Sekme Butonları (Gruplar vs Tek Tek Seçim) */}
+                        <div className="flex border-b border-gray-200 dark:border-gray-700 px-5 pt-3 gap-2 bg-gray-50/50 dark:bg-gray-800/40">
+                            <button
+                                type="button"
+                                onClick={() => setFilterModalTab('GROUPS')}
+                                className={`pb-2.5 px-3 text-xs font-black border-b-2 transition flex items-center gap-1.5 ${
+                                    filterModalTab === 'GROUPS'
+                                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                                        : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                }`}
+                            >
+                                <FolderPlus className="w-4 h-4" />
+                                <span>Tezgah Grupları ({machineGroups.length})</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setFilterModalTab('MACHINES')}
+                                className={`pb-2.5 px-3 text-xs font-black border-b-2 transition flex items-center gap-1.5 ${
+                                    filterModalTab === 'MACHINES'
+                                        ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                                        : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                                }`}
+                            >
+                                <CheckSquare className="w-4 h-4" />
+                                <span>Tek Tek Tezgah İşaretle ({machines?.length || 0})</span>
+                            </button>
+                        </div>
+
+                        {/* Modal Gövdesi */}
+                        <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+                            
+                            {/* SEKME 1: TEZGAH GRUPLARI */}
+                            {filterModalTab === 'GROUPS' && (
+                                <div className="space-y-4">
+                                    
+                                    {/* Yeni Grup Ekle veya Düzenle Kartı */}
+                                    <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/60 p-4 rounded-2xl space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <h4 className="text-xs font-black text-indigo-900 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5">
+                                                {editingGroup ? <Edit3 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                                                <span>
+                                                    {editingGroup?.id === '__ALL__'
+                                                        ? '🌐 "Tüm Tezgahlar" Görünüm Listesini Düzenle'
+                                                        : (editingGroup ? `Grubu Düzenle: ${editingGroup.name}` : 'Yeni Tezgah Grubu Oluştur')}
+                                                </span>
+                                            </h4>
+                                            {editingGroup && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingGroup(null);
+                                                        setNewGroupName('');
+                                                        setNewGroupMachines([]);
+                                                    }}
+                                                    className="text-xs text-gray-500 hover:text-gray-700 font-bold"
+                                                >
+                                                    İptal Et
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {editingGroup?.id === '__ALL__' ? (
+                                                <p className="text-xs text-gray-600 dark:text-gray-400 bg-white/70 dark:bg-gray-800/70 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 font-medium">
+                                                    "Tüm Tezgahlar" filtresi seçildiğinde ekranda yer alacak tezgahları aşağıdan belirleyin. İşaretlenmeyen tezgahlar genel listeden gizlenir.
+                                                </p>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    placeholder="Grup Adı (Örn: 5 Eksen Tezgahlar, Köprülü Tezgahlar...)"
+                                                    value={newGroupName}
+                                                    onChange={e => setNewGroupName(e.target.value)}
+                                                    className="w-full p-2.5 text-xs font-bold bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                                                />
+                                            )}
+
+                                            <div>
+                                                <div className="flex justify-between items-center mb-1.5">
+                                                    <span className="text-[11px] font-bold text-gray-600 dark:text-gray-300">
+                                                        {editingGroup?.id === '__ALL__'
+                                                            ? `"Tüm Tezgahlar" Görünümüne Dahil Edilecek Tezgahları İşaretleyin (${newGroupMachines.length} seçili):`
+                                                            : `Bu Gruba Dahil Edilecek Tezgahları İşaretleyin (${newGroupMachines.length} seçili):`}
+                                                    </span>
+                                                    <div className="flex gap-2 text-[10px] font-bold">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setNewGroupMachines((machines || []).map(m => m.name))}
+                                                            className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                                                        >
+                                                            Tümünü Seç
+                                                        </button>
+                                                        <span>•</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setNewGroupMachines([])}
+                                                            className="text-gray-500 hover:underline"
+                                                        >
+                                                            Temizle
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar p-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                                                    {(machines || []).map(m => {
+                                                        const isChecked = newGroupMachines.includes(m.name);
+                                                        return (
+                                                            <label
+                                                                key={m.id || m.name}
+                                                                className={`p-1.5 rounded-lg border text-xs font-bold cursor-pointer flex items-center gap-2 select-none transition ${
+                                                                    isChecked
+                                                                        ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-400 text-indigo-900 dark:text-indigo-100'
+                                                                        : 'bg-gray-50 dark:bg-gray-700/40 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                                                                }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => {
+                                                                        if (isChecked) {
+                                                                            setNewGroupMachines(prev => prev.filter(x => x !== m.name));
+                                                                        } else {
+                                                                            setNewGroupMachines(prev => [...prev, m.name]);
+                                                                        }
+                                                                    }}
+                                                                    className="w-3.5 h-3.5 text-indigo-600 rounded"
+                                                                />
+                                                                <span className="truncate">{m.name}</span>
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex justify-end pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSaveGroup}
+                                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs"
+                                                >
+                                                    <Check className="w-4 h-4" />
+                                                    <span>
+                                                        {editingGroup?.id === '__ALL__'
+                                                            ? '"Tüm Tezgahlar" Listesini Güncelle ve Kaydet'
+                                                            : (editingGroup ? 'Grubu Güncelle ve Kaydet' : 'Yeni Grubu Kaydet')}
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Mevcut Gruplar Listesi */}
+                                    <div className="space-y-2">
+                                        <h4 className="text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                            Tanımlı Tezgah Grupları & Genel Liste:
+                                        </h4>
+
+                                        {/* Sabit Ana Görünüm: Tüm Tezgahlar (Özelleştirilebilir) */}
+                                        <div
+                                            className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                                activeFilterType === 'ALL'
+                                                    ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600 shadow-xs ring-1 ring-indigo-400'
+                                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                                            }`}
+                                        >
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-black text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
+                                                        🌐 Tüm Tezgahlar (Ana Görünüm)
+                                                    </span>
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                                                        {allMachinesList.length} / {machines?.length || 0} Tezgah Dahil
+                                                    </span>
+                                                    {activeFilterType === 'ALL' && (
+                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 flex items-center gap-1">
+                                                            <Check className="w-3 h-3" /> ŞU AN AKTİF
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex flex-wrap gap-1">
+                                                    {allMachinesList.map(mName => (
+                                                        <span
+                                                            key={mName}
+                                                            className="text-[10px] font-semibold px-2 py-0.2 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                                        >
+                                                            {mName}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Aksiyon Butonları */}
+                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        handleSelectAllMachines();
+                                                        setIsFilterModalOpen(false);
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
+                                                        activeFilterType === 'ALL'
+                                                            ? 'bg-emerald-600 text-white'
+                                                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs'
+                                                    }`}
+                                                >
+                                                    {activeFilterType === 'ALL' ? 'Aktif Görünüm' : 'Bu Listeyi Uygula'}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingGroup({ id: '__ALL__', name: 'Tüm Tezgahlar (Ana Görünüm)', machineNames: allMachinesList });
+                                                        setNewGroupName('Tüm Tezgahlar (Ana Görünüm)');
+                                                        setNewGroupMachines(allMachinesList);
+                                                    }}
+                                                    className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+                                                    title="Tüm Tezgahlar Listesini Düzenle"
+                                                >
+                                                    <Edit3 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {machineGroups.length === 0 ? (
+                                            <div className="p-6 text-center text-xs text-gray-400 border border-dashed rounded-2xl">
+                                                Henüz bir tezgah grubu tanımlanmamış. Yukarıdaki formdan yeni grup ekleyebilirsiniz.
+                                            </div>
+                                        ) : (
+                                            machineGroups.map(grp => {
+                                                const isActive = activeFilterType === 'GROUP' && activeGroupId === grp.id;
+                                                return (
+                                                    <div
+                                                        key={grp.id}
+                                                        className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                                            isActive
+                                                                ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600 shadow-xs ring-1 ring-indigo-400'
+                                                                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                                                        }`}
+                                                    >
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-black text-sm text-gray-900 dark:text-white">
+                                                                    {grp.name}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                                                    {grp.machineNames.length} Tezgah
+                                                                </span>
+                                                                {isActive && (
+                                                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 flex items-center gap-1">
+                                                                        <Check className="w-3 h-3" /> ŞU AN AKTİF
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {grp.machineNames.map(mName => (
+                                                                    <span
+                                                                        key={mName}
+                                                                        className="text-[10px] font-semibold px-2 py-0.2 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                                                    >
+                                                                        {mName}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Aksiyon Butonları */}
+                                                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    handleSelectGroup(grp.id);
+                                                                    setIsFilterModalOpen(false);
+                                                                }}
+                                                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
+                                                                    isActive
+                                                                        ? 'bg-emerald-600 text-white'
+                                                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs'
+                                                                }`}
+                                                            >
+                                                                {isActive ? 'Aktif Filtre' : 'Bu Grubu Uygula'}
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingGroup(grp);
+                                                                    setNewGroupName(grp.name);
+                                                                    setNewGroupMachines(grp.machineNames);
+                                                                }}
+                                                                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+                                                                title="Grubu Düzenle"
+                                                            >
+                                                                <Edit3 className="w-4 h-4" />
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteGroup(grp.id)}
+                                                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition"
+                                                                title="Grubu Sil"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SEKME 2: TEK TEK TEZGAH İŞARETLEME */}
+                            {filterModalTab === 'MACHINES' && (
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center gap-2 flex-wrap">
+                                        <div className="relative flex-1 min-w-[200px]">
+                                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                placeholder="Tezgah adı veya tipi ara..."
+                                                value={machineFilterSearch}
+                                                onChange={e => setMachineFilterSearch(e.target.value)}
+                                                className="w-full pl-8 pr-3 py-1.5 text-xs font-bold bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedMachineNames((machines || []).map(m => m.name))}
+                                                className="px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 text-gray-800 dark:text-gray-200 rounded-xl text-xs font-bold transition"
+                                            >
+                                                Tümünü İşaretle
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedMachineNames([])}
+                                                className="px-2.5 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 text-gray-800 dark:text-gray-200 rounded-xl text-xs font-bold transition"
+                                            >
+                                                Tümünü Kaldır
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Tezgah Kontrol Listesi */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto custom-scrollbar p-1">
+                                        {(machines || [])
+                                            .filter(m => {
+                                                if (!machineFilterSearch.trim()) return true;
+                                                const term = machineFilterSearch.toLowerCase();
+                                                return m.name.toLowerCase().includes(term) || (m.type || '').toLowerCase().includes(term);
+                                            })
+                                            .map(m => {
+                                                const isChecked = selectedMachineNames.includes(m.name);
+                                                return (
+                                                    <label
+                                                        key={m.id || m.name}
+                                                        className={`p-2.5 rounded-xl border text-xs font-bold cursor-pointer flex items-center justify-between select-none transition ${
+                                                            isChecked
+                                                                ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-400 text-indigo-900 dark:text-indigo-100 shadow-2xs'
+                                                                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => {
+                                                                    if (isChecked) {
+                                                                        setSelectedMachineNames(prev => prev.filter(x => x !== m.name));
+                                                                    } else {
+                                                                        setSelectedMachineNames(prev => [...prev, m.name]);
+                                                                    }
+                                                                }}
+                                                                className="w-4 h-4 text-indigo-600 rounded"
+                                                            />
+                                                            <span className="font-extrabold truncate">{m.name}</span>
+                                                        </div>
+                                                        <span className="text-[10px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 uppercase shrink-0">
+                                                            {m.type || 'CNC'}
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })}
+                                    </div>
+
+                                    <div className="pt-2 flex justify-between items-center border-t border-gray-200 dark:border-gray-700">
+                                        <span className="text-xs font-bold text-gray-600 dark:text-gray-300">
+                                            Toplam {selectedMachineNames.length} / {machines?.length || 0} tezgah seçildi.
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSaveCustomMachines(selectedMachineNames)}
+                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs"
+                                        >
+                                            <Check className="w-4 h-4" />
+                                            <span>İşaretlenenleri Uygula ve Sabitle</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Alt Bar */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-700/60 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                            <button
+                                type="button"
+                                onClick={handleSelectAllMachines}
+                                className="px-3 py-1.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:text-red-600 transition"
+                            >
+                                Filtreleri Sıfırla (Tüm Tezgahları Göster)
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsFilterModalOpen(false)}
+                                className="px-5 py-2 text-xs font-black bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 rounded-xl hover:opacity-90 transition"
+                            >
+                                Kapat
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

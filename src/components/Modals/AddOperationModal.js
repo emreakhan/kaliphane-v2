@@ -6,8 +6,10 @@ import Modal from './Modal';
 import { OPERATION_STATUS } from '../../config/constants.js';
 import { db, collection, doc, setDoc, deleteDoc, onSnapshot } from '../../config/firebase.js';
 import { generateNextWorkOrderNo } from '../../utils/workOrderUtils.js';
+import { formatDurationHours, calculateTotalHoursFromDaysAndHours } from '../../utils/dateUtils.js';
 
 const defaultOperations = [
+
     "TEZGAH İŞLEME",
     "TASARIM",
     "MONTAJ",
@@ -53,8 +55,13 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
     const [isEditingSubOps, setIsEditingSubOps] = useState(false);
     const [newSubOpName, setNewSubOpName] = useState('');
 
-    // Öngörülen CAM Süresi State'i
-    const [estimatedCamTime, setEstimatedCamTime] = useState('');
+    // Öngörülen CAM Süresi State'leri (Gün ve Saat)
+    const [camDays, setCamDays] = useState('');
+    const [camHours, setCamHours] = useState('');
+
+    const totalCamHours = useMemo(() => {
+        return calculateTotalHoursFromDaysAndHours(camDays, camHours);
+    }, [camDays, camHours]);
 
     // İş Emri No State'i
     const [customWorkOrderNo, setCustomWorkOrderNo] = useState('');
@@ -67,6 +74,8 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
         setSelectedSubOps([]);
         setIsEditingSubOps(false);
         setIsEditingTypes(false);
+        setCamDays('');
+        setCamHours('');
 
         // Operasyon türlerini dinle
         const unsubTypes = onSnapshot(collection(db, 'artifacts/default-app-id/public/data/operationTypes'), (snapshot) => {
@@ -226,6 +235,11 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
             return;
         }
 
+        if (totalCamHours <= 0) {
+            alert("Lütfen öngörülen CAM işleme süresini belirtin (Gün ve/veya Saat).");
+            return;
+        }
+
         const workOrderToSave = (customWorkOrderNo || generateNextWorkOrderNo(mold, task)).trim().toUpperCase();
 
         const newOperation = {
@@ -242,7 +256,7 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
             durationInHours: null,
             completionDate: null,
             pauseHistory: [],
-            estimatedCamTime: estimatedCamTime ? parseFloat(estimatedCamTime) : null
+            estimatedCamTime: totalCamHours
         };
 
         onSubmit(mold.id, task.id, newOperation);
@@ -251,7 +265,8 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
         setOperationType(defaultOperations[0]);
         setCustomOperation('');
         setSelectedSubOps([]);
-        setEstimatedCamTime('');
+        setCamDays('');
+        setCamHours('');
         setCustomWorkOrderNo('');
         onClose();
     };
@@ -490,23 +505,61 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
                     </>
                 )}
 
-                {/* Öngörülen CAM Süresi Inputu */}
+                {/* Öngörülen CAM Süresi Inputu (Gün ve Saat) */}
                 <div className="pt-2 border-t dark:border-gray-700">
-                    <label className="flex items-center text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                        <Clock className="w-4 h-4 mr-1 text-indigo-500"/> Öngörülen CAM İşleme Süresi (Saat)
-                    </label>
-                    <input 
-                        type="number" 
-                        min="0"
-                        step="0.5"
-                        className="w-full p-2.5 border border-indigo-200 dark:border-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-bold outline-none"
-                        placeholder="Örn: 14.5"
-                        value={estimatedCamTime}
-                        onChange={(e) => setEstimatedCamTime(e.target.value)}
-                    />
-                    <p className="text-[10px] text-gray-500 mt-1 italic">
-                        * Bu süre, makine planlama ve iş akış sayfalarındaki kapasite analizleri için kullanılacaktır.
-                    </p>
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="flex items-center text-sm font-bold text-gray-700 dark:text-gray-300">
+                            <Clock className="w-4 h-4 mr-1.5 text-indigo-500"/>
+                            <span>Öngörülen CAM İşleme Süresi <span className="text-red-500 font-black">* (Zorunlu)</span></span>
+                        </label>
+                        {totalCamHours > 0 && (
+                            <span className="text-xs font-black px-2.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                {formatDurationHours(totalCamHours)}
+                            </span>
+                        )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">
+                                Gün
+                            </label>
+                            <input 
+                                type="number" 
+                                min="0"
+                                step="1"
+                                className="w-full p-2.5 border border-indigo-200 dark:border-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-900/20 text-gray-900 dark:text-white font-bold outline-none"
+                                placeholder="Örn: 1"
+                                value={camDays}
+                                onChange={(e) => setCamDays(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">
+                                Saat
+                            </label>
+                            <input 
+                                type="number" 
+                                min="0"
+                                max="23.9"
+                                step="0.5"
+                                className="w-full p-2.5 border border-indigo-200 dark:border-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-900/20 text-gray-900 dark:text-white font-bold outline-none"
+                                placeholder="Örn: 12"
+                                value={camHours}
+                                onChange={(e) => setCamHours(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    {totalCamHours <= 0 ? (
+                        <p className="text-[11px] text-red-500 font-semibold mt-1.5 flex items-center">
+                            * Ek operasyon için CAM işleme süresi girilmesi zorunludur (en az Gün veya Saat belirtiniz).
+                        </p>
+                    ) : (
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 italic">
+                            * Bu süre, makine planlama ve iş akış sayfalarındaki kapasite analizleri için kullanılacaktır.
+                        </p>
+                    )}
                 </div>
 
                 {!isEditingTypes && (
@@ -519,8 +572,8 @@ const AddOperationModal = ({ isOpen, onClose, mold, task, onSubmit }) => {
                         </button>
                         <button 
                             onClick={handleSubmit}
-                            disabled={operationType === "DİĞER" && !customOperation.trim()}
-                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center disabled:opacity-50"
+                            disabled={(operationType === "DİĞER" && !customOperation.trim()) || totalCamHours <= 0}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <Save className="w-4 h-4 mr-2" />
                             Kaydet
