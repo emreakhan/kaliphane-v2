@@ -35,6 +35,49 @@ const getJobColor = (moldId = '', idx = 0) => {
     return PALETTE[index];
 };
 
+// Çalışan operasyonun gerçek başlangıç zamanını bul (Kurulum / Üretim / Başlangıç tarihi)
+const parseOpStartDate = (op = {}) => {
+    const candidates = [op.setupStartTime, op.productionStartTime, op.startDate, op.statusStartTime, op.startedAt];
+    for (const c of candidates) {
+        if (!c) continue;
+        const d = c?.toDate ? c.toDate() : new Date(c);
+        if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+};
+
+// Süreye bağlı ilerleme yüzdesine göre renk teması
+const getProgressTheme = (progress = 0, isOverdue = false) => {
+    if (isOverdue) {
+        return {
+            label: 'SÜRE AŞILDI', fill: 'bg-gradient-to-r from-rose-600 to-red-500',
+            track: 'bg-rose-950/80', border: 'border-rose-300', badge: 'bg-rose-500 text-white', text: 'text-rose-300', bar: 'bg-rose-500'
+        };
+    }
+    if (progress >= 85) {
+        return {
+            label: 'BİTMEK ÜZERE', fill: 'bg-gradient-to-r from-amber-500 to-orange-500',
+            track: 'bg-amber-950/70', border: 'border-amber-300', badge: 'bg-orange-500 text-white', text: 'text-orange-300', bar: 'bg-orange-500'
+        };
+    }
+    if (progress >= 50) {
+        return {
+            label: 'YARIYI GEÇTİ', fill: 'bg-gradient-to-r from-emerald-500 to-lime-500',
+            track: 'bg-emerald-950/70', border: 'border-emerald-300', badge: 'bg-emerald-500 text-white', text: 'text-emerald-300', bar: 'bg-emerald-500'
+        };
+    }
+    if (progress >= 25) {
+        return {
+            label: 'DEVAM EDİYOR', fill: 'bg-gradient-to-r from-teal-500 to-cyan-500',
+            track: 'bg-teal-950/70', border: 'border-teal-300', badge: 'bg-teal-500 text-white', text: 'text-teal-300', bar: 'bg-teal-500'
+        };
+    }
+    return {
+        label: 'YENİ BAŞLADI', fill: 'bg-gradient-to-r from-sky-500 to-blue-500',
+        track: 'bg-sky-950/70', border: 'border-sky-300', badge: 'bg-sky-500 text-white', text: 'text-sky-300', bar: 'bg-sky-500'
+    };
+};
+
 // Başlangıç Tezgah Gruplarını Otomatik Oluştur (5 Eksen, Köprülü, CNC vb.)
 const generateInitialMachineGroups = (machineList = []) => {
     const fiveAxis = machineList.filter(m => {
@@ -343,46 +386,62 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         });
     };
 
-    // Zaman Ölçeği Konfigürasyonu
+    // Zaman Ölçeği Konfigürasyonu (pastDays: bugünden önce gösterilecek gün sayısı)
     const scaleConfig = useMemo(() => {
         switch (timeScale) {
             case '1_WEEK':
-                return { days: 7, pxPerHour: 18, label: '1 Hafta (7G)' };
+                return { days: 7, pastDays: 2, pxPerHour: 18, label: '1 Hafta (7G)' };
             case '3_WEEKS':
-                return { days: 21, pxPerHour: 8, label: '3 Hafta (21G)' };
+                return { days: 21, pastDays: 5, pxPerHour: 8, label: '3 Hafta (21G)' };
             case '1_MONTH':
-                return { days: 30, pxPerHour: 5, label: '1 Ay (30G)' };
+                return { days: 30, pastDays: 7, pxPerHour: 5, label: '1 Ay (30G)' };
             case '2_WEEKS':
             default:
-                return { days: 14, pxPerHour: 11, label: '2 Hafta (14G)' };
+                return { days: 14, pastDays: 3, pxPerHour: 11, label: '2 Hafta (14G)' };
         }
     }, [timeScale]);
 
-    const { days: totalDays, pxPerHour } = scaleConfig;
+    const { days: futureDays, pastDays, pxPerHour } = scaleConfig;
+    const totalDays = futureDays + pastDays;
     const dayWidth = pxPerHour * 24;
+
+    // Canlı saat: süreye bağlı ilerleme yüzdeleri her dakika otomatik güncellenir
+    const [nowTick, setNowTick] = useState(() => Date.now());
+    useEffect(() => {
+        const t = setInterval(() => setNowTick(Date.now()), 60 * 1000);
+        return () => clearInterval(t);
+    }, []);
+
+    // Zaman çizelgesinin başlangıcı (bugün 00:00 - pastDays)
+    const timelineStart = useMemo(() => {
+        const d = new Date(nowTick);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() - pastDays);
+        return d;
+    }, [nowTick, pastDays]);
+
+    const nowOffsetPx = ((nowTick - timelineStart.getTime()) / 3600000) * pxPerHour;
 
     // Timeline Gün Başlıkları
     const timelineDays = useMemo(() => {
         const list = [];
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
         for (let i = 0; i < totalDays; i++) {
-            const d = new Date(today);
-            d.setDate(today.getDate() + i);
+            const d = new Date(timelineStart);
+            d.setDate(timelineStart.getDate() + i);
             const dayOfWeek = d.getDay(); // 0: Pazar, 6: Cmt
             list.push({
                 index: i,
                 date: d,
                 dateStr: d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }),
                 dayName: d.toLocaleDateString('tr-TR', { weekday: 'short' }),
-                isToday: i === 0,
+                isToday: i === pastDays,
+                isPast: i < pastDays,
                 isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
                 isSunday: dayOfWeek === 0
             });
         }
         return list;
-    }, [totalDays]);
+    }, [totalDays, timelineStart, pastDays]);
 
     // CAM Operatörleri Listesi
     const camOperators = useMemo(() => {
@@ -432,7 +491,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
     // TEZGAHLAR BAZLI ZAMAN ÇİZELGESİ VE İŞ HESAPLAMALARI
     // ========================================================
     const timelineRows = useMemo(() => {
-        const now = new Date();
+        const now = new Date(nowTick);
 
         return (machines || []).map(machine => {
             let activeJob = null;
@@ -452,7 +511,14 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             (op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
                         if (isWorking && !activeJob) {
                             const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTaskTime || 8;
-                            const progress = Math.min(100, Math.max(0, parseFloat(op.progressPercentage) || 0));
+                            const manualProgress = Math.min(100, Math.max(0, parseFloat(op.progressPercentage) || 0));
+                            // Gerçek başlangıç zamanı (yoksa manuel yüzdeden geriye doğru tahmin et)
+                            const realStart = parseOpStartDate(op);
+                            const startDate = realStart || new Date(now.getTime() - (manualProgress / 100) * opTime * 3600000);
+                            const elapsedHours = Math.max(0, (now.getTime() - startDate.getTime()) / 3600000);
+                            const autoProgress = opTime > 0 ? (elapsedHours / opTime) * 100 : 0;
+                            const isOverdue = autoProgress > 100;
+                            const progress = Math.min(100, Math.round(autoProgress));
                             activeJob = {
                                 id: `${project.id}-${task.id}-${op.id}-active`,
                                 moldId: project.id,
@@ -468,6 +534,13 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 camOperator: op.assignedOperator || camOpName,
                                 machineOperator: op.machineOperatorName || 'Belirtilmedi',
                                 progress,
+                                manualProgress,
+                                hasRealStart: !!realStart,
+                                actualStart: startDate,
+                                elapsedHours,
+                                remainingHours: Math.max(0, opTime - elapsedHours),
+                                overdueHours: isOverdue ? elapsedHours - opTime : 0,
+                                isOverdue,
                                 time: opTime,
                                 isWorking: true,
                                 priority: task.priority !== undefined ? task.priority : (project.priority || 999),
@@ -544,42 +617,52 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             // Kuyruktaki işleri önceliğe göre sırala
             queuedJobs.sort((a, b) => a.priority - b.priority);
 
-            // Barların zamanlama koordinatlarını (startHour, endHour, dates) hesapla
+            // Barların zamanlama koordinatlarını (startHour: timelineStart'a göre saat ofseti) hesapla
             const bars = [];
-            let currentOffsetHours = 0;
+            const toOffsetH = (date) => (date.getTime() - timelineStart.getTime()) / 3600000;
+            const nowOffsetH = toOffsetH(now);
+            let cursorDate = new Date(now.getTime());
 
-            // 1. Aktif İş Barı
+            // 1. Aktif İş Barı (gerçek başlangıç zamanından itibaren)
             if (activeJob) {
                 const duration = Math.max(0.5, activeJob.time);
-                const remaining = Math.max(0.5, duration * (1 - activeJob.progress / 100));
-                const startDate = new Date(now.getTime());
-                const endDate = new Date(now.getTime() + remaining * 3600 * 1000);
-                const widthPx = Math.max(38, remaining * pxPerHour);
+                const startDate = activeJob.actualStart;
+                const endDate = new Date(startDate.getTime() + duration * 3600000);
+                // Süre aşıldıysa bar "şimdi"ye kadar uzar
+                const visualEnd = activeJob.isOverdue ? now : endDate;
+                const rawStartH = toOffsetH(startDate);
+                const startH = Math.max(0, rawStartH);
+                const endH = Math.max(startH, toOffsetH(visualEnd));
+                const widthPx = Math.max(38, (endH - startH) * pxPerHour);
+                // Bar içindeki "şimdi" işaretinin konumu (%)
+                const nowInBarPct = endH > startH ? Math.min(100, Math.max(0, ((nowOffsetH - startH) / (endH - startH)) * 100)) : 100;
 
                 bars.push({
                     ...activeJob,
-                    startHour: 0,
-                    durationHours: remaining,
+                    startHour: startH,
+                    isClippedStart: rawStartH < 0,
+                    durationHours: duration,
                     widthPx,
                     startDate,
                     endDate,
+                    nowInBarPct,
                     isWorking: true,
                     orderIndex: 0
                 });
 
-                currentOffsetHours += remaining;
+                if (endDate > cursorDate) cursorDate = endDate;
             }
 
-            // 2. Kuyruktaki İş Barları
+            // 2. Kuyruktaki İş Barları (aktif iş bitince / şimdiden itibaren art arda)
             queuedJobs.forEach((job, qIdx) => {
                 const duration = Math.max(0.5, job.time);
-                const startDate = new Date(now.getTime() + currentOffsetHours * 3600 * 1000);
-                const endDate = new Date(startDate.getTime() + duration * 3600 * 1000);
+                const startDate = new Date(cursorDate.getTime());
+                const endDate = new Date(startDate.getTime() + duration * 3600000);
                 const widthPx = Math.max(38, duration * pxPerHour);
 
                 bars.push({
                     ...job,
-                    startHour: currentOffsetHours,
+                    startHour: toOffsetH(startDate),
                     durationHours: duration,
                     widthPx,
                     startDate,
@@ -588,10 +671,10 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     orderIndex: qIdx + 1
                 });
 
-                currentOffsetHours += duration;
+                cursorDate = endDate;
             });
 
-            const activeRemainingHours = activeJob ? Math.max(0.5, activeJob.time * (1 - activeJob.progress / 100)) : 0;
+            const activeRemainingHours = activeJob ? Math.max(0.5, activeJob.remainingHours) : 0;
             const queuedRemainingHours = queuedJobs.reduce((acc, q) => acc + q.time, 0);
             const totalRemainingHours = Number((activeRemainingHours + queuedRemainingHours).toFixed(1));
             const freeAtDate = totalRemainingHours > 0 ? new Date(now.getTime() + totalRemainingHours * 3600 * 1000) : null;
@@ -611,7 +694,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                 status: activeJob ? 'BUSY' : (queuedJobs.length > 0 ? 'QUEUED' : 'AVAILABLE')
             };
         });
-    }, [machines, projects, selectedMoldId, pxPerHour]);
+    }, [machines, projects, selectedMoldId, pxPerHour, nowTick, timelineStart]);
 
     // Filtrelenmiş Tezgah Satırları (Kalıcı Grup ve İşaretli Tezgah Mantığı Dahil)
     const displayTimelineRows = useMemo(() => {
@@ -1502,7 +1585,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             </div>
 
                             {/* Sağ Başlık: Gün İsimleri ve Tarihleri */}
-                            <div className="flex flex-1">
+                            <div className="flex flex-1 relative">
                                 {timelineDays.map(d => (
                                     <div
                                         key={d.index}
@@ -1510,17 +1593,29 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                         className={`shrink-0 py-2 px-1 text-center border-r border-gray-200/80 dark:border-gray-700/80 text-xs ${
                                             d.isToday 
                                                 ? 'bg-purple-100/70 dark:bg-purple-950/50 text-purple-900 dark:text-purple-200 font-black' 
-                                                : d.isWeekend 
-                                                    ? 'bg-gray-200/40 dark:bg-gray-800/40 text-gray-500 dark:text-gray-400' 
-                                                    : 'text-gray-700 dark:text-gray-300 font-bold'
+                                                : d.isPast
+                                                    ? 'bg-slate-200/60 dark:bg-slate-950/60 text-gray-500 dark:text-gray-500'
+                                                    : d.isWeekend 
+                                                        ? 'bg-gray-200/40 dark:bg-gray-800/40 text-gray-500 dark:text-gray-400' 
+                                                        : 'text-gray-700 dark:text-gray-300 font-bold'
                                         }`}
                                     >
                                         <div className="text-[11px] leading-tight">{d.dateStr}</div>
                                         <div className={`text-[9px] uppercase tracking-wider ${d.isToday ? 'text-purple-700 dark:text-purple-300 font-black' : 'text-gray-400'}`}>
-                                            {d.dayName} {d.isToday && '• Bugün'}
+                                            {d.dayName} {d.isToday && '• Bugün'}{d.isPast && ' • Geçmiş'}
                                         </div>
                                     </div>
                                 ))}
+                                {/* ŞİMDİ işareti (başlık) */}
+                                <div
+                                    className="absolute top-0 bottom-0 pointer-events-none z-10"
+                                    style={{ left: nowOffsetPx }}
+                                >
+                                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-500" />
+                                    <span className="absolute bottom-0.5 -translate-x-1/2 text-[8px] font-black px-1 rounded bg-red-500 text-white whitespace-nowrap shadow">
+                                        ŞİMDİ {new Date(nowTick).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
@@ -1614,11 +1709,27 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                     ))}
                                                 </div>
 
+                                                {/* Geçmiş zaman gölgesi (şimdi çizgisinin solu) */}
+                                                <div
+                                                    className="absolute top-0 bottom-0 left-0 pointer-events-none"
+                                                    style={{
+                                                        width: nowOffsetPx,
+                                                        backgroundImage: 'repeating-linear-gradient(135deg, rgba(100,116,139,0.10) 0px, rgba(100,116,139,0.10) 6px, transparent 6px, transparent 12px)'
+                                                    }}
+                                                />
+
+                                                {/* ŞİMDİ dikey çizgisi */}
+                                                <div
+                                                    className="absolute top-0 bottom-0 w-0.5 bg-red-500/80 pointer-events-none z-[25]"
+                                                    style={{ left: nowOffsetPx }}
+                                                />
+
                                                 {/* Parça Barları */}
                                                 {machine.bars.map((bar) => {
                                                     const isSelected = selectedMoldId && bar.moldId === selectedMoldId;
                                                     const isDimmed = selectedMoldId && bar.moldId !== selectedMoldId;
                                                     const colorScheme = getJobColor(bar.moldId, bar.orderIndex);
+                                                    const progressTheme = getProgressTheme(bar.progress, bar.isOverdue);
 
                                                     return (
                                                         <div
@@ -1647,11 +1758,11 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                                 left: `${bar.startHour * pxPerHour}px`,
                                                                 width: `${bar.widthPx}px`
                                                             }}
-                                                            className={`absolute top-2 h-10 rounded-xl px-2.5 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all select-none ${
+                                                            className={`absolute top-2 h-10 rounded-xl px-2.5 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all select-none overflow-hidden ${
                                                                 bar.isWorking
-                                                                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-2 border-emerald-300 dark:border-emerald-200 shadow-md'
+                                                                    ? `${progressTheme.track} text-white border-2 ${progressTheme.border} shadow-md`
                                                                     : `${colorScheme.bg} ${colorScheme.text} border ${colorScheme.border}`
-                                                            } ${
+                                                            } ${bar.isClippedStart ? 'rounded-l-none' : ''} ${
                                                                 isSelected 
                                                                     ? 'ring-4 ring-yellow-400 dark:ring-yellow-300 shadow-2xl shadow-yellow-500/80 animate-pulse font-black scale-[1.03] z-20' 
                                                                     : isDimmed 
@@ -1659,12 +1770,27 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                                         : 'hover:brightness-110 z-10'
                                                             }`}
                                                         >
+                                                            {/* Süreye bağlı ilerleme dolgusu (çalışan işler) */}
+                                                            {bar.isWorking && (
+                                                                <>
+                                                                    <div
+                                                                        className={`absolute inset-y-0 left-0 ${progressTheme.fill} opacity-90 pointer-events-none transition-all duration-700`}
+                                                                        style={{ width: `${bar.nowInBarPct}%` }}
+                                                                    />
+                                                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30 pointer-events-none">
+                                                                        <div className="h-full bg-white/90" style={{ width: `${bar.progress}%` }} />
+                                                                    </div>
+                                                                </>
+                                                            )}
+
                                                             {/* Tutamaç (Sürükleme ikonu) */}
-                                                            <GripVertical className="w-3 h-3 opacity-60 shrink-0 cursor-grab active:cursor-grabbing" />
+                                                            <GripVertical className="relative w-3 h-3 opacity-60 shrink-0 cursor-grab active:cursor-grabbing" />
 
                                                             {/* Sıra / Çalışıyor İkonu */}
                                                             {bar.isWorking ? (
-                                                                <span className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+                                                                <span className={`relative text-[10px] font-black px-1.5 py-0.5 rounded-md shrink-0 shadow ${progressTheme.badge} ${bar.isOverdue ? 'animate-pulse' : ''}`}>
+                                                                    %{bar.progress}
+                                                                </span>
                                                             ) : (
                                                                 <span className="text-[9px] font-black opacity-80 shrink-0">
                                                                     #{bar.orderIndex}
@@ -1673,28 +1799,36 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
 
                                                             {/* Seçili Kalıp Yıldızı */}
                                                             {isSelected && (
-                                                                <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-yellow-400 text-slate-950 flex items-center gap-0.5 shrink-0 shadow-xs animate-bounce">
+                                                                <span className="relative text-[9px] font-black px-1.5 py-0.2 rounded bg-yellow-400 text-slate-950 flex items-center gap-0.5 shrink-0 shadow-xs animate-bounce">
                                                                     <Star className="w-2.5 h-2.5 fill-current" />
                                                                 </span>
                                                             )}
 
                                                             {/* İş Emri Numarası */}
                                                             {bar.workOrderNo && (
-                                                                <span className="text-[9px] font-black px-1 py-0.2 rounded bg-black/30 text-white shrink-0 tracking-wider">
+                                                                <span className="relative text-[9px] font-black px-1 py-0.2 rounded bg-black/30 text-white shrink-0 tracking-wider">
                                                                     #{bar.workOrderNo}
                                                                 </span>
                                                             )}
 
                                                             {/* Parça Adı & Kalıp */}
-                                                            <div className="flex-1 truncate text-xs font-black leading-tight">
+                                                            <div className="relative flex-1 truncate text-xs font-black leading-tight drop-shadow">
                                                                 <span>{bar.taskName}</span>
                                                                 <span className="opacity-70 font-normal ml-1">({bar.moldName})</span>
                                                             </div>
 
-                                                            {/* Süre */}
-                                                            <span className="text-[9px] font-black opacity-90 shrink-0 bg-black/20 px-1.5 py-0.5 rounded">
-                                                                {formatDurationHours(bar.time)}
-                                                            </span>
+                                                            {/* Süre / Kalan / Gecikme */}
+                                                            {bar.isWorking ? (
+                                                                <span className="relative text-[9px] font-black shrink-0 bg-black/35 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                                                    {bar.isOverdue
+                                                                        ? `⚠ +${formatDurationHours(Number(bar.overdueHours.toFixed(1)))} gecikme`
+                                                                        : `Kalan ${formatDurationHours(Number(bar.remainingHours.toFixed(1)))}`}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-black opacity-90 shrink-0 bg-black/20 px-1.5 py-0.5 rounded">
+                                                                    {formatDurationHours(bar.time)}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
@@ -1714,7 +1848,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             {hoveredJob && (
                 <div
                     style={{
-                        top: Math.min(window.innerHeight - 250, mousePos.y + 16),
+                        top: Math.max(8, Math.min(window.innerHeight - (hoveredJob.isWorking ? 400 : 290), mousePos.y + 16)),
                         left: Math.min(window.innerWidth - 320, mousePos.x + 16)
                     }}
                     className="fixed z-50 pointer-events-none bg-slate-950/95 text-white p-3.5 rounded-2xl border border-purple-500/50 shadow-2xl backdrop-blur-md w-72 space-y-2 animate-in fade-in zoom-in-95 duration-100"
@@ -1761,13 +1895,50 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             <span className="text-slate-400">Tahmini Süre:</span>
                             <strong className="text-purple-400 font-bold">{formatDurationHours(hoveredJob.time)}</strong>
                         </div>
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">{hoveredJob.isWorking ? 'Başlangıç:' : 'Planlanan Başlangıç:'}</span>
+                            <strong className="text-sky-300">
+                                {hoveredJob.startDate ? formatDateTime(hoveredJob.startDate.toISOString()) : '-'}
+                                {hoveredJob.isWorking && !hoveredJob.hasRealStart && <span className="text-[9px] text-slate-500 ml-1">(tahmini)</span>}
+                            </strong>
+                        </div>
                         <div className="flex justify-between pt-1 border-t border-slate-800 text-[10px]">
                             <span className="text-slate-400">Tahmini Bitiş:</span>
-                            <strong className="text-yellow-300">
+                            <strong className={hoveredJob.isOverdue ? 'text-rose-400' : 'text-yellow-300'}>
                                 {hoveredJob.endDate ? formatDateTime(hoveredJob.endDate.toISOString()) : '-'}
                             </strong>
                         </div>
                     </div>
+
+                    {/* Süreye Bağlı Otomatik İlerleme */}
+                    {hoveredJob.isWorking && (() => {
+                        const th = getProgressTheme(hoveredJob.progress, hoveredJob.isOverdue);
+                        return (
+                            <div className="pt-2 border-t border-slate-700 space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-[10px] font-black tracking-wider ${th.text}`}>{th.label}</span>
+                                    <span className={`text-sm font-black ${th.text}`}>%{hoveredJob.progress}</span>
+                                </div>
+                                <div className="h-2.5 rounded-full bg-slate-800 overflow-hidden">
+                                    <div className={`h-full rounded-full ${th.fill}`} style={{ width: `${hoveredJob.progress}%` }} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                    <div className="bg-slate-800/80 rounded-lg px-2 py-1">
+                                        <div className="text-slate-400">Geçen Süre</div>
+                                        <div className="font-black text-white">{formatDurationHours(Number(hoveredJob.elapsedHours.toFixed(1)))}</div>
+                                    </div>
+                                    <div className="bg-slate-800/80 rounded-lg px-2 py-1">
+                                        <div className="text-slate-400">{hoveredJob.isOverdue ? 'Gecikme' : 'Kalan Süre'}</div>
+                                        <div className={`font-black ${hoveredJob.isOverdue ? 'text-rose-400' : 'text-emerald-300'}`}>
+                                            {hoveredJob.isOverdue
+                                                ? `+${formatDurationHours(Number(hoveredJob.overdueHours.toFixed(1)))}`
+                                                : formatDurationHours(Number(hoveredJob.remainingHours.toFixed(1)))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 
