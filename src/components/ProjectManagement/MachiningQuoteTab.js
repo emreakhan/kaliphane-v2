@@ -71,6 +71,40 @@ const compressImageFile = (file, maxWidth = 1200, quality = 0.75) => {
     });
 };
 
+// Göreceli Tarih Formatlayıcı (Örn: "2 hafta önce", "3 gün önce", "Bugün")
+const formatRelativeTime = (timestamp) => {
+    if (!timestamp) return 'Sabit Fiyat';
+    let date;
+    if (timestamp?.toDate) {
+        date = timestamp.toDate();
+    } else if (typeof timestamp === 'number') {
+        date = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+        date = timestamp;
+    } else {
+        return 'Sabit Fiyat';
+    }
+
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 0 || isNaN(diffMs)) return 'Az önce';
+
+    const diffMin = Math.floor(diffMs / (1000 * 60));
+    const diffHour = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDay = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffWeek = Math.floor(diffDay / 7);
+    const diffMonth = Math.floor(diffDay / 30);
+    const diffYear = Math.floor(diffDay / 365);
+
+    if (diffMin < 1) return 'Az önce';
+    if (diffMin < 60) return `${diffMin} dk önce`;
+    if (diffHour < 24) return `${diffHour} saat önce`;
+    if (diffDay === 1) return 'Dün';
+    if (diffDay < 7) return `${diffDay} gün önce`;
+    if (diffWeek < 5) return `${diffWeek} hafta önce`;
+    if (diffMonth < 12) return `${diffMonth} ay önce`;
+    return `${diffYear} yıl önce`;
+};
+
 const MachiningQuoteTab = ({ db, loggedInUser }) => {
     // 1. Ana State'ler
     const [quotes, setQuotes] = useState([]);
@@ -197,6 +231,7 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
             status: 'DRAFT', // 'DRAFT' | 'OFFERED' | 'APPROVED' | 'REVISED' | 'CANCELLED'
             notes: newQuoteData.notes.trim(),
             hourlyRates,
+            setupHourlyRate: 30, // Varsayılan Tezgah Hazırlık/Ayar Saat Ücreti (€/s)
             riskMarginPercent: 10, // % Güvenlik Payı
             profitMarginPercent: 25, // % Kar Marjı
             discountPercent: 0,
@@ -262,7 +297,8 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
             density: parseFloat(matFormData.density) || 7.85,
             pricePerKg: parseFloat(matFormData.pricePerKg) || 0,
             category: matFormData.category || 'Çelik',
-            updatedAt: serverTimestamp()
+            updatedAt: serverTimestamp(),
+            updatedAtMs: Date.now()
         };
 
         try {
@@ -276,10 +312,28 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                 });
             }
             setEditingMaterial(null);
-            setMatFormData({ name: '', code: '', density: 7.85, pricePerKg: 100, category: 'Çelik' });
+            setMatFormData({ name: '', code: '', density: 7.85, pricePerKg: 2.80, category: 'Çelik' });
         } catch (err) {
             console.error("Malzeme kaydedilirken hata:", err);
             alert("Malzeme kaydedilemedi: " + err.message);
+        }
+    };
+
+    // Varsayılan Piyasa Fiyatlarına Eşitleme
+    const handleResetDefaultMaterials = async () => {
+        if (!window.confirm("Kütüphanedeki varsayılan malzemelerin fiyatlarını güncel piyasa Euro fiyatlarına eşitlemek istiyor musunuz? Özel eklediğiniz malzemeler korunacaktır.")) return;
+        try {
+            for (const defMat of DEFAULT_MACHINING_MATERIALS) {
+                await setDoc(doc(db, MACHINING_MATERIALS_COLLECTION, defMat.id), {
+                    ...defMat,
+                    updatedAt: serverTimestamp(),
+                    updatedAtMs: Date.now()
+                }, { merge: true });
+            }
+            alert("Tüm varsayılan malzemeler güncel Euro piyasa fiyatlarıyla yenilendi.");
+        } catch (err) {
+            console.error("Malzeme sıfırlama hatası:", err);
+            alert("Hata oluştu: " + err.message);
         }
     };
 
@@ -601,8 +655,8 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
 
             // 3. Setup (Ayar) - CAM tamamen dikkate alınmaz
             const setupHours = parseFloat(part.setupTimeHours) || 0;
-            const avgMachineRate = parseFloat(currentQuote.hourlyRates?.cnc3Axis) || 35;
-            const setupCost = setupHours * avgMachineRate;
+            const setupRate = parseFloat(currentQuote.setupHourlyRate ?? currentQuote.hourlyRates?.setup ?? 30);
+            const setupCost = setupHours * setupRate;
             totalSetupCost += setupCost;
 
             // Parçanın Toplam Taban Maliyeti
@@ -995,9 +1049,26 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                             </div>
                         </div>
 
-                        {/* Genel Marj & Güvenlik Payı Ayarları (Sadece Editör Modunda) */}
+                        {/* Genel Marj, Setup Ücreti & Güvenlik Payı Ayarları (Sadece Editör Modunda) */}
                         {activeTab === 'EDITOR' && (
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700 text-xs">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700 text-xs">
+                                <div className="bg-gray-50 dark:bg-slate-800 p-2.5 rounded-xl border border-gray-200 dark:border-slate-700">
+                                    <label className="block text-[10px] font-bold text-gray-600 dark:text-slate-300 mb-1">
+                                        Ayar (Setup) Saat Ücreti
+                                    </label>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={currentQuote.setupHourlyRate ?? 30}
+                                            onChange={(e) => updateDoc(doc(db, MACHINING_QUOTES_COLLECTION, currentQuote.id), { setupHourlyRate: parseFloat(e.target.value) || 0 })}
+                                            className="w-18 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-indigo-600 dark:text-indigo-400 outline-none focus:ring-1 focus:ring-indigo-500"
+                                        />
+                                        <span className="font-bold text-gray-500 dark:text-slate-400">{getCurrencySymbol(currentQuote.currency)}/saat</span>
+                                    </div>
+                                </div>
+
                                 <div className="bg-gray-50 dark:bg-slate-800 p-2.5 rounded-xl border border-gray-200 dark:border-slate-700">
                                     <label className="block text-[10px] font-bold text-gray-600 dark:text-slate-300 mb-1">
                                         Güvenlik / Risk Payı (%)
@@ -1009,7 +1080,7 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                             max="100"
                                             value={currentQuote.riskMarginPercent || 0}
                                             onChange={(e) => updateDoc(doc(db, MACHINING_QUOTES_COLLECTION, currentQuote.id), { riskMarginPercent: parseFloat(e.target.value) || 0 })}
-                                            className="w-20 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            className="w-18 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
                                         />
                                         <span className="font-bold text-gray-500 dark:text-slate-400">%</span>
                                     </div>
@@ -1026,7 +1097,7 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                             max="200"
                                             value={currentQuote.profitMarginPercent || 0}
                                             onChange={(e) => updateDoc(doc(db, MACHINING_QUOTES_COLLECTION, currentQuote.id), { profitMarginPercent: parseFloat(e.target.value) || 0 })}
-                                            className="w-20 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            className="w-18 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
                                         />
                                         <span className="font-bold text-gray-500 dark:text-slate-400">%</span>
                                     </div>
@@ -1043,7 +1114,7 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                             max="50"
                                             value={currentQuote.discountPercent || 0}
                                             onChange={(e) => updateDoc(doc(db, MACHINING_QUOTES_COLLECTION, currentQuote.id), { discountPercent: parseFloat(e.target.value) || 0 })}
-                                            className="w-20 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            className="w-18 p-1.5 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
                                         />
                                         <span className="font-bold text-gray-500 dark:text-slate-400">%</span>
                                     </div>
@@ -1167,68 +1238,113 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                                 <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
                                                     
                                                     {/* KOLON 1 (lg:3): RESİMLER & LIGHTBOX & PANO */}
-                                                    <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-gray-100 dark:border-slate-800 pb-4 lg:pb-0 lg:pr-4">
-                                                        <div className="flex justify-between items-center">
-                                                            <label className="text-xs font-black text-gray-700 dark:text-slate-200 flex items-center gap-1">
-                                                                <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
-                                                                <span>Teknik Resim / Görseller</span>
-                                                            </label>
-                                                            <span className="text-[10px] text-gray-400">
-                                                                ({part.images?.length || 0})
-                                                            </span>
-                                                        </div>
+                                                    <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-gray-100 dark:border-slate-800 pb-4 lg:pb-0 lg:pr-4 flex flex-col justify-between">
+                                                        <div>
+                                                            <div className="flex justify-between items-center mb-1.5">
+                                                                <label className="text-xs font-black text-gray-700 dark:text-slate-200 flex items-center gap-1">
+                                                                    <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
+                                                                    <span>Teknik Resim / Görseller</span>
+                                                                </label>
+                                                                <span className="text-[10px] text-gray-400">
+                                                                    ({part.images?.length || 0})
+                                                                </span>
+                                                            </div>
 
-                                                        {/* Küçük Thumbnail Listesi */}
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            {(part.images || []).map((imgUrl, imgIdx) => (
-                                                                <div
-                                                                    key={imgIdx}
-                                                                    onClick={() => setPreviewImage({ isOpen: true, url: imgUrl, title: `${part.partName} - Görsel #${imgIdx + 1}` })}
-                                                                    className="group relative h-20 bg-gray-100 dark:bg-slate-800 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 cursor-pointer shadow-2xs hover:shadow-md transition"
-                                                                >
-                                                                    <img src={imgUrl} alt="Parça" className="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
-                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                                                                        <ZoomIn className="w-5 h-5 text-white" />
-                                                                    </div>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => handleDeletePartImage(part.id, imgIdx, e)}
-                                                                        className="absolute top-1 right-1 p-1 rounded-md bg-red-600 text-white opacity-0 group-hover:opacity-100 transition shadow hover:bg-red-700"
-                                                                        title="Resmi Sil"
+                                                            {/* Yüklenen Resim(ler) Alanı - Alanı Doldurur */}
+                                                            {(part.images || []).length > 0 ? (
+                                                                <div className="space-y-2">
+                                                                    {/* Büyük Önizleme (Alanı Tam Doldurur) */}
+                                                                    <div
+                                                                        onClick={() => setPreviewImage({ isOpen: true, url: part.images[0], title: `${part.partName} - Görsel` })}
+                                                                        className="group relative w-full h-44 sm:h-48 bg-slate-950 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 cursor-pointer shadow-xs hover:border-indigo-500 transition"
+                                                                        title="Tam ekran incelemek için tıklayınız"
                                                                     >
-                                                                        <X className="w-3 h-3" />
-                                                                    </button>
-                                                                </div>
-                                                            ))}
+                                                                        <img
+                                                                            src={part.images[0]}
+                                                                            alt={part.partName}
+                                                                            className="w-full h-full object-contain p-1 group-hover:scale-102 transition duration-200"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                                                                            <ZoomIn className="w-6 h-6 text-white drop-shadow" />
+                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => handleDeletePartImage(part.id, 0, e)}
+                                                                            className="absolute top-2 right-2 p-1.5 rounded-lg bg-red-600/90 hover:bg-red-700 text-white opacity-0 group-hover:opacity-100 transition shadow"
+                                                                            title="Resmi Sil"
+                                                                        >
+                                                                            <X className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
 
-                                                            {/* Resim Yükleme Butonu */}
-                                                            <label className="h-20 border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-xl flex flex-col items-center justify-center cursor-pointer text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition bg-gray-50/50 dark:bg-slate-800/40">
-                                                                <Upload className="w-5 h-5 mb-0.5" />
-                                                                <span className="text-[10px] font-bold">+ Dosyadan Seç</span>
-                                                                <input
-                                                                    type="file"
-                                                                    accept="image/*"
-                                                                    multiple
-                                                                    onChange={(e) => handleUploadPartImage(part.id, e)}
-                                                                    className="hidden"
-                                                                />
-                                                            </label>
+                                                                    {/* Birden fazla görsel varsa küçük şerit */}
+                                                                    {part.images.length > 1 && (
+                                                                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+                                                                            {part.images.slice(1).map((imgUrl, extraIdx) => (
+                                                                                <div
+                                                                                    key={extraIdx + 1}
+                                                                                    onClick={() => setPreviewImage({ isOpen: true, url: imgUrl, title: `${part.partName} - Görsel #${extraIdx + 2}` })}
+                                                                                    className="group relative w-12 h-12 rounded-lg bg-slate-900 border border-slate-700 overflow-hidden shrink-0 cursor-pointer"
+                                                                                >
+                                                                                    <img src={imgUrl} alt="Ek" className="w-full h-full object-cover" />
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => handleDeletePartImage(part.id, extraIdx + 1, e)}
+                                                                                        className="absolute top-0.5 right-0.5 p-0.5 rounded bg-red-600 text-white opacity-0 group-hover:opacity-100 transition"
+                                                                                    >
+                                                                                        <X className="w-2.5 h-2.5" />
+                                                                                    </button>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                /* Resim Yokken Kompakt Yükleme Kutusu */
+                                                                <label className="w-full h-40 border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-indigo-500 rounded-2xl flex flex-col items-center justify-center cursor-pointer text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition bg-gray-50/50 dark:bg-slate-800/40 p-4">
+                                                                    <Upload className="w-6 h-6 mb-1 text-indigo-500" />
+                                                                    <span className="text-xs font-bold text-gray-700 dark:text-slate-300">Teknik Resim Yükle</span>
+                                                                    <span className="text-[10px] text-gray-400 mt-0.5">+ Dosyadan Seç</span>
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="image/*"
+                                                                        multiple
+                                                                        onChange={(e) => handleUploadPartImage(part.id, e)}
+                                                                        className="hidden"
+                                                                    />
+                                                                </label>
+                                                            )}
                                                         </div>
 
-                                                        {/* Ekran Görüntüsü / Panodan Yapıştırma Butonu */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handlePasteFromClipboard(part.id)}
-                                                            className="w-full py-1.5 px-2 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-slate-700 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 transition active:scale-95 shadow-2xs"
-                                                            title="Ekran görüntüsü aldıysanız doğrudan buraya yapıştırır (Ctrl+V)"
-                                                        >
-                                                            <Clipboard className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                                            <span>📋 Panodan Yapıştır (Ctrl+V)</span>
-                                                        </button>
+                                                        {/* Kompakt Küçük Butonlar (Altta Kenarda Zarif Görünüm) */}
+                                                        <div className="pt-2">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <label className="flex-1 py-1.5 px-2 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 border border-gray-300 dark:border-slate-700 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition">
+                                                                    <Upload className="w-3 h-3 text-indigo-500" />
+                                                                    <span>+ Dosya Seç</span>
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="image/*"
+                                                                        multiple
+                                                                        onChange={(e) => handleUploadPartImage(part.id, e)}
+                                                                        className="hidden"
+                                                                    />
+                                                                </label>
 
-                                                        <p className="text-[9px] text-gray-400 italic text-center">
-                                                            Resme tıklayarak tam ekran inceleyebilirsiniz.
-                                                        </p>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handlePasteFromClipboard(part.id)}
+                                                                    className="flex-1 py-1.5 px-2 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-slate-700 rounded-xl text-[10px] font-black flex items-center justify-center gap-1 transition active:scale-95 shadow-2xs"
+                                                                    title="Panodan doğrudan yapıştırır (Ctrl+V)"
+                                                                >
+                                                                    <Clipboard className="w-3 h-3 text-indigo-500" />
+                                                                    <span>📋 Yapıştır (Ctrl+V)</span>
+                                                                </button>
+                                                            </div>
+                                                            <p className="text-[9px] text-gray-400 italic text-center mt-1">
+                                                                Tıklayarak tam ekran inceleyebilirsiniz.
+                                                            </p>
+                                                        </div>
                                                     </div>
 
                                                     {/* KOLON 2 (lg:4): HAMMADDE & KÜTÜK HESAPLAYICI */}
@@ -1423,37 +1539,62 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
 
                                                                         {/* Süre & Saat Ücreti veya Manuel Fason Maliyeti */}
                                                                         <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
-                                                                            {!op.isOutsourced ? (
-                                                                                <div className="flex items-center gap-1.5">
-                                                                                    <div className="flex items-center gap-1">
-                                                                                        <input
-                                                                                            type="number"
-                                                                                            min="0"
-                                                                                            step="0.25"
-                                                                                            value={op.durationHours || ''}
-                                                                                            onChange={(e) => handleUpdateOperation(part.id, op.id, { durationHours: parseFloat(e.target.value) || 0 })}
-                                                                                            className="w-14 p-1 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-900 dark:text-white rounded-lg text-center"
-                                                                                            placeholder="Saat"
-                                                                                            title="Operasyon Süresi (Saat)"
-                                                                                        />
-                                                                                        <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold">saat</span>
+                                                                            {!op.isOutsourced ? (() => {
+                                                                                const dHours = parseFloat(op.durationHours) || 0;
+                                                                                const hVal = Math.floor(dHours);
+                                                                                const mVal = Math.round((dHours - hVal) * 60);
+                                                                                return (
+                                                                                    <div className="flex items-center gap-1.5">
+                                                                                        {/* Saat & Dakika Kutusu */}
+                                                                                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-lg border border-gray-300 dark:border-slate-700">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min="0"
+                                                                                                value={hVal || ''}
+                                                                                                onChange={(e) => {
+                                                                                                    const newH = Math.max(0, parseInt(e.target.value) || 0);
+                                                                                                    const newTotal = newH + (mVal / 60);
+                                                                                                    handleUpdateOperation(part.id, op.id, { durationHours: Number(newTotal.toFixed(4)) });
+                                                                                                }}
+                                                                                                className="w-7 text-xs font-black bg-transparent text-gray-900 dark:text-white text-center outline-none"
+                                                                                                placeholder="0"
+                                                                                                title="Saat"
+                                                                                            />
+                                                                                            <span className="text-[10px] text-gray-400 font-bold">sa</span>
+                                                                                            <span className="text-gray-300 dark:text-slate-600 font-bold">:</span>
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min="0"
+                                                                                                max="59"
+                                                                                                value={mVal || ''}
+                                                                                                onChange={(e) => {
+                                                                                                    const newM = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                                                                                                    const newTotal = hVal + (newM / 60);
+                                                                                                    handleUpdateOperation(part.id, op.id, { durationHours: Number(newTotal.toFixed(4)) });
+                                                                                                }}
+                                                                                                className="w-7 text-xs font-black bg-transparent text-gray-900 dark:text-white text-center outline-none"
+                                                                                                placeholder="0"
+                                                                                                title="Dakika"
+                                                                                            />
+                                                                                            <span className="text-[10px] text-gray-400 font-bold">dk</span>
+                                                                                        </div>
+                                                                                        <span className="text-gray-400 dark:text-slate-500 font-bold">×</span>
+                                                                                        <div className="flex items-center gap-1">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                min="0"
+                                                                                                step="1"
+                                                                                                value={op.hourlyRate || ''}
+                                                                                                onChange={(e) => handleUpdateOperation(part.id, op.id, { hourlyRate: parseFloat(e.target.value) || 0 })}
+                                                                                                className="w-12 p-1 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 rounded-lg text-center"
+                                                                                                placeholder="€/s"
+                                                                                                title="Tezgah Saat Ücreti (€/saat)"
+                                                                                            />
+                                                                                            <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold">{currencySym}/s</span>
+                                                                                        </div>
                                                                                     </div>
-                                                                                    <span className="text-gray-400 dark:text-slate-500 font-bold">×</span>
-                                                                                    <div className="flex items-center gap-1">
-                                                                                        <input
-                                                                                            type="number"
-                                                                                            min="0"
-                                                                                            step="1"
-                                                                                            value={op.hourlyRate || ''}
-                                                                                            onChange={(e) => handleUpdateOperation(part.id, op.id, { hourlyRate: parseFloat(e.target.value) || 0 })}
-                                                                                            className="w-14 p-1 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 rounded-lg text-center"
-                                                                                            placeholder="€/s"
-                                                                                            title="Tezgah Saat Ücreti (€/saat)"
-                                                                                        />
-                                                                                        <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold">{currencySym}/s</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ) : (
+                                                                                );
+                                                                            })() : (
                                                                                 <div className="flex items-center gap-1">
                                                                                     <span className="text-[10px] text-purple-700 dark:text-purple-300 font-bold">Fason Bedeli:</span>
                                                                                     <input
@@ -1488,25 +1629,59 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                                             )}
                                                         </div>
 
-                                                        {/* Parça Tezgah Ayar / Setup Saati */}
-                                                        <div className="pt-2 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between bg-gray-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl text-xs">
-                                                            <span className="text-gray-600 dark:text-slate-300 font-bold flex items-center gap-1.5">
-                                                                <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                                                                <span>Tezgah Hazırlık / Ayar (Setup):</span>
-                                                            </span>
-                                                            <div className="flex items-center gap-1">
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.25"
-                                                                    value={part.setupTimeHours || ''}
-                                                                    onChange={(e) => handleUpdatePart(part.id, { setupTimeHours: parseFloat(e.target.value) || 0 })}
-                                                                    className="w-16 p-1 text-xs font-black bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-900 dark:text-white rounded-lg text-center"
-                                                                    placeholder="0"
-                                                                />
-                                                                <span className="text-[11px] text-gray-500 dark:text-slate-400 font-bold">saat</span>
-                                                            </div>
-                                                        </div>
+                                                        {/* Parça Tezgah Ayar / Setup Saati & Dakikası */}
+                                                        {(() => {
+                                                            const sTotal = parseFloat(part.setupTimeHours) || 0;
+                                                            const sH = Math.floor(sTotal);
+                                                            const sM = Math.round((sTotal - sH) * 60);
+                                                            const setupRate = parseFloat(currentQuote.setupHourlyRate ?? 30);
+                                                            const partSetupCost = sTotal * setupRate;
+                                                            return (
+                                                                <div className="pt-2 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between bg-gray-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                                                                    <span className="text-gray-600 dark:text-slate-300 font-bold flex items-center gap-1.5">
+                                                                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                                                                        <span>Tezgah Hazırlık / Ayar (Setup):</span>
+                                                                    </span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-gray-300 dark:border-slate-700">
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                value={sH || ''}
+                                                                                onChange={(e) => {
+                                                                                    const newH = Math.max(0, parseInt(e.target.value) || 0);
+                                                                                    const newTotal = newH + (sM / 60);
+                                                                                    handleUpdatePart(part.id, { setupTimeHours: Number(newTotal.toFixed(4)) });
+                                                                                }}
+                                                                                className="w-7 text-xs font-black bg-transparent text-gray-900 dark:text-white text-center outline-none"
+                                                                                placeholder="0"
+                                                                                title="Setup Saati"
+                                                                            />
+                                                                            <span className="text-[10px] text-gray-400 font-bold">sa</span>
+                                                                            <span className="text-gray-300 dark:text-slate-600 font-bold">:</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                max="59"
+                                                                                value={sM || ''}
+                                                                                onChange={(e) => {
+                                                                                    const newM = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                                                                                    const newTotal = sH + (newM / 60);
+                                                                                    handleUpdatePart(part.id, { setupTimeHours: Number(newTotal.toFixed(4)) });
+                                                                                }}
+                                                                                className="w-7 text-xs font-black bg-transparent text-gray-900 dark:text-white text-center outline-none"
+                                                                                placeholder="0"
+                                                                                title="Setup Dakikası"
+                                                                            />
+                                                                            <span className="text-[10px] text-gray-400 font-bold">dk</span>
+                                                                        </div>
+                                                                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 min-w-[50px] text-right">
+                                                                            ({partSetupCost.toLocaleString('tr-TR', { maximumFractionDigits: 1 })} {currencySym})
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             </div>
@@ -1852,16 +2027,27 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                     </p>
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsMaterialModalOpen(false);
-                                    setEditingMaterial(null);
-                                }}
-                                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleResetDefaultMaterials}
+                                    className="px-2.5 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-800 text-amber-900 dark:text-amber-200 font-bold text-[11px] transition flex items-center gap-1 shadow-2xs"
+                                    title="Tüm varsayılan çelik/alüminyum malzemelerini güncel Euro piyasa fiyatlarına günceller"
+                                >
+                                    <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-300" />
+                                    <span>Piyasa Fiyatlarını Yenile</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsMaterialModalOpen(false);
+                                        setEditingMaterial(null);
+                                    }}
+                                    className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
                         </div>
 
                         <div className="p-5 overflow-y-auto custom-scrollbar flex-1 space-y-5 text-xs">
@@ -1984,8 +2170,14 @@ const MachiningQuoteTab = ({ db, loggedInUser }) => {
                                                         {mat.category || 'Çelik'}
                                                     </span>
                                                 </div>
-                                                <div className="text-[11px] text-gray-400 mt-0.5">
-                                                    Özgül Ağırlık: <strong className="text-gray-600 dark:text-slate-300">{mat.density} g/cm³</strong> • Fiyat: <strong className="text-indigo-600 dark:text-indigo-400">{mat.pricePerKg} €/kg</strong>
+                                                <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                                                    <span>Özgül Ağırlık: <strong className="text-gray-600 dark:text-slate-300">{mat.density} g/cm³</strong></span>
+                                                    <span>•</span>
+                                                    <span>Fiyat: <strong className="text-indigo-600 dark:text-indigo-400">{mat.pricePerKg} €/kg</strong></span>
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 font-semibold flex items-center gap-1">
+                                                        <Clock className="w-3 h-3 text-slate-400" />
+                                                        <span>{formatRelativeTime(mat.updatedAt || mat.updatedAtMs)} güncellendi</span>
+                                                    </span>
                                                 </div>
                                             </div>
 
