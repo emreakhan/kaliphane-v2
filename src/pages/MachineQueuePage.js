@@ -109,6 +109,7 @@ const MachineQueuePage = ({ db, loggedInUser }) => {
                     machines={machines} 
                     personnel={personnel} 
                     db={db} 
+                    loggedInUser={loggedInUser}
                     onOpenMatrixView={() => setActiveTab('MATRIX')}
                 />
             )}

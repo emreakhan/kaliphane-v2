@@ -80,6 +80,30 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
         operatorName: ''
     });
 
+    // İmalat esnasında tahmini bitiş süresi güncelleme ve ek süre modalı
+    const [durationModal, setDurationModal] = useState({
+        isOpen: false,
+        op: null,
+        moldId: '',
+        moldName: '',
+        customer: '',
+        taskId: '',
+        taskName: '',
+        opId: '',
+        opType: '',
+        workOrderNo: '',
+        currentDays: 0,
+        currentHours: 0,
+        currentTotalHours: 0,
+        extraDays: '',
+        extraHours: '',
+        newDays: '',
+        newHours: '',
+        mode: 'add_extra', // 'add_extra' | 'set_new'
+        reason: '',
+        isSaving: false
+    });
+
     const activePreparedTasks = useMemo(() => {
         if (!projects) return [];
         return projects.flatMap(p => 
@@ -562,7 +586,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                     ...op,
                                     machineName: machineName,
                                     estimatedCamTime: totalHours,
-                                    assignedOperator: operatorName || loggedInUser.name
+                                    assignedOperator: operatorName || loggedInUser.name,
+                                    plannedBy: loggedInUser?.name || 'CAM Operatörü',
+                                    plannedAt: new Date().toISOString()
                                 };
                             }
                             return op;
@@ -575,7 +601,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                     ...op,
                                     machineName: machineName,
                                     estimatedCamTime: totalHours,
-                                    assignedOperator: operatorName || loggedInUser.name
+                                    assignedOperator: operatorName || loggedInUser.name,
+                                    plannedBy: loggedInUser?.name || 'CAM Operatörü',
+                                    plannedAt: new Date().toISOString()
                                 };
                             }
                             return op;
@@ -592,6 +620,8 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                         estimatedCamTime: finalCamTime,
                         assignedOperator: operatorName || loggedInUser.name,
                         camOperator: operatorName || loggedInUser.name,
+                        plannedBy: loggedInUser?.name || 'CAM Operatörü',
+                        plannedAt: new Date().toISOString(),
                         operations: updatedOps
                     };
                 }
@@ -623,6 +653,154 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
 
     const handleResumeClick = (moldId, moldName, taskId, taskName, operation) => {
         setModalState({ isOpen: true, type: 'resume', data: { mold: { id: moldId, moldName }, task: { id: taskId, taskName }, operation } });
+    };
+
+    const handleOpenDurationModal = (op) => {
+        const currentTotal = parseFloat(op.estimatedCamTime || op.durationInHours) || 8;
+        const split = splitHoursToDaysAndHours(currentTotal);
+        setDurationModal({
+            isOpen: true,
+            op,
+            moldId: op.moldId,
+            moldName: op.moldName,
+            customer: op.customer || '',
+            taskId: op.taskId,
+            taskName: op.taskName,
+            opId: op.id,
+            opType: op.type || op.name || 'İşleme',
+            workOrderNo: op.workOrderNo || '',
+            currentDays: split.days,
+            currentHours: split.hours,
+            currentTotalHours: currentTotal,
+            extraDays: '',
+            extraHours: '',
+            newDays: split.days,
+            newHours: split.hours,
+            mode: 'add_extra',
+            reason: '',
+            isSaving: false
+        });
+    };
+
+    const handleSaveDurationModal = async () => {
+        const { op, moldId, taskId, opId, mode, currentTotalHours, extraDays, extraHours, newDays, newHours, reason } = durationModal;
+        if (!moldId || !taskId) return;
+
+        let finalTotalHours = currentTotalHours;
+        let addedHours = 0;
+
+        if (mode === 'add_extra') {
+            addedHours = calculateTotalHoursFromDaysAndHours(extraDays, extraHours);
+            if (addedHours <= 0) {
+                alert("Lütfen eklenecek ilave süreyi belirtiniz (en az Gün veya Saat).");
+                return;
+            }
+            finalTotalHours = Number((currentTotalHours + addedHours).toFixed(1));
+        } else {
+            finalTotalHours = calculateTotalHoursFromDaysAndHours(newDays, newHours);
+            if (finalTotalHours <= 0) {
+                alert("Lütfen geçerli bir toplam süre belirtiniz.");
+                return;
+            }
+            addedHours = Number((finalTotalHours - currentTotalHours).toFixed(1));
+        }
+
+        // Ek süre eklendiğinde açıklama girme zorunluluğu
+        if (addedHours > 0 || finalTotalHours > currentTotalHours) {
+            if (!reason || !reason.trim()) {
+                alert("Ek süre eklendiğinde açıklama girilmesi zorunludur. Lütfen ek süre gerekçesini belirtiniz.");
+                return;
+            }
+        }
+
+        try {
+            setDurationModal(prev => ({ ...prev, isSaving: true }));
+            const moldRef = doc(db, PROJECT_COLLECTION, moldId);
+            const moldSnap = await getDoc(moldRef);
+            if (!moldSnap.exists()) {
+                alert("Kalıp verisi bulunamadı.");
+                setDurationModal(prev => ({ ...prev, isSaving: false }));
+                return;
+            }
+
+            const moldData = moldSnap.data();
+            const updatedTasks = (moldData.tasks || []).map(t => {
+                if (t.id === taskId) {
+                    let updatedOps = [...(t.operations || [])];
+                    const newExtensionRecord = {
+                        addedHours: addedHours > 0 ? addedHours : 0,
+                        previousHours: currentTotalHours,
+                        newHours: finalTotalHours,
+                        reason: reason?.trim() || 'Süre güncellendi',
+                        extendedAt: new Date().toISOString(),
+                        extendedBy: loggedInUser?.name || 'CAM Operatörü'
+                    };
+
+                    updatedOps = updatedOps.map((o, idx) => {
+                        const isMatch = (opId && o.id === opId) ||
+                                        (op?.workOrderNo && o.workOrderNo === op.workOrderNo) ||
+                                        (idx === 0 && !o.id);
+                        if (isMatch) {
+                            const existingExtensions = Array.isArray(o.timeExtensions) ? o.timeExtensions : [];
+                            return {
+                                ...o,
+                                estimatedCamTime: finalTotalHours,
+                                timeExtensionReason: reason?.trim() || o.timeExtensionReason || '',
+                                timeExtensionHours: addedHours > 0 ? addedHours : (o.timeExtensionHours || 0),
+                                timeExtendedAt: new Date().toISOString(),
+                                timeExtendedBy: loggedInUser?.name || 'CAM Operatörü',
+                                timeExtensions: [...existingExtensions, newExtensionRecord]
+                            };
+                        }
+                        return o;
+                    });
+
+                    const sumOpsTime = updatedOps.reduce((sum, o) => sum + (parseFloat(o.estimatedCamTime) || 0), 0);
+                    const finalTaskCamTime = sumOpsTime > 0 ? sumOpsTime : finalTotalHours;
+
+                    const existingTaskExts = Array.isArray(t.timeExtensions) ? t.timeExtensions : [];
+                    return {
+                        ...t,
+                        operations: updatedOps,
+                        estimatedCamTime: finalTaskCamTime,
+                        timeExtensionReason: reason?.trim() || t.timeExtensionReason || '',
+                        timeExtensionHours: addedHours > 0 ? addedHours : (t.timeExtensionHours || 0),
+                        timeExtendedAt: new Date().toISOString(),
+                        timeExtendedBy: loggedInUser?.name || 'CAM Operatörü',
+                        timeExtensions: [...existingTaskExts, newExtensionRecord]
+                    };
+                }
+                return t;
+            });
+
+            await updateDoc(moldRef, { tasks: updatedTasks });
+            setDurationModal({
+                isOpen: false,
+                op: null,
+                moldId: '',
+                moldName: '',
+                customer: '',
+                taskId: '',
+                taskName: '',
+                opId: '',
+                opType: '',
+                workOrderNo: '',
+                currentDays: 0,
+                currentHours: 0,
+                currentTotalHours: 0,
+                extraDays: '',
+                extraHours: '',
+                newDays: '',
+                newHours: '',
+                mode: 'add_extra',
+                reason: '',
+                isSaving: false
+            });
+        } catch (err) {
+            console.error("Süre güncellenirken hata:", err);
+            alert("Süre güncellenirken bir hata oluştu: " + err.message);
+            setDurationModal(prev => ({ ...prev, isSaving: false }));
+        }
     };
 
     const handleChangeOperatorClick = (moldId, moldName, taskId, taskName, operation) => {
@@ -1008,6 +1186,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                                     <button onClick={() => handleProgressClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center shadow-sm">
                                                                         <Edit2 className="w-4 h-4 mr-1"/> Güncelle (%{op.progressPercentage})
                                                                     </button>
+                                                                    <button onClick={() => handleOpenDurationModal(op)} className="w-full px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
+                                                                        <Clock className="w-4 h-4 mr-1"/> Tahmini Bitiş Süresi Güncelle
+                                                                    </button>
                                                                     <button onClick={() => setToolReqModal({ isOpen: true, moldId: op.moldId, taskId: op.taskId, moldName: op.moldName, taskName: op.taskName })} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
                                                                         <Wrench className="w-4 h-4 mr-1"/> Takım Talebi
                                                                     </button>
@@ -1024,6 +1205,9 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                                                                 <div className="w-full flex flex-col gap-2">
                                                                     <button onClick={() => handleResumeClick(op.moldId, op.moldName, op.taskId, op.taskName, op)} className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition flex items-center justify-center shadow-sm">
                                                                         <PlayCircle className="w-4 h-4 mr-1"/> Devam Et
+                                                                    </button>
+                                                                    <button onClick={() => handleOpenDurationModal(op)} className="w-full px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
+                                                                        <Clock className="w-4 h-4 mr-1"/> Tahmini Bitiş Süresi Güncelle
                                                                     </button>
                                                                     <button onClick={() => setToolReqModal({ isOpen: true, moldId: op.moldId, taskId: op.taskId, moldName: op.moldName, taskName: op.taskName })} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition flex items-center justify-center shadow-sm">
                                                                         <Wrench className="w-4 h-4 mr-1"/> Takım Talebi
@@ -2484,6 +2668,236 @@ const CamDashboard = ({ loggedInUser, projects, handleUpdateOperation, handleAdd
                             >
                                 <CheckCircle className="w-3.5 h-3.5" />
                                 <span>Planla ve Kuyruğa Al</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAHMİNİ BİTİŞ SÜRESİ & EK SÜRE GÜNCELLEME MODALI */}
+            {durationModal.isOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        {/* Modal Başlık */}
+                        <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 bg-amber-500 text-white rounded-xl shadow-xs">
+                                    <Clock className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="font-extrabold text-base text-gray-900 dark:text-white">
+                                        Tahmini Bitiş Süresi Güncelle
+                                    </h3>
+                                    <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                                        İmalat sürerken tahmini süreyi güncelleyin veya ek süre ekleyin
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setDurationModal(prev => ({ ...prev, isOpen: false }))}
+                                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            {/* Kalıp & Parça Bilgi Kartı */}
+                            <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500 dark:text-slate-400 font-bold">Kalıp:</span>
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 text-right truncate max-w-[280px]">
+                                        {durationModal.moldName} {durationModal.customer ? `(${durationModal.customer})` : ''}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500 dark:text-slate-400 font-bold">Parça:</span>
+                                    <span className="font-black text-gray-900 dark:text-white">
+                                        {durationModal.taskName}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500 dark:text-slate-400 font-bold">Operasyon:</span>
+                                    <span className="font-bold text-gray-800 dark:text-gray-200">
+                                        {durationModal.opType} {durationModal.workOrderNo ? `(#${durationModal.workOrderNo})` : ''}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700">
+                                    <span className="text-slate-500 dark:text-slate-400 font-bold">Mevcut Planlanan Süre:</span>
+                                    <span className="font-black text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
+                                        {formatDurationHours(durationModal.currentTotalHours)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Güncelleme Modu Seçimi: Ek Süre Ekle vs Yeni Süre Belirle */}
+                            <div className="grid grid-cols-2 gap-2 bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl border border-gray-200 dark:border-gray-600 text-xs font-black">
+                                <button
+                                    type="button"
+                                    onClick={() => setDurationModal(prev => ({ ...prev, mode: 'add_extra' }))}
+                                    className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                                        durationModal.mode === 'add_extra'
+                                            ? 'bg-amber-600 text-white shadow-xs'
+                                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Ek Süre Ekle (+)</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setDurationModal(prev => ({ ...prev, mode: 'set_new' }))}
+                                    className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                                        durationModal.mode === 'set_new'
+                                            ? 'bg-amber-600 text-white shadow-xs'
+                                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Yeni Toplam Süre</span>
+                                </button>
+                            </div>
+
+                            {/* Mod 1: Ek Süre Ekle */}
+                            {durationModal.mode === 'add_extra' ? (
+                                <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1">
+                                            <Plus className="w-3.5 h-3.5 text-amber-600" />
+                                            <span>İlave Edilecek Süre <span className="text-red-500">*</span></span>
+                                        </label>
+                                        {calculateTotalHoursFromDaysAndHours(durationModal.extraDays, durationModal.extraHours) > 0 && (
+                                            <span className="text-xs font-black text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-800">
+                                                +{formatDurationHours(calculateTotalHoursFromDaysAndHours(durationModal.extraDays, durationModal.extraHours))}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">İlave Gün</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                placeholder="0"
+                                                value={durationModal.extraDays}
+                                                onChange={(e) => setDurationModal(prev => ({ ...prev, extraDays: e.target.value }))}
+                                                className="w-full p-2 text-xs font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-amber-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">İlave Saat</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.5"
+                                                placeholder="Örn: 4"
+                                                value={durationModal.extraHours}
+                                                onChange={(e) => setDurationModal(prev => ({ ...prev, extraHours: e.target.value }))}
+                                                className="w-full p-2 text-xs font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-amber-500"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Süre Özeti Önizleme */}
+                                    <div className="bg-white/80 dark:bg-gray-800/80 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900/50 flex justify-between items-center text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400 font-bold">Yeni Toplam Süre:</span>
+                                        <span className="font-black text-amber-700 dark:text-amber-300">
+                                            {formatDurationHours(
+                                                durationModal.currentTotalHours + calculateTotalHoursFromDaysAndHours(durationModal.extraDays, durationModal.extraHours)
+                                            )}
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Mod 2: Yeni Toplam Süre */
+                                <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1">
+                                            <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                                            <span>Yeni Toplam Süre <span className="text-red-500">*</span></span>
+                                        </label>
+                                        {calculateTotalHoursFromDaysAndHours(durationModal.newDays, durationModal.newHours) > 0 && (
+                                            <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                {formatDurationHours(calculateTotalHoursFromDaysAndHours(durationModal.newDays, durationModal.newHours))}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Gün</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                placeholder="0"
+                                                value={durationModal.newDays}
+                                                onChange={(e) => setDurationModal(prev => ({ ...prev, newDays: e.target.value }))}
+                                                className="w-full p-2 text-xs font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Saat</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.5"
+                                                placeholder="0"
+                                                value={durationModal.newHours}
+                                                onChange={(e) => setDurationModal(prev => ({ ...prev, newHours: e.target.value }))}
+                                                className="w-full p-2 text-xs font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Açıklama / Gerekçe Alanı (EK SÜRE İÇİN ZORUNLU) */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-xs font-black text-gray-800 dark:text-gray-200 flex items-center gap-1">
+                                        <span>Ek Süre / Güncelleme Açıklaması</span>
+                                        <span className="text-red-500 font-black">* (Zorunlu)</span>
+                                    </label>
+                                    <span className="text-[10px] text-gray-400">Çizelgede görünecektir</span>
+                                </div>
+                                <textarea
+                                    rows="3"
+                                    required
+                                    value={durationModal.reason}
+                                    onChange={(e) => setDurationModal(prev => ({ ...prev, reason: e.target.value }))}
+                                    placeholder="Örn: Parçada teknik revizyon çıktı, takım aşınması nedeniyle paso düşürüldü, tolerans ayarı için ek işleme gerekti..."
+                                    className="w-full p-2.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-gray-400"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Modal Butonları */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-750 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDurationModal(prev => ({ ...prev, isOpen: false }))}
+                                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-xl hover:bg-gray-200 transition"
+                                disabled={durationModal.isSaving}
+                            >
+                                Vazgeç
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveDurationModal}
+                                disabled={durationModal.isSaving}
+                                className="px-4 py-2 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition flex items-center gap-1.5 shadow-sm"
+                            >
+                                {durationModal.isSaving ? (
+                                    <span>Kaydediliyor...</span>
+                                ) : (
+                                    <>
+                                        <CheckCircle className="w-3.5 h-3.5" />
+                                        <span>Süreyi Güncelle ve Çizelgeye Yansıt</span>
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>

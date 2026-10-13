@@ -5,7 +5,8 @@ import {
     Monitor, Layers, AlertCircle, Search, ChevronDown, 
     LayoutGrid, Check, X, GripVertical, ArrowUp, ArrowDown, 
     Zap, Calendar, Star, Filter, ShieldAlert, Sparkles,
-    Settings, Plus, Trash2, Edit3, CheckSquare, FolderPlus
+    Settings, Plus, Trash2, Edit3, CheckSquare, FolderPlus,
+    Maximize2, Minimize2, Clock
 } from 'lucide-react';
 import { doc, updateDoc, setDoc, onSnapshot } from '../config/firebase.js';
 import { PROJECT_COLLECTION, OPERATION_STATUS, DEFAULT_MOLD_STATUSES, ROLES, CAM_SETTINGS_COLLECTION } from '../config/constants.js';
@@ -104,7 +105,7 @@ const generateInitialMachineGroups = (machineList = []) => {
     return groups;
 };
 
-const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixView }) => {
+const CamPlanningTab = ({ projects, machines, personnel = [], db, loggedInUser, onOpenMatrixView }) => {
     // 1. Kalıp ve Filtre State'leri
     const [selectedMoldId, setSelectedMoldId] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
@@ -116,6 +117,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
     const [searchMachine, setSearchMachine] = useState('');
     const [onlySelectedMoldMachines, setOnlySelectedMoldMachines] = useState(false);
     const [isPoolOpen, setIsPoolOpen] = useState(false); // Planlanmamış parçalar havuzu
+    const [isFullscreen, setIsFullscreen] = useState(false); // Çizelge Tam Ekran Modu
 
     // 3. Sürükle - Bırak State'leri
     const [draggedItem, setDraggedItem] = useState(null); // { moldId, taskId, opId, machineName, time }
@@ -412,6 +414,17 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
         return () => clearInterval(t);
     }, []);
 
+    // Tam ekrandan ESC ile çıkış desteği
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape' && isFullscreen) {
+                setIsFullscreen(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isFullscreen]);
+
     // Zaman çizelgesinin başlangıcı (bugün 00:00 - pastDays)
     const timelineStart = useMemo(() => {
         const d = new Date(nowTick);
@@ -504,6 +517,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                 project.tasks?.forEach(task => {
                     const estTaskTime = parseFloat(task.estimatedCamTime) || 0;
                     const camOpName = task.assignedOperator || task.camOperator || project.camResponsible || 'Belirtilmedi';
+                    const taskPlannedBy = task.plannedBy || task.plannerName || task.assignedBy || task.createdBy || task.assignedOperator || task.camOperator || project.camResponsible || 'Belirtilmedi';
 
                     // 1. Operasyon bazlı çalışan iş
                     (task.operations || []).forEach(op => {
@@ -519,6 +533,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             const autoProgress = opTime > 0 ? (elapsedHours / opTime) * 100 : 0;
                             const isOverdue = autoProgress > 100;
                             const progress = Math.min(100, Math.round(autoProgress));
+                            const opPlannedBy = op.plannedBy || op.plannerName || op.assignedBy || op.createdBy || task.plannedBy || task.plannerName || task.assignedBy || task.createdBy || op.assignedOperator || task.assignedOperator || task.camOperator || project.camResponsible || 'Belirtilmedi';
                             activeJob = {
                                 id: `${project.id}-${task.id}-${op.id}-active`,
                                 moldId: project.id,
@@ -533,6 +548,12 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 subOperations: op.subOperations || [],
                                 camOperator: op.assignedOperator || camOpName,
                                 machineOperator: op.machineOperatorName || 'Belirtilmedi',
+                                plannedBy: opPlannedBy,
+                                timeExtensionReason: op.timeExtensionReason || task.timeExtensionReason || '',
+                                timeExtensionHours: op.timeExtensionHours || task.timeExtensionHours || 0,
+                                timeExtendedBy: op.timeExtendedBy || task.timeExtendedBy || '',
+                                timeExtendedAt: op.timeExtendedAt || task.timeExtendedAt || '',
+                                timeExtensions: op.timeExtensions || task.timeExtensions || [],
                                 progress,
                                 manualProgress,
                                 hasRealStart: !!realStart,
@@ -560,6 +581,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                         if (isThisMachine && isPending) {
                             hasAssignedOp = true;
                             const opTime = parseFloat(op.estimatedCamTime || op.durationInHours) || estTaskTime || 8;
+                            const opPlannedBy = op.plannedBy || op.plannerName || op.assignedBy || op.createdBy || task.plannedBy || task.plannerName || task.assignedBy || task.createdBy || op.assignedOperator || task.assignedOperator || task.camOperator || project.camResponsible || 'Belirtilmedi';
                             queuedJobs.push({
                                 id: `${project.id}-${task.id}-${op.id || opIdx}`,
                                 moldId: project.id,
@@ -574,6 +596,12 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 subOperations: op.subOperations || [],
                                 camOperator: op.assignedOperator || camOpName,
                                 machineOperator: op.machineOperatorName || 'Belirtilmedi',
+                                plannedBy: opPlannedBy,
+                                timeExtensionReason: op.timeExtensionReason || task.timeExtensionReason || '',
+                                timeExtensionHours: op.timeExtensionHours || task.timeExtensionHours || 0,
+                                timeExtendedBy: op.timeExtendedBy || task.timeExtendedBy || '',
+                                timeExtendedAt: op.timeExtendedAt || task.timeExtendedAt || '',
+                                timeExtensions: op.timeExtensions || task.timeExtensions || [],
                                 progress: 0,
                                 time: opTime,
                                 isWorking: false,
@@ -589,6 +617,7 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     const isTaskWorking = task.operations?.some(op => op.status === OPERATION_STATUS.IN_PROGRESS || op.status === 'ÇALIŞIYOR');
                     if (!hasAssignedOp && task.plannedMachine === machine.name && !isTaskCompleted && !isTaskWorking) {
                         const pendingOp = task.operations?.find(op => op.status !== OPERATION_STATUS.COMPLETED);
+                        const finalPlannedBy = pendingOp?.plannedBy || pendingOp?.assignedBy || pendingOp?.createdBy || taskPlannedBy;
                         queuedJobs.push({
                             id: `${project.id}-${task.id}-task`,
                             moldId: project.id,
@@ -603,6 +632,12 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             subOperations: pendingOp?.subOperations || [],
                             camOperator: pendingOp?.assignedOperator || camOpName,
                             machineOperator: pendingOp?.machineOperatorName || 'Belirtilmedi',
+                            plannedBy: finalPlannedBy,
+                            timeExtensionReason: pendingOp?.timeExtensionReason || task.timeExtensionReason || '',
+                            timeExtensionHours: pendingOp?.timeExtensionHours || task.timeExtensionHours || 0,
+                            timeExtendedBy: pendingOp?.timeExtendedBy || task.timeExtendedBy || '',
+                            timeExtendedAt: pendingOp?.timeExtendedAt || task.timeExtendedAt || '',
+                            timeExtensions: pendingOp?.timeExtensions || task.timeExtensions || [],
                             progress: 0,
                             time: estTaskTime || 8,
                             isWorking: false,
@@ -831,6 +866,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             const mold = (projects || []).find(p => p.id === targetMoldId);
             if (!mold) return;
 
+            const plannerName = loggedInUser?.name || 'Yönetici';
+            const nowIso = new Date().toISOString();
+
             const updatedTasks = (mold.tasks || []).map(t => {
                 if (t.id === targetTaskId) {
                     const newTask = { ...t };
@@ -839,18 +877,29 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             if ((op.id && op.id === targetOpId) || String(idx) === String(targetOpId)) {
                                 return {
                                     ...op,
-                                    machineName: newMachineName
+                                    machineName: newMachineName,
+                                    plannedBy: plannerName,
+                                    plannedAt: nowIso
                                 };
                             }
                             return op;
                         });
                         newTask.plannedMachine = newMachineName;
+                        newTask.plannedBy = plannerName;
+                        newTask.plannedAt = nowIso;
                     } else {
                         newTask.plannedMachine = newMachineName;
+                        newTask.plannedBy = plannerName;
+                        newTask.plannedAt = nowIso;
                         if (newTask.operations && Array.isArray(newTask.operations)) {
                             newTask.operations = newTask.operations.map((op, idx) => {
                                 if (idx === 0 && (op.status === OPERATION_STATUS.NOT_STARTED || !op.status)) {
-                                    return { ...op, machineName: newMachineName };
+                                    return { 
+                                        ...op, 
+                                        machineName: newMachineName,
+                                        plannedBy: plannerName,
+                                        plannedAt: nowIso
+                                    };
                                 }
                                 return op;
                             });
@@ -930,6 +979,8 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             if (!mold) return;
 
             const parsedHours = parseFloat(targetHours);
+            const plannerName = loggedInUser?.name || 'Yönetici';
+            const nowIso = new Date().toISOString();
 
             const updatedTasks = (mold.tasks || []).map(t => {
                 if (t.id === job.taskId) {
@@ -943,12 +994,16 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                     ...op,
                                     machineName: targetMachine || op.machineName,
                                     assignedOperator: targetCamOp || op.assignedOperator,
-                                    estimatedCamTime: finalHours
+                                    estimatedCamTime: finalHours,
+                                    plannedBy: plannerName,
+                                    plannedAt: nowIso
                                 };
                             }
                             return op;
                         });
                         if (targetMachine) newTask.plannedMachine = targetMachine;
+                        newTask.plannedBy = plannerName;
+                        newTask.plannedAt = nowIso;
                     } else {
                         if (targetMachine) newTask.plannedMachine = targetMachine;
                         if (targetCamOp) {
@@ -956,6 +1011,8 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                             newTask.camOperator = targetCamOp;
                         }
                         newTask.estimatedCamTime = finalHours;
+                        newTask.plannedBy = plannerName;
+                        newTask.plannedAt = nowIso;
 
                         if (newTask.operations && Array.isArray(newTask.operations)) {
                             newTask.operations = newTask.operations.map((op, idx) => {
@@ -964,7 +1021,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                         ...op,
                                         machineName: targetMachine || op.machineName,
                                         assignedOperator: targetCamOp || op.assignedOperator,
-                                        estimatedCamTime: finalHours
+                                        estimatedCamTime: finalHours,
+                                        plannedBy: plannerName,
+                                        plannedAt: nowIso
                                     };
                                 }
                                 return op;
@@ -1017,6 +1076,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
     const handleAssignUnplannedTask = async (task, targetMachineName, targetCamOp = '', estHours = 8) => {
         if (!selectedMold || !targetMachineName) return;
         try {
+            const plannerName = loggedInUser?.name || 'Yönetici';
+            const nowIso = new Date().toISOString();
+
             const updatedTasks = (selectedMold.tasks || []).map(t => {
                 if (t.id === task.id) {
                     const hours = parseFloat(estHours) || (parseFloat(t.estimatedCamTime) || 8);
@@ -1026,7 +1088,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 ...op,
                                 machineName: targetMachineName,
                                 assignedOperator: targetCamOp || op.assignedOperator || selectedMold.camResponsible || '',
-                                estimatedCamTime: hours
+                                estimatedCamTime: hours,
+                                plannedBy: plannerName,
+                                plannedAt: nowIso
                             };
                         }
                         return op;
@@ -1037,7 +1101,9 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                         assignedOperator: targetCamOp || selectedMold.camResponsible || '',
                         estimatedCamTime: hours,
                         status: OPERATION_STATUS.NOT_STARTED,
-                        progressPercentage: 0
+                        progressPercentage: 0,
+                        plannedBy: plannerName,
+                        plannedAt: nowIso
                     }];
 
                     return {
@@ -1045,6 +1111,8 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                         plannedMachine: targetMachineName,
                         assignedOperator: targetCamOp || t.assignedOperator || selectedMold.camResponsible || '',
                         estimatedCamTime: hours,
+                        plannedBy: plannerName,
+                        plannedAt: nowIso,
                         operations: ops
                     };
                 }
@@ -1268,6 +1336,21 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 <span className="hidden sm:inline">Matris Panosu</span>
                             </button>
                         )}
+
+                        {/* Tam Ekran Çizelge Butonu */}
+                        <button
+                            type="button"
+                            onClick={() => setIsFullscreen(prev => !prev)}
+                            className={`px-2.5 py-1.5 font-bold text-xs rounded-xl border transition flex items-center gap-1 shrink-0 ${
+                                isFullscreen
+                                    ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-sm'
+                                    : 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                            }`}
+                            title={isFullscreen ? 'Tam Ekrandan Çık (ESC)' : 'Çizelgeyi Tam Ekran Yap'}
+                        >
+                            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                            <span className="hidden sm:inline">{isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1567,7 +1650,63 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
             {/* ======================================================== */}
             {/* 4. TEZGAH BAZLI ZAMAN ÇİZELGESİ (KOMPAKT VE KİLİTLİ TABLO) */}
             {/* ======================================================== */}
-            <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xs overflow-hidden flex flex-col min-h-0 relative">
+            <div className={`transition-all ${
+                isFullscreen 
+                    ? 'fixed inset-0 z-50 bg-slate-900 p-3 h-screen w-screen overflow-hidden flex flex-col shadow-2xl' 
+                    : 'flex-1 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xs overflow-hidden flex flex-col min-h-0 relative'
+            }`}>
+                {/* Tam Ekran Modu Özel Üst Barı */}
+                {isFullscreen && (
+                    <div className="flex items-center justify-between gap-3 pb-2.5 mb-2 border-b border-slate-700/80 shrink-0">
+                        <div className="flex items-center gap-2.5">
+                            <span className="p-1.5 rounded-xl bg-purple-600 text-white shadow-xs">
+                                <Monitor className="w-4 h-4" />
+                            </span>
+                            <div>
+                                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                                    <span>Tezgah İş Akış Çizelgesi</span>
+                                    <span className="text-[9px] font-black px-2 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 uppercase tracking-wider">
+                                        Tam Ekran
+                                    </span>
+                                </h3>
+                                <p className="text-[11px] text-slate-400 font-medium">
+                                    {displayTimelineRows.length} Tezgah • {selectedMold ? `Seçili: ${selectedMold.moldName}` : 'Tüm Kalıplar'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2.5">
+                            {/* Zaman Ölçeği */}
+                            <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-[11px] font-black">
+                                {['1_WEEK', '2_WEEKS', '3_WEEKS', '1_MONTH'].map(scale => (
+                                    <button
+                                        key={scale}
+                                        type="button"
+                                        onClick={() => setTimeScale(scale)}
+                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                            timeScale === scale 
+                                                ? 'bg-purple-600 text-white shadow-xs' 
+                                                : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        {scale === '1_WEEK' ? '1 Hafta' : scale === '2_WEEKS' ? '2 Hafta' : scale === '3_WEEKS' ? '3 Hafta' : '1 Ay'}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Tam Ekrandan Çık Butonu */}
+                            <button
+                                type="button"
+                                onClick={() => setIsFullscreen(false)}
+                                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
+                                title="Tam ekrandan çıkış yap (veya ESC tuşuna basın)"
+                            >
+                                <Minimize2 className="w-3.5 h-3.5" />
+                                <span>Tam Ekrandan Çık (ESC)</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
                 
                 {/* Ana Kaydırma Penceresi (X ve Y Senkronize Tek Container) */}
                 <div className="flex-1 overflow-auto custom-scrollbar relative select-none">
@@ -1582,6 +1721,14 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                     <Monitor className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                                     <span>Tezgah Listesi ({displayTimelineRows.length})</span>
                                 </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsFullscreen(prev => !prev)}
+                                    className="p-1 rounded-lg text-gray-400 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-gray-200 dark:hover:bg-gray-800 transition"
+                                    title={isFullscreen ? 'Tam Ekrandan Çık (ESC)' : 'Çizelgeyi Tam Ekran Yap'}
+                                >
+                                    {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                                </button>
                             </div>
 
                             {/* Sağ Başlık: Gün İsimleri ve Tarihleri */}
@@ -1803,14 +1950,6 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                                                     <Star className="w-2.5 h-2.5 fill-current" />
                                                                 </span>
                                                             )}
-
-                                                            {/* İş Emri Numarası */}
-                                                            {bar.workOrderNo && (
-                                                                <span className="relative text-[9px] font-black px-1 py-0.2 rounded bg-black/30 text-white shrink-0 tracking-wider">
-                                                                    #{bar.workOrderNo}
-                                                                </span>
-                                                            )}
-
                                                             {/* Parça Adı & Kalıp */}
                                                             <div className="relative flex-1 truncate text-xs font-black leading-tight drop-shadow">
                                                                 <span>{bar.taskName}</span>
@@ -1854,20 +1993,29 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     className="fixed z-50 pointer-events-none bg-slate-950/95 text-white p-3.5 rounded-2xl border border-purple-500/50 shadow-2xl backdrop-blur-md w-72 space-y-2 animate-in fade-in zoom-in-95 duration-100"
                 >
                     <div className="flex justify-between items-start gap-2 border-b border-slate-700 pb-2">
-                        <div className="min-w-0">
-                            {hoveredJob.workOrderNo && (
-                                <span className="text-[9px] font-black px-2 py-0.5 rounded bg-blue-600 text-white tracking-wider uppercase mb-1 inline-block">
-                                    İş Emri: #{hoveredJob.workOrderNo}
+                        <div className="min-w-0 flex-1">
+                            {/* EN ÜSTTE: KALIP ADI ROZETİ */}
+                            <div className="mb-1">
+                                <span 
+                                    className="text-[10px] font-black px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white tracking-wide uppercase inline-flex items-center gap-1 max-w-[200px] truncate shadow-xs" 
+                                    title={hoveredJob.moldName}
+                                >
+                                    <Layers className="w-3 h-3 text-indigo-200 shrink-0" />
+                                    <span className="truncate">{hoveredJob.moldName}</span>
                                 </span>
-                            )}
-                            <h4 className="font-black text-sm text-white truncate">
+                            </div>
+
+                            {/* BAŞLIK: PARÇA ADI */}
+                            <h4 className="font-black text-sm text-white truncate" title={hoveredJob.taskName}>
                                 {hoveredJob.taskName}
                             </h4>
-                            <div className="text-xs font-bold text-purple-300 truncate">
-                                {hoveredJob.moldName} {hoveredJob.customer ? `(${hoveredJob.customer})` : ''}
-                            </div>
+                            {hoveredJob.customer && (
+                                <div className="text-[10px] font-semibold text-slate-400 truncate">
+                                    {hoveredJob.customer} {hoveredJob.projectCode ? `• ${hoveredJob.projectCode}` : ''}
+                                </div>
+                            )}
                         </div>
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full shrink-0 shadow-xs ${
                             hoveredJob.isWorking ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white'
                         }`}>
                             {hoveredJob.isWorking ? `Çalışıyor (%${hoveredJob.progress})` : `${hoveredJob.orderIndex}. Sırada`}
@@ -1875,6 +2023,16 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                     </div>
 
                     <div className="text-[11px] space-y-1 text-slate-300">
+                        {/* İŞ EMRİ NUMARASI BİLGİLER BÖLÜMÜNDE */}
+                        {hoveredJob.workOrderNo && (
+                            <div className="flex justify-between items-center py-0.5">
+                                <span className="text-slate-400">İş Emri No:</span>
+                                <span className="font-mono font-bold text-sky-300 text-[10px] bg-slate-800/90 px-1.5 py-0.5 rounded border border-slate-700/80">
+                                    #{hoveredJob.workOrderNo}
+                                </span>
+                            </div>
+                        )}
+
                         <div className="flex justify-between">
                             <span className="text-slate-400">Operasyon:</span>
                             <strong className="text-white">{hoveredJob.opType}</strong>
@@ -1887,6 +2045,15 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 </span>
                             </div>
                         )}
+
+                        {/* PLANLAYAN / EKLEYEN KULLANICI */}
+                        <div className="flex justify-between items-center py-0.5">
+                            <span className="text-slate-400">Planlayan:</span>
+                            <strong className="text-indigo-300 font-bold">
+                                {hoveredJob.plannedBy || '-'}
+                            </strong>
+                        </div>
+
                         <div className="flex justify-between">
                             <span className="text-slate-400">CAM Operatörü:</span>
                             <strong className="text-white">{hoveredJob.camOperator || '-'}</strong>
@@ -1908,6 +2075,32 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                                 {hoveredJob.endDate ? formatDateTime(hoveredJob.endDate.toISOString()) : '-'}
                             </strong>
                         </div>
+
+                        {/* EK SÜRE BİLGİSİ VE AÇIKLAMASI */}
+                        {(hoveredJob.timeExtensionReason || (hoveredJob.timeExtensionHours > 0)) && (
+                            <div className="mt-2 p-2 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 space-y-1">
+                                <div className="flex items-center justify-between text-[11px] font-black text-amber-300">
+                                    <span className="flex items-center gap-1">
+                                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                        <span>Ek Süre Eklendi {hoveredJob.timeExtensionHours > 0 ? `(+${hoveredJob.timeExtensionHours} Saat)` : ''}</span>
+                                    </span>
+                                    {hoveredJob.timeExtendedBy && (
+                                        <span className="text-[10px] text-amber-300/80 font-bold">
+                                            {hoveredJob.timeExtendedBy}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-[11px] font-medium text-amber-100 bg-black/30 p-2 rounded-lg border border-amber-500/20 leading-relaxed">
+                                    <span className="text-amber-400 font-bold text-[10px] uppercase tracking-wider block mb-0.5">Açıklama:</span>
+                                    {hoveredJob.timeExtensionReason || 'Açıklama belirtilmedi'}
+                                </div>
+                                {hoveredJob.timeExtendedAt && (
+                                    <div className="text-[9px] text-amber-400/70 text-right">
+                                        {formatDateTime(hoveredJob.timeExtendedAt)}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Süreye Bağlı Otomatik İlerleme */}
@@ -1952,21 +2145,30 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
                         {/* Modal Başlık */}
                         <div className="p-4 bg-gray-50 dark:bg-gray-700/60 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                             <div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
-                                        PLANLAMA YÖNETİMİ
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white flex items-center gap-1 shadow-xs">
+                                        <Layers className="w-3 h-3 text-indigo-200" />
+                                        <span>Kalıp: {manageModal.job.moldName}</span>
                                     </span>
                                     {manageModal.job.workOrderNo && (
-                                        <span className="text-xs font-black text-blue-600 dark:text-blue-400">
-                                            #{manageModal.job.workOrderNo}
+                                        <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
+                                            İş Emri: #{manageModal.job.workOrderNo}
                                         </span>
                                     )}
                                 </div>
-                                <h3 className="text-base font-black text-gray-900 dark:text-white mt-0.5">
+                                <h3 className="text-base font-black text-gray-900 dark:text-white mt-1">
                                     {manageModal.job.taskName}
                                 </h3>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {manageModal.job.moldName} {manageModal.job.customer ? `(${manageModal.job.customer})` : ''}
+                                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 mt-0.5 flex-wrap">
+                                    <span>Planlayan: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{manageModal.job.plannedBy || '-'}</strong></span>
+                                    <span>•</span>
+                                    <span>CAM: <strong className="text-gray-700 dark:text-gray-300 font-bold">{manageModal.job.camOperator || '-'}</strong></span>
+                                    {manageModal.job.customer && (
+                                        <>
+                                            <span>•</span>
+                                            <span>{manageModal.job.customer}</span>
+                                        </>
+                                    )}
                                 </p>
                             </div>
 
@@ -1980,6 +2182,24 @@ const CamPlanningTab = ({ projects, machines, personnel = [], db, onOpenMatrixVi
 
                         {/* Modal Gövdesi */}
                         <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+                            {/* Ek Süre Bildirimi Varsa Göster */}
+                            {manageModal.job.timeExtensionReason && (
+                                <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs space-y-1">
+                                    <div className="flex items-center justify-between font-black text-amber-800 dark:text-amber-300">
+                                        <span className="flex items-center gap-1.5">
+                                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                            <span>Ek Süre Bildirimi {manageModal.job.timeExtensionHours > 0 ? `(+${manageModal.job.timeExtensionHours} Saat)` : ''}</span>
+                                        </span>
+                                        {manageModal.job.timeExtendedBy && (
+                                            <span className="text-[10px] text-amber-700 dark:text-amber-400">({manageModal.job.timeExtendedBy})</span>
+                                        )}
+                                    </div>
+                                    <div className="text-amber-900 dark:text-amber-100 font-medium bg-white/70 dark:bg-black/20 p-2 rounded-xl">
+                                        <span className="font-bold text-amber-700 dark:text-amber-400">Açıklama: </span>
+                                        {manageModal.job.timeExtensionReason}
+                                    </div>
+                                </div>
+                            )}
                             
                             {/* TEK TUŞLA TEZGAH DEĞİŞTİR */}
                             <div className="space-y-2">
