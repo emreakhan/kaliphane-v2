@@ -26,6 +26,37 @@ export const PART_TRANSFER_MARKET_COLLECTION = `artifacts/${appId}/public/data/p
 export const MEMBER_POINT_LOGS_COLLECTION = `artifacts/${appId}/public/data/memberPointLogs`;
 export const EVALUATION_SETTINGS_COLLECTION = `artifacts/${appId}/public/data/evaluationSettings`;
 export const CAM_SETTINGS_COLLECTION = `artifacts/${appId}/public/data/camSettings`;
+export const MACHINING_QUOTES_COLLECTION = `artifacts/${appId}/public/data/machiningQuotes`;
+export const MACHINING_MATERIALS_COLLECTION = `artifacts/${appId}/public/data/machiningMaterials`;
+
+export const DEFAULT_MACHINING_MATERIALS = [
+    { id: 'mat-1', name: '4140 Islah Çeliği', code: '42CrMo4', density: 7.85, pricePerKg: 2.80, category: 'Çelik' },
+    { id: 'mat-2', name: '1040 İmalat Çeliği', code: 'C40', density: 7.85, pricePerKg: 1.90, category: 'Çelik' },
+    { id: 'mat-3', name: '1.2379 Soğuk İş Takım Çeliği', code: 'X153CrMoV12', density: 7.70, pricePerKg: 8.50, category: 'Takım Çeliği' },
+    { id: 'mat-4', name: '1.2344 Sıcak İş Takım Çeliği', code: 'X40CrMoV5-1', density: 7.80, pricePerKg: 9.20, category: 'Takım Çeliği' },
+    { id: 'mat-5', name: 'Alüminyum 7075-T6 (Uçak Alüminyumu)', code: 'AlZn5.5MgCu', density: 2.81, pricePerKg: 10.50, category: 'Alüminyum' },
+    { id: 'mat-6', name: 'Alüminyum 6082-T6 (Makine Alüminyumu)', code: 'AlSi1MgMn', density: 2.70, pricePerKg: 7.20, category: 'Alüminyum' },
+    { id: 'mat-7', name: 'Paslanmaz Çelik AISI 304', code: '1.4301', density: 7.93, pricePerKg: 6.80, category: 'Paslanmaz' },
+    { id: 'mat-8', name: 'Paslanmaz Çelik AISI 316', code: '1.4401', density: 8.00, pricePerKg: 9.50, category: 'Paslanmaz' },
+    { id: 'mat-9', name: 'Pirinç (Otomat Pirinci MS58)', code: 'CuZn39Pb3', density: 8.50, pricePerKg: 10.50, category: 'Sarı/Bakır' },
+    { id: 'mat-10', name: 'Delrin (POM-C)', code: 'Polyoxymethylene', density: 1.41, pricePerKg: 6.50, category: 'Plastik/Polimer' },
+    { id: 'mat-11', name: 'Kestamid (Poliamid 6G)', code: 'PA 6G', density: 1.15, pricePerKg: 7.80, category: 'Plastik/Polimer' }
+];
+
+export const DEFAULT_MACHINING_OPERATIONS = [
+    { id: 'cnc_3_axis', name: '3 Eksen CNC Freze', defaultHourlyRate: 35, category: 'İç İmalat' },
+    { id: 'cnc_5_axis', name: '5 Eksen CNC Freze', defaultHourlyRate: 65, category: 'İç İmalat' },
+    { id: 'cnc_lathe', name: 'CNC Torna', defaultHourlyRate: 35, category: 'İç İmalat' },
+    { id: 'wire_edm', name: 'Tel Erezyon', defaultHourlyRate: 30, category: 'İç İmalat' },
+    { id: 'sinker_edm', name: 'Dalma Erezyon', defaultHourlyRate: 28, category: 'İç İmalat' },
+    { id: 'grinding', name: 'Yüzey / Silindirik Taşlama', defaultHourlyRate: 25, category: 'İç İmalat' },
+    { id: 'welding', name: 'Kaynak & Konstrüksiyon', defaultHourlyRate: 30, category: 'İç İmalat' },
+    { id: 'manual', name: 'Manuel Torna / Freze / Tesviye', defaultHourlyRate: 22, category: 'İç İmalat' },
+    { id: 'laser_cut', name: 'Lazer Kesim (Fason)', isOutsourced: true, defaultCost: 50, category: 'Fason' },
+    { id: 'heat_treat', name: 'Isıl İşlem (Fason)', isOutsourced: true, defaultCost: 60, category: 'Fason' },
+    { id: 'coating', name: 'Yüzey Kaplama / Eloksal (Fason)', isOutsourced: true, defaultCost: 40, category: 'Fason' },
+    { id: 'paint', name: 'Boya & Kumlama (Fason)', isOutsourced: true, defaultCost: 35, category: 'Fason' }
+];
 
 export const DEFAULT_MOLD_STATUSES = [
     { name: 'BEKLEMEDE', color: 'yellow', icon: 'RefreshCw', orderIndex: 1 },

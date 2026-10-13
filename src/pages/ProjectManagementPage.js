@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
     Plus, Calendar, Image as ImageIcon, ArrowRight, AlertTriangle, 
     Clock, Save, X, Eye, List as ListIcon, BarChart, ZoomIn, Briefcase, User, PenTool,
-    Activity, TrendingUp, AlertCircle, Settings, Network
+    Activity, TrendingUp, AlertCircle, Settings, Network, Calculator
 } from 'lucide-react';
 
 // Gantt Kütüphanesi
@@ -16,6 +16,7 @@ import "gantt-task-react/dist/index.css";
 import DetailedProjectModal from '../components/Modals/DetailedProjectModal.js';
 import ImagePreviewModal from '../components/Modals/ImagePreviewModal.js';
 import WorkflowMapDashboard from '../components/ProjectManagement/WorkflowMapDashboard.js';
+import MachiningQuoteTab from '../components/ProjectManagement/MachiningQuoteTab.js';
 
 // Firebase (Sadece Fonksiyonlar)
 import { db, collection, addDoc, updateDoc, doc } from '../config/firebase.js';
@@ -680,15 +681,22 @@ Sisteme giriş yaparak detayları inceleyebilirsiniz.
                         <button onClick={() => setViewType('MAP')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'MAP' ? 'bg-white dark:bg-gray-600 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
                             <Network className="w-4 h-4 mr-2" /> İş Akış Haritası
                         </button>
+                        <button onClick={() => setViewType('QUOTES')} className={`flex items-center px-4 py-2 rounded-md text-sm font-bold transition ${viewType === 'QUOTES' ? 'bg-white dark:bg-gray-600 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                            <Calculator className="w-4 h-4 mr-2 text-indigo-600" /> Talaşlı İmalat Teklif
+                        </button>
                     </div>
 
-                    <button onClick={() => setIsAddModalOpen(true)} className="flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition transform active:scale-95">
-                        <Plus className="w-5 h-5 mr-2" /> Yeni Proje
-                    </button>
+                    {viewType !== 'QUOTES' && (
+                        <button onClick={() => setIsAddModalOpen(true)} className="flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition transform active:scale-95">
+                            <Plus className="w-5 h-5 mr-2" /> Yeni Proje
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {viewType === 'MAP' ? (
+            {viewType === 'QUOTES' ? (
+                <MachiningQuoteTab db={db} loggedInUser={loggedInUser} />
+            ) : viewType === 'MAP' ? (
                 <WorkflowMapDashboard
                     projects={projects}
                     selectedProject={selectedProjectForMap}
